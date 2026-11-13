@@ -7,7 +7,8 @@
 # Derived from tools/get_llvm.ps1 of Far Cry Instincts Recomp (MIT, same author).
 param(
     [string]$Out = "",
-    [string]$Cache = ""  # folder that keeps the download between runs (default: -Out)
+    [string]$Cache = "",  # folder that keeps the download between runs (default: -Out)
+    [string]$SevenZip = ""  # 7z.exe or 7za.exe; default: 7z on PATH or in Program Files, else Windows' tar
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -24,9 +25,16 @@ if (-not $Out) { $Out = Join-Path (Split-Path -Parent $PSScriptRoot) "toolchain\
 if (-not $Cache) { $Cache = $Out }
 New-Item -ItemType Directory -Force $Out, $Cache | Out-Null
 
-# curl and bsdtar from Windows (a tar from Git for Windows earlier in PATH would take C:\... for a host)
+# Windows' own curl. The archive is extracted with 7-Zip when there is one (preinstalled on GitHub's Windows
+# runners, where Windows' bsdtar hangs on this archive; 7-Zip decodes the xz stream on several threads), else with
+# Windows' own bsdtar (a Git for Windows tar earlier in PATH would take C:\... for a remote host)
 $curlExe = Join-Path $env:SystemRoot "System32\curl.exe"
 $tarExe = Join-Path $env:SystemRoot "System32\tar.exe"
+if (-not $SevenZip) {
+    $found = Get-Command 7z.exe, 7za.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { $SevenZip = $found.Source }
+    elseif (Test-Path "$env:ProgramFiles\7-Zip\7z.exe") { $SevenZip = "$env:ProgramFiles\7-Zip\7z.exe" }
+}
 $clock = [Diagnostics.Stopwatch]::StartNew()
 function Step([string]$Text) { Write-Host ("[{0,6:N1} s] {1}" -f $clock.Elapsed.TotalSeconds, $Text) }
 
@@ -51,8 +59,20 @@ $members = @($tools | ForEach-Object { "$top/bin/$_.exe" }) + "$top/lib/clang/$M
 $stage = Join-Path $Out "extract"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
-Step "extracting $($members.Count) entries with $tarExe"
-& $tarExe -xf $tar -C $stage @members
+if ($SevenZip) {
+    Step "extracting $($members.Count) entries with $SevenZip"
+    # xz into tar through a pipe of cmd, from a script file (PowerShell 5.1 would re-encode the piped bytes and
+    # mangle the quotes of an inline command)
+    $quoted = ($members | ForEach-Object { "`"$_`"" }) -join " "
+    $script = Join-Path $Out "extract.cmd"
+    $pipe = "@`"$SevenZip`" x -so -txz -bd `"$tar`" | `"$SevenZip`" x -si -ttar -y -bd `"-o$stage`" $quoted >nul"
+    [IO.File]::WriteAllText($script, "$pipe`r`n", [Text.Encoding]::Default)
+    & cmd.exe /d /c $script
+    Remove-Item -Force $script
+} else {
+    Step "extracting $($members.Count) entries with $tarExe"
+    & $tarExe -xf $tar -C $stage @members
+}
 if ($LASTEXITCODE -ne 0) { throw "extracting $tar failed ($LASTEXITCODE)" }
 foreach ($dir in "bin", "lib") {
     if (Test-Path (Join-Path $Out $dir)) { Remove-Item -Recurse -Force (Join-Path $Out $dir) }
