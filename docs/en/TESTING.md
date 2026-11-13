@@ -39,7 +39,7 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 | `FCP_VIRTUAL_PADS=<n>` | n virtual SDL 3 controllers (1-4), so the whole path SDL -> SDK -> `XamInputGetState` is tested; `FCP_VIRTUAL_PAD_SCRIPT=<s>:<step>[+<step>],...` with buttons, `lx=`/`ly=`/`rx=`/`ry=`/`lt=`/`rt=` values, `unplug`/`plug`, prefix `p<k>.` for pad k; `FCP_VIRTUAL_PAD_ID=<vid>:<pid>`, `FCP_VIRTUAL_PAD_HOLD_MS` |
 | `FCP_TEST_MENU=<t>:<action>,...` | drive the F10 menu: `open`, `close`, `toggle`, `tab=<name>`, `dump=<file.png>`, `set=<section>.<key>=<value>`, `input=<section>.<key>=<literal>`, `post=<key>`, `pad=<buttons>`; `FCP_TEST_MENU_GENS` |
 | `FCP_TEST_FOCUS=<t>:<s>,...` | simulated focus loss at t for s seconds |
-| `FCP_TEST_ALT_ENTER=<s>[,<s>...]` | Alt+Enter posted to the own window; `FCP_TEST_ALT_ENTER_GENS` |
+| `FCP_TEST_ALT_ENTER=<s>[,<s>...]` | Alt+Enter posted to the own window (arrives only with focus); `FCP_TEST_ALT_ENTER_GENS`; `FCP_TEST_ALT_ENTER_DIRECT=1` runs the Alt+Enter action on the UI thread instead (no focus needed, skips the key path) |
 
 ## Traces
 
@@ -70,6 +70,7 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 | `FCP_DUMP_SHADERS=1` | the game's shader containers to `logs\shaders\` |
 | `FCP_PROMPTS_DUMP=1`, `FCP_PROMPTS_LOG=1` | every redrawn button prompt page as PNG; every checked texture with its key |
 | `FCP_RECORD_AUDIO=<file.wav>` | the summed mix as 48 kHz float WAV plus a gap list (`<file.wav>.gaps.tsv`) |
+| `FCP_TEST_GUARDED_STRING=1` | self-test of the guarded guest string read (copies across an uncommitted page and logs the result); `FCP_GUEST_STRING_INLINE_TRY=1` restores the old, unprotected form |
 | `FCP_WATCHDOG_TEST=<s>` | one thread dump at s seconds (the watchdog itself dumps all host and guest stacks after `FCP_WATCHDOG_SECONDS` without a swap, default 5, at most 3 times; `FCP_WATCHDOG=0` turns it off) |
 
 ## Measurements

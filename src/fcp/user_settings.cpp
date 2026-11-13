@@ -483,10 +483,18 @@ void AttachUI(rex::ui::IUISystem& ui) {
   for (std::string item; std::getline(ss, item, ',');) {
     if (!Trim(item).empty()) times.push_back(std::atof(item.c_str()));
   }
-  std::thread([&ui, times] {
+  // FCP_TEST_ALT_ENTER_DIRECT=1: run the Alt+Enter action itself on the UI thread instead of posting key messages
+  // (posted keys only arrive with focus; this tests setting, window switch and file without it, not the key path).
+  const bool direct = fcp::env::Flag("FCP_TEST_ALT_ENTER_DIRECT");
+  std::thread([&ui, times, direct] {
     const auto start = std::chrono::steady_clock::now();
     for (double t : times) {
       std::this_thread::sleep_until(start + std::chrono::duration<double>(t));
+      if (direct) {
+        FCPLOG("FCP_TEST_ALT_ENTER: {:.1f} s: Alt+Enter action on the UI thread (FCP_TEST_ALT_ENTER_DIRECT)", t);
+        ui.PostTask([] { ToggleFullscreen(); });
+        continue;
+      }
       auto native = ui.GetNativeWindow();
       HWND hwnd = native ? static_cast<HWND>(native->window) : nullptr;
       if (!hwnd) {

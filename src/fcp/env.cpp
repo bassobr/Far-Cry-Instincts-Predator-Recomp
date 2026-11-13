@@ -13,10 +13,21 @@ namespace fcp::env {
 std::string Get(const char* name) {
   char buffer[4096];
   const DWORD n = GetEnvironmentVariableA(name, buffer, sizeof(buffer));
-  if (n == 0 || n >= sizeof(buffer)) {
+  if (n == 0) {
     return {};
   }
-  return std::string(buffer, n);
+  if (n < sizeof(buffer)) {
+    return std::string(buffer, n);
+  }
+  // Longer values (up to 32767 characters, e.g. long test scripts) were dropped silently before: n is then the
+  // needed size including the terminator.
+  std::string big(n, '\0');
+  const DWORD m = GetEnvironmentVariableA(name, big.data(), n);
+  if (m == 0 || m >= n) {
+    return {};
+  }
+  big.resize(m);
+  return big;
 }
 
 bool Flag(const char* name, bool fallback) {

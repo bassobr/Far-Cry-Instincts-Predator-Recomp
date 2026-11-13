@@ -2,6 +2,7 @@
 #include "fcp/guest.h"
 
 #include <atomic>
+#include <cstring>
 #include <string>
 
 #include <rex/kernel/guest_memory.h>
@@ -64,24 +65,71 @@ bool VerifyReadable(uint8_t* base, uint32_t address, size_t size) {
   return host;
 }
 
+void SelfTestGuardedString();
+
 bool GuardedStrings() {
-  static const bool on = !fcp::env::Flag("FCP_GUEST_STRING_UNGUARDED");
+  static const bool on = [] {
+    SelfTestGuardedString();
+    return !fcp::env::Flag("FCP_GUEST_STRING_UNGUARDED");
+  }();
   return on;
 }
 
 // No C++ objects in this function (__try). Readable can say yes for a page that is gone a moment later or that the
 // host never committed; a guarded copy keeps diagnostic string reads from taking the process down (one crash seen in
 // Game_DispatchCommands with the settings menu open).
-size_t CopyGuestString(const uint8_t* src, char* dst, size_t max) {
+//
+// clang-cl without -fasync-exceptions only covers faults inside calls made from a __try body, not faulting
+// instructions in the body itself: the copy loop inline in the __try was not protected (measured: crash report
+// "unhandled title read" at the loop in CopyGuestString, soak test 2026-11-13). The loop therefore lives in its own
+// function; it reports its progress through `done`. FCP_GUEST_STRING_INLINE_TRY=1 = the old inline form.
+__declspec(noinline) static void CopyGuestStringLoop(const uint8_t* src, char* dst, size_t max, volatile size_t* done) {
+  for (size_t n = 0; n < max; ++n) {
+    const uint8_t c = src[n];
+    if (!c) return;
+    dst[n] = static_cast<char>(c);
+    *done = n + 1;
+  }
+}
+
+static size_t CopyGuestStringInline(const uint8_t* src, char* dst, size_t max) {
   size_t n = 0;
   __try {
     for (; n < max && src[n]; ++n) {
       dst[n] = static_cast<char>(src[n]);
     }
   } __except (EXCEPTION_EXECUTE_HANDLER) {
-    return n;  // what was readable before the fault
+    return n;
   }
   return n;
+}
+
+size_t CopyGuestString(const uint8_t* src, char* dst, size_t max) {
+  static const bool inline_try = fcp::env::Flag("FCP_GUEST_STRING_INLINE_TRY");
+  if (inline_try) return CopyGuestStringInline(src, dst, max);
+  volatile size_t done = 0;
+  __try {
+    CopyGuestStringLoop(src, dst, max, &done);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return done;  // what was readable before the fault
+  }
+  return done;
+}
+
+// FCP_TEST_GUARDED_STRING=1: at the first guarded read, copy from a reserved, uncommitted host page (8 readable bytes
+// before it) and log what came back; without a working guard the process ends here with a crash report.
+void SelfTestGuardedString() {
+  if (!fcp::env::Flag("FCP_TEST_GUARDED_STRING")) return;
+  auto* block = static_cast<uint8_t*>(VirtualAlloc(nullptr, 2 * 4096, MEM_RESERVE, PAGE_NOACCESS));
+  if (!block || !VirtualAlloc(block, 4096, MEM_COMMIT, PAGE_READWRITE)) {
+    FCPLOG("FCP_TEST_GUARDED_STRING: no test memory");
+    return;
+  }
+  std::memset(block + 4096 - 8, 'x', 8);
+  char out[64];
+  const size_t n = CopyGuestString(block + 4096 - 8, out, sizeof(out));
+  FCPLOG("FCP_TEST_GUARDED_STRING: copy across an uncommitted page returned {} bytes (expected 8), no crash", n);
+  VirtualFree(block, 0, MEM_RELEASE);
 }
 
 }  // namespace fcp::guest
