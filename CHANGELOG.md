@@ -4,7 +4,7 @@ All notable changes of Far Cry Instincts Predator Recomp. Versions follow `VERSI
 Statements about behaviour are measurements from test runs on a Windows PC unless marked otherwise; see the
 [README](README.md) and [docs/en](docs/en) for the details.
 
-## Unreleased
+## 0.1.1 (2026-11-13)
 
 ### Added
 

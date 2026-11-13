@@ -6,7 +6,8 @@ and *Evolution*). The game's PowerPC code is translated ahead of time to C++ and
 SDK's runtime, and the game's Direct3D calls go to a native Vulkan / Direct3D 12 renderer with the game's shaders
 translated ahead of time.
 
-The project is a beta candidate (version 0.1.0). It has not been released yet.
+The project is in beta. Downloads are on the [Releases page](https://github.com/bassobr/Far-Cry-Instincts-Predator-Recomp/releases);
+changes are listed in the [CHANGELOG](CHANGELOG.md).
 
 ## Legal
 
