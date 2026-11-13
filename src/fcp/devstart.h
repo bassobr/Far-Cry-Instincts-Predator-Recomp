@@ -24,6 +24,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include <rex/ppc/context.h>
 
@@ -64,6 +65,10 @@ rex::kernel::TitleRuntime* Runtime();
 
 /** True after the title quit through Game_Run (the app ends without the "title exited" dialog). */
 bool TitleQuit();
+
+/** Any thread: pushes a game command (Game_PushCommand) at the start of the next Game_MainLoop, e.g. "ReturnToMenu"
+    (the settings menu's restart). */
+void QueueCommand(std::string text);
 
 /** True when a switch with a generation list (default "0") applies to this process. */
 bool ActiveInGeneration(const char* gens_variable);

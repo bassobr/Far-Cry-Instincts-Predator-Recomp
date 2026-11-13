@@ -14,8 +14,16 @@
 //       open | close | toggle | tab=<display|graphics|input|game|about> | dump=<file.png> (next presented picture,
 //       relative = log folder) | set=<section>.<key>=<value> (predator.toml, as the menu does it) |
 //       input=<section>.<key>=<literal> (predator_input.toml) | post=<key> (key down/up as window messages, needs
-//       the focus: f10, escape, ...) | pad=<buttons> (combo, a, b, up, down, ...: held for 0.2 s as from a pad)
+//       the focus: f10, escape, ...) | pad=<buttons> (combo, a, b, up, down, ...: held for 0.2 s as from a pad) |
+//       exit | apply (as a click on Exit Game / Apply) | yes | no (answer the question) | quit | restart (without
+//       asking); <t>@<g>:<action> only in relaunch generation g.
 //     FCP_TEST_MENU_GENS like FCP_INPUT_SCRIPT_GENS.
+//   FCP_MENU_RESTART=host      Apply always starts the game afresh (default: the game's ReturnToMenu once a profile
+//                              is selected, a fresh start on the title screen)
+//
+// Exit Game (bottom left, asks first, as in FCI) ends the game as the window's close button. Apply (restarts the
+// game) appears while a "restart required" setting differs from its value at start: in the menus at once, in a
+// level after a question (progress since the last checkpoint is lost).
 #pragma once
 
 #include <cstdint>

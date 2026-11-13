@@ -29,7 +29,7 @@ at once or at the next start.
 | `pause_on_focus_loss` | `FCP_PAUSE_ON_FOCUS_LOSS` | `false` | `true`: while the window has no focus the game opens its pause menu (in a level), the sound is muted and vibration stops; back in the window the game stays in its pause menu | at once |
 | `skip_intro` | `FCP_SKIP_INTRO` | `false` | `true`: skip the logo and intro videos at start; story cutscenes stay | at once |
 | `fps_counter` | `FCP_FPS_COUNTER` | `false` | `true`: frame rate and frame time display in a corner | at once |
-| `language` | `FCP_LANGUAGE` | `"english"` | `english`, `french`, `german`, `spanish`, `italian`, `auto` (the Windows display language; English if it is none of these). Sets the console's system language that the game reads | next start |
+| `language` | `FCP_LANGUAGE` | `"english"` | `english`, `french`, `german`, `spanish`, `italian`, `auto` (the Windows display language; English if it is none of these). Sets the console's system language that the game reads | next start (F10: Apply restarts) |
 
 ### `[display]`
 
@@ -168,6 +168,25 @@ closing, the game stays in its pause menu until you resume.
 
 Settings that need a restart are marked "restart required" after a change. The menu can be navigated with keyboard
 or pad.
+
+**Apply (restarts the game)** appears at the bottom while a "restart required" setting differs from the value the
+game started with. It restarts the game as a new process, the way the game restarts itself between levels: window
+position, size and display mode are kept. In the menus it restarts at once; in a level it first asks "Restart the
+game?", because progress since the last checkpoint is lost. After the restart the game is in its main menu (with the
+profile selected); on the title screen ("Press Start") it starts afresh. The **language** works this way: the game
+reads the system language only once while it starts (measured: `XGetLanguage` is called only from the game's
+start-up code), so it cannot change without a restart.
+
+**Exit Game** (bottom left) asks "Exit to desktop?" ("The game ends. Progress since the last checkpoint is lost; the
+settings are kept.") and then ends the game exactly like the window's close button: the sound stops, the window
+closes and the process ends with exit code 0. Settings are already stored when they are changed.
+
+In both questions A or Enter confirms and B or Escape goes back to the settings. F10 or Back + Start close the menu
+and answer the question with no.
+
+| Switch | Effect |
+|---|---|
+| `FCP_MENU_RESTART=host` | Apply always starts the game afresh (title screen) instead of using the game's own "return to main menu" restart |
 
 Other keys: **Alt+Enter** switches between window and borderless fullscreen and stores the mode in
 `predator.toml` (not when `FCP_DISPLAY_MODE` is set in the environment); the game never sees this Enter.

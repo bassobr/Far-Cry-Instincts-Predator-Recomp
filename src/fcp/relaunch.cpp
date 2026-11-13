@@ -52,6 +52,7 @@ HANDLE g_ready = nullptr;
 HANDLE g_cancel = nullptr;
 DWORD g_child_pid = 0;
 std::chrono::steady_clock::time_point g_spawned_at;
+std::atomic<bool> g_host_restart{false};  // RestartNow: the title still runs; a failed restart keeps it running
 
 std::string Hex(const std::vector<uint8_t>& data) {
   static constexpr char kDigits[] = "0123456789ABCDEF";
@@ -222,6 +223,15 @@ void Waiter(double timeout_s) {
     ShowError(std::format("The restarted game (PID {}) showed no frame within {:.0f} s and was "
                           "terminated.", g_child_pid, timeout_s));
   }
+  if (g_host_restart.exchange(false)) {
+    // the title of this process never stopped (RestartNow): it goes on, another restart may follow
+    FCPLOG("relaunch: host restart failed, this game goes on");
+    CloseHandle(g_child), g_child = nullptr;
+    CloseHandle(g_ready), g_ready = nullptr;
+    CloseHandle(g_cancel), g_cancel = nullptr;
+    g_state = State::kIdle;
+    return;
+  }
   rex::app::RequestShutdown(1);
 }
 
@@ -235,6 +245,7 @@ void ResetTitle(HWND hwnd, std::wstring original) {
 }  // namespace
 
 std::string DescribeLaunchData(const std::vector<uint8_t>& d);
+bool Spawn(const std::string& path, const std::vector<uint8_t>& data, bool map_editor);
 
 void Configure() {
   g_gen = static_cast<int>(fcp::env::Int("FCP_RELAUNCH_GEN", 0));
@@ -505,6 +516,32 @@ void OnLaunchTitle(bool has_path, const std::string& path, uint32_t flags) {
     FCPLOG("relaunch: map editor \"{}\" is not supported (ige.xex is not recompiled); restarting "
            "default.xex with the launch data prepared for the editor, back to the main menu", path);
   }
+  Spawn(path, data, map_editor);
+}
+
+bool RestartNow(const char* why) {
+  if (fcp::env::Flag("FCP_NO_RELAUNCH")) {
+    FCPLOG("relaunch: restart ({}) refused: FCP_NO_RELAUNCH=1", why);
+    return false;
+  }
+  State expected = State::kIdle;
+  if (!g_state.compare_exchange_strong(expected, State::kPending)) {
+    FCPLOG("relaunch: restart ({}): a relaunch is already running", why);
+    return false;
+  }
+  if (rex::app::IsShutdownRequested()) {
+    g_state = State::kCanceled;
+    FCPLOG("relaunch: restart ({}): shutdown already requested, no relaunch", why);
+    return false;
+  }
+  FCPLOG("relaunch: restart requested by the host ({}): a fresh start without launch data", why);
+  g_host_restart = true;
+  return Spawn("(host restart)", {}, false);
+}
+
+// Starts the next generation with this launch data (state already kPending); the waiter ends this process once the
+// new one shows its first frame.
+bool Spawn(const std::string& path, const std::vector<uint8_t>& data, bool map_editor) {
   const int child_gen = g_gen + 1;
   const std::string event_name =
       std::format("Local\\fcp_relaunch_{}_{}_ready", GetCurrentProcessId(), child_gen);
@@ -554,9 +591,10 @@ void OnLaunchTitle(bool has_path, const std::string& path, uint32_t flags) {
   // No CREATE_SUSPENDED: a parent that dies at any point never leaves a frozen process behind.
   if (!CreateProcessW(exe, command_line.data(), nullptr, nullptr, FALSE, CREATE_UNICODE_ENVIRONMENT,
                       environment.data(), nullptr, &startup, &process)) {
-    g_state = State::kFailed;
-    ShowError(std::format("The game could not restart itself (CreateProcess error {}).", GetLastError()));
-    return;
+    const DWORD error = GetLastError();
+    g_state = g_host_restart ? State::kIdle : State::kFailed;  // a host restart: this game goes on
+    ShowError(std::format("The game could not restart itself (CreateProcess error {}).", error));
+    return false;
   }
   AllowSetForegroundWindow(process.dwProcessId);
   CloseHandle(process.hThread);
@@ -568,6 +606,7 @@ void OnLaunchTitle(bool has_path, const std::string& path, uint32_t flags) {
          "this window stays until its first frame",
          child_gen, g_child_pid, path, data.size(), fcp::watch::SwapCount());
   std::thread(Waiter, timeout).detach();
+  return true;
 }
 
 bool Pending() {

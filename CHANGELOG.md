@@ -4,6 +4,18 @@ All notable changes of Far Cry Instincts Predator Recomp. Versions follow `VERSI
 Statements about behaviour are measurements from test runs on a Windows PC unless marked otherwise; see the
 [README](README.md) and [docs/en](docs/en) for the details.
 
+## Unreleased
+
+### Added
+
+- **Exit Game in the F10 menu** (bottom left): asks "Exit to desktop?", then ends the game like the window's close
+  button (exit code 0; tested in the main menu, in a level and in the game's pause menu). Works with a pad alone
+  (A confirms, B goes back), e.g. on a Steam Deck in Game Mode.
+- **Apply (restarts the game)** in the F10 menu, shown while a setting marked "restart required" was changed:
+  restarts the game at once with window and display mode kept, back to the main menu; in a level it asks first.
+  The language can now be switched from the menu this way (tested: German and French main menu after the restart; a
+  save made before quitting loads with "Resume Game").
+
 ## 0.1.0 (beta, 2026-11-13)
 
 First version: a native Windows x64 port of the Xbox 360 game *Far Cry Instincts Predator* (both campaigns,

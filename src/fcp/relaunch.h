@@ -68,6 +68,12 @@ void OnFirstSwap();
 void OnSetLaunchData(const uint8_t* data, uint32_t size);
 void OnLaunchTitle(bool has_path, const std::string& path, uint32_t flags);
 
+/** Any thread: restarts the game as a new process now (the settings menu's "Apply (restarts the game)" when the
+    title's own ReturnToMenu did not relaunch): no launch data (a fresh start), the window goes over as on a
+    relaunch, this process ends at the new one's first frame. A failed restart is shown and this game goes on.
+    False when a relaunch already runs, shutdown was requested or FCP_NO_RELAUNCH=1. */
+bool RestartNow(const char* why);
+
 /** Parent: a relaunch is running and not yet handed over or failed. */
 bool Pending();
 

@@ -286,7 +286,14 @@ game stays in its pause menu until you resume.
 | About | version, commit, graphics API, file paths, licence notice |
 
 Changes are written into the files at once (comments in the files are kept). Settings that only apply at the next
-start are marked "restart required". A key that an environment variable sets is shown as "set by environment".
+start are marked "restart required"; then **Apply (restarts the game)** appears at the bottom and restarts the game
+right away with the window and display mode kept (in the menus at once, back to the main menu; in a level it asks
+first, since progress since the last checkpoint is lost). This is how the **language** is switched: the game reads
+it only at start. A key that an environment variable sets is shown as "set by environment".
+
+**Exit Game** (bottom left) asks "Exit to desktop?" and then ends the game the same way as closing the window
+(settings are kept, progress since the last checkpoint is lost). Both questions are answered with A / Enter, and
+B / Escape go back, so the menu works with a pad alone (e.g. on a Steam Deck in Game Mode).
 
 ## Frame rate and game logic
 

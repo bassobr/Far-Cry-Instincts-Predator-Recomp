@@ -1,7 +1,9 @@
 #include "fcp/devstart.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <mutex>
 #include <cstring>
 #include <format>
 #include <string>
@@ -61,6 +63,10 @@ double g_mapeditor_at = -1;
 std::chrono::steady_clock::time_point g_t0;
 rex::kernel::TitleRuntime* g_runtime = nullptr;
 bool g_title_quit = false;
+// QueueCommand (any thread) -> the next Game_MainLoop
+std::mutex g_queue_mutex;
+std::vector<std::string> g_queue;
+std::atomic<bool> g_queued{false};
 
 void PutU32(uint8_t* p, uint32_t v) {
   const uint32_t be = __builtin_bswap32(v);
@@ -218,11 +224,23 @@ bool FillLaunchData(uint8_t* buffer, uint32_t size) {
 }
 
 void OnMainLoop(PPCContext& ctx, uint8_t* base) {
-  if (g_tests.empty() && g_mapeditor_at < 0) {
+  if (g_tests.empty() && g_mapeditor_at < 0 && !g_queued.load(std::memory_order_relaxed)) {
     return;
   }
   const double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
   const uint32_t game = ctx.r3.u32;
+  if (g_queued.exchange(false)) {
+    std::vector<std::string> queue;
+    {
+      std::lock_guard lock(g_queue_mutex);
+      queue.swap(g_queue);
+    }
+    for (const std::string& text : queue) {
+      FCPLOG("game command: pushing \"{}\" at {:.2f} s (swaps={}, game {:08X})", text, now, fcp::watch::SwapCount(),
+             game);
+      fcp::guest::Call(ctx, base, __imp__Game_PushCommand, {.r3 = game, .string_r4 = text});
+    }
+  }
   for (TestCommand& t : g_tests) {
     if (!t.done && now >= t.at) {
       t.done = true;
@@ -266,6 +284,14 @@ rex::kernel::TitleRuntime* Runtime() { return g_runtime; }
 
 bool TitleQuit() {
   return g_title_quit;
+}
+
+void QueueCommand(std::string text) {
+  {
+    std::lock_guard lock(g_queue_mutex);
+    g_queue.push_back(std::move(text));
+  }
+  g_queued = true;
 }
 
 void AfterReadLaunchData(PPCContext& ctx, uint8_t* base, uint32_t game) {

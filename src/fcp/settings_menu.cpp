@@ -29,6 +29,7 @@
 #include <vector>
 
 #include <imgui.h>
+#include <rex/app/app.h>
 #include <rex/hid/input_system.h>
 #include <rex/hid/pad.h>
 #include <rex/input_keys.h>
@@ -41,8 +42,12 @@
 #include "fcp/devstart.h"
 #include "fcp/env.h"
 #include "fcp/gametime.h"
+#include "fcp/guest.h"
 #include "fcp/log.h"
+#include "fcp/watchdog.h"
+#include "fcp_addresses.h"
 #include "fcp/pc_input.h"
+#include "fcp/relaunch.h"
 #include "fcp/render_bridge.h"
 #include "fcp/user_settings.h"
 #include "fcp_version.h"
@@ -69,6 +74,8 @@ bool g_pad_armed = false;  // the pad counts once every button was let go after 
 uint16_t g_pad_prev = 0;
 int g_saved_config_flags = 0;
 bool g_saved_nav_capture = true;
+enum class Ask { kNone, kExit, kRestart };
+Ask g_ask = Ask::kNone;  // Exit Game / Apply asks first (below DrawRows)
 std::string g_status;  // the last change, under the table
 double g_status_until = 0;
 
@@ -395,8 +402,9 @@ void BuildRows() {
                                "Frames per second and frame time in the top left corner."));
   {
     Row r = SettingsRow(3, "Language", Kind::kChoice, When::kRestart, "game", "language",
-                        "Text and speech of the game, as the console's system language. Auto: the Windows display "
-                        "language (English when it is none of these).");
+                        "Text and speech of the game, as the console's system language (the disc has all five). "
+                        "Auto: the Windows display language (English when it is none of these). The game reads it at "
+                        "start: Apply (restarts the game) below.");
     r.choices = {{"english", "English"}, {"french", "Francais"}, {"german", "Deutsch"},
                  {"spanish", "Espanol"}, {"italian", "Italiano"}, {"auto", "Auto (Windows)"}};
     g_rows.push_back(std::move(r));
@@ -461,6 +469,7 @@ void SetOpen(bool open, const char* why) {
     g_pad_armed = false;
   } else {
     g_capture = -1;
+    g_ask = Ask::kNone;   // closing answers a pending question with no
     g_hide_chord = true;  // a held Back/Start does not reach the game after closing
   }
   g_open = open;
@@ -739,6 +748,139 @@ void DrawAbout() {
   ImGui::TextDisabled("Bindings: %s", fcp::pc_input::ConfigFile().string().c_str());
 }
 
+// ---- Exit Game and Apply (restarts the game): ask first ----
+// Exit Game as in FCI's settings menu (Far Cry Instincts Recomp, src/app/menu.cpp, MIT, same author): a button at
+// the left of the footer, a confirmation in place of the panel, A / Enter answers, B / Escape goes back. The end is
+// the window's close button (the SDK's shutdown: sound off, the window closes, exit code 0). The restart has no FCI
+// counterpart (FCI marks a restart only): in a level the game's own "ReturnToMenu" (as its pause menu's quit: the
+// game writes its launch data and relaunches, back to the main menu with the profile), else a fresh start.
+int g_ask_focus = 0;          // the dialog's first button takes the focus in that many frames
+int g_focus_back = 0;         // back from the dialog: the button that opened it takes the focus in that many frames
+Ask g_focus_back_to = Ask::kNone;
+double g_restart_queued = -1;  // ReturnToMenu queued at (wall seconds); a host restart follows when it did nothing
+constexpr double kRestartFallback = 10.0;
+
+// a restart-required setting differs from the value at start (the environment does not set it)
+bool RestartPending() {
+  for (const Row& r : g_rows)
+    if (r.when == When::kRestart && r.override_note().empty() && r.get() != r.start) return true;
+  return false;
+}
+
+void ExitGame(const char* why) {
+  FCPLOG("settings menu: exit game ({}): the game ends as by the window's close button (level {}, {:.2f} s)", why,
+         fcp::gametime::InLevel() ? fcp::gametime::LevelName() : std::string("none"), Now());
+  g_ask = Ask::kNone;
+  rex::app::RequestShutdown(0);
+}
+
+// the profile manager's current profile is there and valid (runtime_addresses.toml profile_manager_ptr: +0x14
+// current profile, +1 valid; selected with Press Start)
+bool ProfileSelected() {
+  uint8_t* base = fcp::watch::GuestBase();
+  if (!base) return false;
+  const uint32_t manager = fcp::guest::U32(base, fcp::addr::profile_manager_ptr);
+  if (!manager || !fcp::guest::Readable(base, manager, 0x18)) return false;
+  const uint32_t profile = fcp::guest::U32(base, manager + 0x14);
+  if (!profile || !fcp::guest::Readable(base, profile, 2)) return false;
+  return *fcp::guest::Ptr(base, profile + 1) != 0;
+}
+
+void RestartGame(const char* why) {
+  g_ask = Ask::kNone;
+  if (fcp::relaunch::Active() || g_restart_queued >= 0) {
+    Status("a restart is already running");
+    return;
+  }
+  const bool level = fcp::gametime::InLevel();
+  const std::string mode = Lower(fcp::env::Get("FCP_MENU_RESTART"));  // game (default) | host
+  // ReturnToMenu needs a profile: on the title screen ("Press Start", no profile yet) it crashed in the game code
+  // (measured), there a fresh start is the same thing anyway
+  const bool profile = ProfileSelected();
+  const bool host = mode == "host" || !profile;
+  FCPLOG("settings menu: restart ({}) in {}, {}", why, level ? "level " + fcp::gametime::LevelName() : "the menus",
+         mode == "host" ? "host restart (FCP_MENU_RESTART=host)"
+         : host         ? "host restart (no profile selected yet)"
+                        : "the game's ReturnToMenu");
+  SetOpen(false, "restart");
+  if (host) {
+    fcp::relaunch::RestartNow("settings menu");
+    return;
+  }
+  fcp::devstart::QueueCommand("ReturnToMenu");
+  g_restart_queued = Now();
+}
+
+// UI thread, once a frame: ReturnToMenu that did not relaunch within kRestartFallback seconds -> a host restart
+void CheckRestart() {
+  if (g_restart_queued < 0 || fcp::relaunch::Active()) return;
+  if (Now() - g_restart_queued < kRestartFallback) return;
+  g_restart_queued = -1;
+  FCPLOG("settings menu: ReturnToMenu did not relaunch within {:.0f} s: host restart", kRestartFallback);
+  fcp::relaunch::RestartNow("settings menu, fallback");
+}
+
+void AskFor(Ask what, const char* why) {
+  if (what == Ask::kRestart && !fcp::gametime::InLevel()) {
+    RestartGame(why);  // no progress to lose in the menus: at once
+    return;
+  }
+  g_ask = what;
+  g_ask_focus = 2;
+  FCPLOG("settings menu: {} ({}), asking to confirm", what == Ask::kExit ? "exit game" : "restart", why);
+}
+
+void CancelAsk(const char* why) {
+  if (g_ask == Ask::kNone) return;
+  FCPLOG("settings menu: {} cancelled ({})", g_ask == Ask::kExit ? "exit game" : "restart", why);
+  g_focus_back_to = g_ask;
+  g_focus_back = 2;
+  g_ask = Ask::kNone;
+}
+
+void ConfirmAsk(const char* why) {
+  const Ask a = g_ask;
+  if (a == Ask::kExit) ExitGame(why);
+  else if (a == Ask::kRestart) RestartGame(why);
+}
+
+void DrawAsk(const ImGuiIO& io, float em) {
+  const bool exit = g_ask == Ask::kExit;
+  const float w = std::min(em * 30, io.DisplaySize.x - 16);
+  ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(w, 0), ImGuiCond_Always);
+  ImGui::SetNextWindowFocus();
+  const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize;
+  if (ImGui::Begin(exit ? "Exit to desktop?###fcp_ask" : "Restart the game?###fcp_ask", nullptr, flags)) {
+    ImGui::PushTextWrapPos(w - em);
+    if (exit) {
+      ImGui::TextUnformatted("The game ends. Progress since the last checkpoint is lost; the settings are kept.");
+    } else {
+      ImGui::TextUnformatted("The game restarts with the changed settings and goes back to the main menu. Progress "
+                             "since the last checkpoint is lost; the settings are kept.");
+    }
+    ImGui::TextDisabled(exit ? "A or Enter exits, B or Escape goes back." : "A or Enter restarts, B or Escape goes back.");
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy(ImVec2(0, em * 0.4f));
+    const float bw = em * 7;
+    const float pad = ImGui::GetContentRegionAvail().x - bw * 2 - ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(pad, 0.0f));
+    if (g_ask_focus > 0 && --g_ask_focus == 0) ImGui::SetKeyboardFocusHere();
+    bool yes = ImGui::Button(exit ? "Exit" : "Restart", ImVec2(bw, 0));
+    ImGui::SameLine();
+    bool no = ImGui::Button("Cancel", ImVec2(bw, 0));
+    const bool no_focused = ImGui::IsItemFocused();
+    // A and Enter wherever the navigation stands: yes, unless Cancel has the focus (B and Escape go back)
+    for (ImGuiKey key : {ImGuiKey_GamepadFaceDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter})
+      if (ImGui::IsKeyPressed(key, false)) (no_focused ? no : yes) = true;
+    if (no) CancelAsk("button");
+    else if (yes) ConfirmAsk("button");
+  }
+  ImGui::End();
+}
+// ---- end Exit Game and Apply ----
+
 void DrawMenu(ImGuiIO& io) {
   const float px = FontPx(io);
   const float em = px;
@@ -770,8 +912,11 @@ void DrawMenu(ImGuiIO& io) {
   const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                  ImGuiWindowFlags_NoSavedSettings;
   bool keep = true;
-  if (ImGui::Begin("Settings###fcp_settings", &keep, flags)) {
-    const float footer = ImGui::GetFrameHeightWithSpacing() * 2.2f;
+  const bool asking = g_ask != Ask::kNone;  // the confirmation in place of the panel this frame
+  if (asking) {
+    DrawAsk(io, em);
+  } else if (ImGui::Begin("Settings###fcp_settings", &keep, flags)) {
+    const float footer = ImGui::GetFrameHeightWithSpacing() * 3.3f;
     if (ImGui::BeginTabBar("tabs")) {
       for (int t = 0; t < kTabCount; ++t) {
         const ImGuiTabItemFlags tf = g_select_tab == t ? ImGuiTabItemFlags_SetSelected : 0;
@@ -790,11 +935,27 @@ void DrawMenu(ImGuiIO& io) {
     ImGui::Separator();
     if (!g_status.empty() && Now() < g_status_until) ImGui::TextUnformatted(g_status.c_str());
     else ImGui::TextDisabled("Changes are stored at once. Hover a setting for help.");
-    ImGui::TextDisabled("F10 / Escape / Back+Start / B: close");
+    const bool pending = RestartPending();
+    if (pending) ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Changed settings take effect after a restart.");
+    else ImGui::TextDisabled("F10 / Escape / Back+Start / B: close");
+    // Exit Game at the left (as FCI), Apply while a change waits for a restart, Close at the right
+    const bool focus_back = g_focus_back > 0 && --g_focus_back == 0;
+    if (focus_back && g_focus_back_to == Ask::kExit) ImGui::SetKeyboardFocusHere();
+    if (ImGui::Button("Exit Game", ImVec2(em * 6, 0))) AskFor(Ask::kExit, "button");
+    if (pending) {
+      ImGui::SameLine();
+      if (focus_back && g_focus_back_to == Ask::kRestart) ImGui::SetKeyboardFocusHere();
+      if (ImGui::Button("Apply (restarts the game)")) AskFor(Ask::kRestart, "button");
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetItemTooltip(fcp::gametime::InLevel()
+                                  ? "Restarts the game now, back to the main menu (asks first: progress since the last "
+                                    "checkpoint is lost)."
+                                  : "Restarts the game now; the window and display mode stay.");
+    }
     ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - em * 5);
     if (ImGui::Button("Close", ImVec2(em * 5, 0))) keep = false;
   }
-  ImGui::End();
+  if (!asking) ImGui::End();
   ImGui::PopStyleColor(int(std::size(kOpaque)));
   ImGui::PopStyleVar(5);
   ImGui::PopFont();
@@ -882,6 +1043,17 @@ void RunScript() {
         const std::string e = fcp::pc_input::Store(section, key, value);
         Status(std::format("input [{}] {} = {}: {}", section, key, value, e.empty() ? "applied and stored" : e));
       }
+    } else if (verb == "exit" || verb == "apply") {
+      // as a click on Exit Game / Apply (restarts the game): asks first (Apply in the menus restarts at once)
+      AskFor(verb == "exit" ? Ask::kExit : Ask::kRestart, "FCP_TEST_MENU");
+    } else if (verb == "yes") {
+      ConfirmAsk("FCP_TEST_MENU");
+    } else if (verb == "no") {
+      CancelAsk("FCP_TEST_MENU");
+    } else if (verb == "quit") {
+      ExitGame("FCP_TEST_MENU quit");
+    } else if (verb == "restart") {
+      RestartGame("FCP_TEST_MENU restart");
     } else if (verb == "post") {
       PostKey(arg);
     } else if (verb == "pad") {
@@ -911,6 +1083,11 @@ void ParseScript() {
       FCPLOG("FCP_TEST_MENU: '{}' ignored (<t>:<action>)", item);
       continue;
     }
+    // <t>@<g>:<action>: only in relaunch generation g (with FCP_TEST_MENU_GENS listing it, e.g. all)
+    if (const size_t at = item.find('@'); at < colon &&
+                                          std::atoi(item.c_str() + at + 1) != fcp::relaunch::Generation()) {
+      continue;
+    }
     g_script.push_back({std::atof(item.c_str()), item.substr(colon + 1)});
   }
   FCPLOG("FCP_TEST_MENU: {} actions", g_script.size());
@@ -928,6 +1105,7 @@ class MenuDialog final : public rex::ui::DialogBase {
     }
     g_fps.Tick();
     RunScript();
+    CheckRestart();
     rex::hid::PadState pad;
     const uint16_t buttons = ReadPads(pad);
     // Back + Start: open or close (on the press of the chord)
@@ -941,7 +1119,8 @@ class MenuDialog final : public rex::ui::DialogBase {
       // B closes, as Escape does (not while a binding waits for a key)
       if (g_pad_armed && g_capture < 0 && (buttons & rex::hid::kPadB) && !(g_pad_prev & rex::hid::kPadB) &&
           !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
-        SetOpen(false, "B");
+        if (g_ask != Ask::kNone) CancelAsk("B");  // Exit Game's / Apply's question: back to the settings
+        else SetOpen(false, "B");
       }
     }
     g_pad_prev = buttons;
@@ -1004,7 +1183,8 @@ class Hotkeys final : public rex::ui::IUIEventListener {
       SetOpen(!g_open.load(), "F10");
     } else if (e.key == rex::VirtualKey::kEscape && g_open.load()) {
       e.handled = true;
-      SetOpen(false, "Escape");
+      if (g_ask != Ask::kNone) CancelAsk("Escape");
+      else SetOpen(false, "Escape");
     }
   }
 };
