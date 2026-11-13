@@ -4,7 +4,7 @@ All notable changes of Far Cry Instincts Predator Recomp. Versions follow `VERSI
 Statements about behaviour are measurements from test runs on a Windows PC unless marked otherwise; see the
 [README](README.md) and [docs/en](docs/en) for the details.
 
-## 0.1.0 (beta candidate, not released yet)
+## 0.1.0 (beta, 2026-11-13)
 
 First version: a native Windows x64 port of the Xbox 360 game *Far Cry Instincts Predator* (both campaigns,
 *Instincts* and *Evolution*) by static recompilation. The release contains no game code and no game data; the game
@@ -22,14 +22,16 @@ code is translated from the player's own disc image on the first start.
   message.
 - **Native renderer** on Vulkan (default) or Direct3D 12 with the game's shaders translated ahead of time. In the
   scenes compared, the picture matches reference captures made with the Xenia emulator.
-- **Frame rate 30 (as the console), 60 or 120.** Game time runs at wall-clock speed at every rate. Places where
+- **Frame rate 30 (as the console), 60, 90 or 120.** Game time runs at wall-clock speed at every rate. Places where
   the game logic depends on the frame count are corrected above 30 frames/s: fall damage, drowning damage, view bob
   in water, boats, swimming, the first landing after take-off, entering water, the stick turn ramp, path following
   of computer-controlled characters, the assault rifle's fire rate. Each correction has an environment switch back
   to the original ([FRAMERATE.md](docs/en/FRAMERATE.md)).
 - **Graphics options:** render resolution scale (up to 4x or `auto`), shadow map resolution, anisotropic filtering
-  up to 16x, field of view, MSAA as the console or 2x/4x/8x, optional SMAA 1x, the game's gamma ramp. All default to
-  the console's look.
+  up to 16x, field of view, MSAA as the console or 2x/4x/8x, optional SMAA 1x, the game's gamma ramp, ultrawide Hor+
+  (HUD, menus and videos in the 16:9 centre). All default to the console's look except Hor+ on outputs wider than 16:9.
+- **Handhelds:** Steam Deck OLED (Proton 10) detected, defaults to 30 frames/s; ROG Xbox Ally X detected, defaults to
+  120 frames/s in borderless fullscreen (118-120 frames/s measured).
 - **Mouse and keyboard:** direct mouse look on the game's view angles, optional acceleration and smoothing, zoom
   scaling, invert Y; every pad button and stick direction bindable.
 - **Controllers:** up to four players through SDL 3 (or XInput only), hot plug with stable player slots, button
