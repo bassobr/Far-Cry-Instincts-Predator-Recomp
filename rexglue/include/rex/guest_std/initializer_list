@@ -1,0 +1,24 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+#pragma once
+#include <cstddef>
+namespace std {
+template <class E>
+class initializer_list {
+ public:
+  using value_type = E;
+  using size_type = size_t;
+  using const_iterator = const E*;
+  constexpr initializer_list() noexcept : first_(nullptr), last_(nullptr) {}
+  constexpr initializer_list(const E* first, const E* last) noexcept : first_(first), last_(last) {}
+  constexpr const E* begin() const noexcept { return first_; }
+  constexpr const E* end() const noexcept { return last_; }
+  constexpr size_t size() const noexcept { return static_cast<size_t>(last_ - first_); }
+ private:
+  const E* first_;
+  const E* last_;
+};
+template <class E>
+constexpr const E* begin(initializer_list<E> l) noexcept { return l.begin(); }
+template <class E>
+constexpr const E* end(initializer_list<E> l) noexcept { return l.end(); }
+}  // namespace std

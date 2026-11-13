@@ -1,0 +1,39 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+// Same layout and template parameters as the MSVC STL basic_string_view (pointer, then size).
+#pragma once
+#include <cstddef>
+namespace std {
+template <class C>
+struct char_traits {
+  using char_type = C;
+  static constexpr size_t length(const C* s) noexcept {
+    size_t n = 0;
+    while (s[n] != C()) ++n;
+    return n;
+  }
+};
+template <class C, class Traits = char_traits<C>>
+class basic_string_view {
+ public:
+  using value_type = C;
+  using size_type = size_t;
+  static constexpr size_t npos = static_cast<size_t>(-1);
+  constexpr basic_string_view() noexcept : _Mydata(nullptr), _Mysize(0) {}
+  constexpr basic_string_view(const C* s) noexcept : _Mydata(s), _Mysize(Traits::length(s)) {}
+  constexpr basic_string_view(const C* s, size_t n) noexcept : _Mydata(s), _Mysize(n) {}
+  constexpr const C* data() const noexcept { return _Mydata; }
+  constexpr size_t size() const noexcept { return _Mysize; }
+  constexpr size_t length() const noexcept { return _Mysize; }
+  constexpr bool empty() const noexcept { return _Mysize == 0; }
+  constexpr const C& operator[](size_t i) const noexcept { return _Mydata[i]; }
+  constexpr const C* begin() const noexcept { return _Mydata; }
+  constexpr const C* end() const noexcept { return _Mydata + _Mysize; }
+
+ private:
+  const C* _Mydata;
+  size_t _Mysize;
+};
+using string_view = basic_string_view<char>;
+using wstring_view = basic_string_view<wchar_t>;
+using u16string_view = basic_string_view<char16_t>;
+}  // namespace std

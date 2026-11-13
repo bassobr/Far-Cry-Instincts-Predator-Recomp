@@ -1,0 +1,7 @@
+# Expected files from the disc image (disc release without title update). tools/prepare_xex.py checks them
+# before codegen runs. Hashes only, no game data.
+
+[default_xex]
+path = "default.xex"
+size = 9351168
+sha256 = "0ABD35C4E4C4F39DD330CEBFE051D28A313EF2BDCD80921CACA8F1F2956B0B56"

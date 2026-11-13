@@ -1,0 +1,3 @@
+Portable mode: predator.exe keeps its user folder (saves, profiles, caches, logs, predator.toml) in the folder
+of the EXE while this file is next to it. Without it the user folder is %LOCALAPPDATA%\Far-Cry-Instincts-Predator-Recomp.
+FCP_USER_ROOT=<folder> chooses any folder. Development builds copy this file next to the EXE.

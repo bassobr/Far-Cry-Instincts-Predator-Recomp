@@ -1,0 +1,385 @@
+# ReXGlue SDK Recompilation Toolkit
+cmake_minimum_required(VERSION 3.25)
+
+if (APPLE)
+  set(REXGLUE_LANGUAGES C CXX OBJC OBJCXX)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET
+      "13.3"
+      CACHE STRING "Minimum macOS version to build for"
+  )
+else ()
+  set(REXGLUE_LANGUAGES C CXX)
+endif ()
+
+# Selects the GCC install whose libstdc++ clang compiles and links against. Without it clang uses
+# the newest GCC it finds, so the library release depends on the machine. The flag goes into the
+# compiler flags before project() so that the third party subprojects, the try_compile checks and
+# the link line all get it.
+set(REXGLUE_GCC_INSTALL_DIR
+    ""
+    CACHE PATH "Linux: GCC install directory for clang, such as /usr/lib/gcc/x86_64-linux-gnu/13"
+)
+if (REXGLUE_GCC_INSTALL_DIR)
+  if (NOT IS_DIRECTORY "${REXGLUE_GCC_INSTALL_DIR}")
+    message(FATAL_ERROR "REXGLUE_GCC_INSTALL_DIR is not a directory: ${REXGLUE_GCC_INSTALL_DIR}")
+  endif ()
+  string(APPEND CMAKE_C_FLAGS " --gcc-install-dir=${REXGLUE_GCC_INSTALL_DIR}")
+  string(APPEND CMAKE_CXX_FLAGS " --gcc-install-dir=${REXGLUE_GCC_INSTALL_DIR}")
+endif ()
+
+project(
+  ReXGlue
+  VERSION 0.11.0
+  LANGUAGES ${REXGLUE_LANGUAGES}
+  DESCRIPTION "Xbox 360 Recompilation SDK"
+)
+# Floor only. Bump MAJOR.MINOR for API changes. Patch is derived from git tags
+# in cmake/rex_version.cmake. See docs/RELEASING.md.
+
+# Build Options
+# Group targets into folders in IDEs. A consumer that adds the SDK as a subdirectory keeps its own
+# setting.
+if (PROJECT_IS_TOP_LEVEL)
+  set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+endif ()
+set(CMAKE_FOLDER "sdk")
+
+option(REXGLUE_BUILD_TESTS "Build unit tests" ${PROJECT_IS_TOP_LEVEL})
+option(REXGLUE_BUILD_PPC_TESTS "Build PPC instruction tests" OFF)
+option(REXGLUE_REGISTER_PACKAGE "Register the install prefix in the CMake user package registry"
+       OFF
+)
+option(REXGLUE_ENABLE_SANITIZERS "Enable UndefinedBehaviorSanitizer" OFF)
+option(REXGLUE_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+option(REXGLUE_ENABLE_TRACY "Enable Tracy profiler integration" ON)
+option(REXGLUE_ENABLE_PERF_COUNTERS "Enable lightweight perf counter registry and overlay" ON)
+option(REXGLUE_VERIFY_HEADERS "Create the CMake targets that compile each public header alone" OFF)
+# FCP (local change, see UPSTREAM.md): OFF builds no Xenos Vulkan/D3D12 driver module, which drops the
+# Vulkan SDK, VMA and glslang requirement. The null Xenos driver and rexgpu stay.
+option(REXGLUE_BUILD_XENOS_HOST_DRIVERS "Build the Xenos Vulkan and D3D12 driver modules" ON)
+if (REXGLUE_BUILD_TESTS AND NOT REXGLUE_BUILD_XENOS_HOST_DRIVERS)
+  message(FATAL_ERROR "REXGLUE_BUILD_TESTS needs REXGLUE_BUILD_XENOS_HOST_DRIVERS=ON")
+endif ()
+
+if (WIN32 AND REXGLUE_BUILD_XENOS_HOST_DRIVERS) # FCP: driver switch
+  set(REXGLUE_GPU_D3D12 ON)
+else ()
+  set(REXGLUE_GPU_D3D12 OFF)
+endif ()
+
+# Root of the SDK source tree
+set(REXGLUE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# FCP (local change, see UPSTREAM.md): the former git submodules live outside the source tree. A
+# value set by the including project wins; the default is the upstream layout.
+if (NOT REXGLUE_DEPS_DIR)
+  set(REXGLUE_DEPS_DIR "${REXGLUE_ROOT}/thirdparty")
+endif ()
+file(TO_CMAKE_PATH "${REXGLUE_DEPS_DIR}" REXGLUE_DEPS_DIR)
+
+# SDK install support
+include(GNUInstallDirs)
+file(RELATIVE_PATH REXGLUE_LIBDIR_FROM_BINDIR "${CMAKE_INSTALL_FULL_BINDIR}"
+     "${CMAKE_INSTALL_FULL_LIBDIR}"
+)
+include(CMakePackageConfigHelpers)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_target.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_module.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_metadata.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_init_audit.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_stdlib.cmake)
+
+# The C++ standard library the SDK libraries are built against. The package records it.
+set(REXGLUE_STDLIB "")
+set(REXGLUE_LIBSTDCXX_RELEASE "")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  rexglue_detect_stdlib(REXGLUE_STDLIB REXGLUE_LIBSTDCXX_RELEASE)
+  message(STATUS "C++ standard library: ${REXGLUE_STDLIB} ${REXGLUE_LIBSTDCXX_RELEASE}")
+endif ()
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_physical_offset.cmake)
+
+if (UNIX AND NOT APPLE)
+  # Keep installed binaries self-contained by resolving shared libs relative
+  # to the install prefix (for example, bin -> ../lib).
+  set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+  list(APPEND CMAKE_INSTALL_RPATH "$ORIGIN" "$ORIGIN/${REXGLUE_LIBDIR_FROM_BINDIR}")
+  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+elseif (APPLE)
+  # Use loader-relative install names on macOS so installed binaries remain
+  # self-contained within the install prefix.
+  list(APPEND CMAKE_INSTALL_RPATH "@loader_path" "@loader_path/${REXGLUE_LIBDIR_FROM_BINDIR}")
+  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+endif ()
+
+# Enforce a Clang toolchain (LLVM Clang or Apple's Clang)
+if (NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Apple)?Clang$")
+  message(FATAL_ERROR "ReXGlue requires the Clang compiler (LLVM Clang or AppleClang). "
+                      "Please set CMAKE_CXX_COMPILER to clang++"
+  )
+endif ()
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "20.0")
+    message(FATAL_ERROR "ReXGlue requires Clang 20 or newer (found ${CMAKE_CXX_COMPILER_VERSION})")
+  endif ()
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "17.0")
+    message(FATAL_ERROR "ReXGlue requires AppleClang 17 or newer / Xcode 26+ for C++23 support "
+                        "(found ${CMAKE_CXX_COMPILER_VERSION})"
+    )
+  endif ()
+endif ()
+
+# Require a 64 bit architecture
+if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+  message(FATAL_ERROR "ReXGlue only supports 64-bit architectures (x86_64 or ARM64)")
+endif ()
+
+# Set C++23 standard
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_DEBUG_POSTFIX d)
+set(CMAKE_RELWITHDEBINFO_POSTFIX rd)
+
+# CMAKE_<CONFIG>_POSTFIX applies to libraries only, so without this every config of an
+# executable installs over the last one.
+function (rex_config_postfix target)
+  set_target_properties(
+    ${target} PROPERTIES DEBUG_POSTFIX "${CMAKE_DEBUG_POSTFIX}" RELWITHDEBINFO_POSTFIX
+                                                                "${CMAKE_RELWITHDEBINFO_POSTFIX}"
+  )
+endfunction ()
+
+if (NOT WIN32)
+  # Position-independent code for all targets
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif ()
+
+# Global compile options
+add_compile_options(
+  -fno-strict-aliasing
+  -ffp-model=strict
+  $<$<CONFIG:DEBUG>:-g>
+  $<$<CONFIG:DEBUG>:-O0>
+  $<$<CONFIG:RELEASE>:-O3>
+  $<$<CONFIG:RELEASE>:-DNDEBUG>
+  -fno-char8_t
+)
+
+rexglue_cpu_flags(REXGLUE_CPU_FLAGS)
+add_compile_options(${REXGLUE_CPU_FLAGS})
+rexglue_link_flags(REXGLUE_LINK_FLAGS)
+add_link_options(${REXGLUE_LINK_FLAGS})
+
+# Platform detection (supports AMD64 and ARM64)
+set(REX_TARGET_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}")
+if (APPLE AND CMAKE_OSX_ARCHITECTURES)
+  list(LENGTH CMAKE_OSX_ARCHITECTURES REX_OSX_ARCH_COUNT)
+  if (REX_OSX_ARCH_COUNT GREATER 1)
+    message(FATAL_ERROR "ReXGlue macOS presets expect a single CMAKE_OSX_ARCHITECTURES value")
+  endif ()
+  list(GET CMAKE_OSX_ARCHITECTURES 0 REX_TARGET_PROCESSOR)
+endif ()
+
+if (WIN32)
+  if (REX_TARGET_PROCESSOR MATCHES "AMD64|x86_64")
+    set(REX_PLATFORM "win-amd64")
+  elseif (REX_TARGET_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    set(REX_PLATFORM "win-arm64")
+  else ()
+    message(FATAL_ERROR "Unsupported Windows architecture: ${REX_TARGET_PROCESSOR}")
+  endif ()
+elseif (UNIX AND NOT APPLE)
+  if (REX_TARGET_PROCESSOR MATCHES "AMD64|x86_64")
+    set(REX_PLATFORM "linux-amd64")
+  elseif (REX_TARGET_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    set(REX_PLATFORM "linux-arm64")
+  else ()
+    set(REX_PLATFORM "linux-${REX_TARGET_PROCESSOR}")
+  endif ()
+elseif (APPLE)
+  if (REX_TARGET_PROCESSOR MATCHES "AMD64|x86_64")
+    set(REX_PLATFORM "mac-amd64")
+  elseif (REX_TARGET_PROCESSOR MATCHES "aarch64|ARM64|arm64")
+    set(REX_PLATFORM "mac-arm64")
+  else ()
+    set(REX_PLATFORM "mac-${REX_TARGET_PROCESSOR}")
+  endif ()
+else ()
+  message(FATAL_ERROR "Unsupported platform. ReXGlue supports Windows, Linux, and macOS only.")
+endif ()
+
+# Build config as compile definition (multi-config generators don't know config at configure time)
+add_compile_definitions(REXGLUE_BUILD_CONFIG="$<CONFIG>")
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_pch.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_header_set.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_folders.cmake)
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_version.cmake)
+# FCP (local change, see UPSTREAM.md): the frozen copy has no .git, so the including project names
+# the version the upstream commit would report.
+if (REXGLUE_VERSION_OVERRIDE)
+  set(REXGLUE_FULL_VERSION "${REXGLUE_VERSION_OVERRIDE}")
+else ()
+rex_resolve_version(
+  REXGLUE_FULL_VERSION
+  FLOOR_MAJOR
+  ${PROJECT_VERSION_MAJOR}
+  FLOOR_MINOR
+  ${PROJECT_VERSION_MINOR}
+  SOURCE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+endif ()
+
+# Strip the -id trailer (if any) for the numeric-only version.
+string(REGEX REPLACE "-.*$" "" REXGLUE_NUMERIC_VERSION "${REXGLUE_FULL_VERSION}")
+
+# Parse up to 4 numeric components for consumers that want integer access.
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)(\\.([0-9]+))?(\\.([0-9]+))?" _
+             "${REXGLUE_NUMERIC_VERSION}"
+)
+set(REXGLUE_DERIVED_MAJOR "${CMAKE_MATCH_1}")
+set(REXGLUE_DERIVED_MINOR "${CMAKE_MATCH_2}")
+if (CMAKE_MATCH_4)
+  set(REXGLUE_DERIVED_PATCH "${CMAKE_MATCH_4}")
+else ()
+  set(REXGLUE_DERIVED_PATCH "0")
+endif ()
+if (CMAKE_MATCH_6)
+  set(REXGLUE_DERIVED_TWEAK "${CMAKE_MATCH_6}")
+else ()
+  set(REXGLUE_DERIVED_TWEAK "0")
+endif ()
+
+set(REXGLUE_FLOOR_VERSION
+    "${REXGLUE_DERIVED_MAJOR}.${REXGLUE_DERIVED_MINOR}.${REXGLUE_DERIVED_PATCH}"
+)
+
+rex_version_channel(REXGLUE_VERSION_CHANNEL VERSION "${REXGLUE_FULL_VERSION}")
+
+# Generate version header. Must run after REX_PLATFORM is set. The nonce stays the same across
+# reconfigures of one build tree, so the header only changes when the version does.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_build_nonce.cmake)
+rexglue_get_build_nonce(REXGLUE_BUILD_NONCE)
+set(REXGLUE_BUILD_IDENTITY "${REXGLUE_FULL_VERSION}-${REXGLUE_BUILD_NONCE}")
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/rex/version.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/include/rex/version.h @ONLY
+)
+
+# The timestamp is set in one source of rexbase, so a reconfigure recompiles that file only.
+string(TIMESTAMP REXGLUE_BUILD_TIMESTAMP "%Y%m%d_%H%M")
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/base/build_stamp.cpp.in
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/base/build_stamp.cpp @ONLY
+)
+
+# Output directories (multi-config appends /<Config>/ automatically)
+# FCP (local change, see UPSTREAM.md): an including project may put the SDK binaries elsewhere, so a
+# build never writes into the source tree.
+if (NOT REX_OUTPUT_DIR)
+  set(REX_OUTPUT_DIR "${REXGLUE_ROOT}/out/${REX_PLATFORM}")
+endif ()
+if (REXGLUE_ENABLE_TSAN)
+  string(APPEND REX_OUTPUT_DIR "-tsan")
+endif ()
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${REX_OUTPUT_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${REX_OUTPUT_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${REX_OUTPUT_DIR}")
+
+# Sanitizer support for debugging memory corruption and undefined behavior
+if (REXGLUE_ENABLE_SANITIZERS)
+  message(
+    STATUS
+      "Enabling UndefinedBehaviorSanitizer (UBSan only - ASan conflicts with custom memory mapping)"
+  )
+  # ASan does not work with the custom mmap at 0x100000000, so only UBSan is used
+  add_compile_options(-fsanitize=undefined -fno-sanitize=vptr -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=undefined -fno-sanitize=vptr)
+endif ()
+
+if (REXGLUE_BUILD_TESTS)
+  list(APPEND CMAKE_MODULE_PATH "${REXGLUE_ROOT}/cmake")
+  list(APPEND CMAKE_MODULE_PATH "${REXGLUE_DEPS_DIR}/catch2/extras") # FCP: deps dir
+endif ()
+
+# Third party dependencies (vendored sources only)
+add_subdirectory(thirdparty)
+
+# ThreadSanitizer covers SDK targets only, vendored shared libraries do not link its runtime
+if (REXGLUE_ENABLE_TSAN)
+  add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=thread)
+endif ()
+
+# Enable warnings after thirdparty
+add_compile_options(
+  -Wall -Wextra -Wshadow -Wshadow-field -Wshadow-field-in-constructor-modified -Werror
+)
+
+add_subdirectory(src/base)
+add_subdirectory(src/xenos)
+add_subdirectory(src/ppc)
+add_subdirectory(src/filesystem)
+add_subdirectory(src/gpu)
+add_subdirectory(src/gpu/xenos)
+add_subdirectory(src/apu)
+add_subdirectory(src/hid)
+add_subdirectory(src/ui)
+add_subdirectory(src/kernel)
+add_subdirectory(src/xam)
+add_subdirectory(src/xbdm)
+add_subdirectory(src/app)
+add_subdirectory(src/codegen)
+add_subdirectory(src/rexglue)
+rexglue_group_object_libraries()
+include(cmake/rexglue_sdk.cmake)
+
+# Add tests subdirectory if tests are enabled
+if (REXGLUE_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif ()
+
+include(cmake/rexglue_link_audit.cmake)
+
+# Print configuration summary
+message(STATUS "===========================================")
+message(STATUS "ReXGlue Configuration Summary:")
+message(STATUS "  Version: ${REXGLUE_FULL_VERSION} (${REXGLUE_VERSION_CHANNEL})")
+message(STATUS "  Platform: ${REX_PLATFORM}")
+message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "  Configurations: ${CMAKE_CONFIGURATION_TYPES}")
+message(STATUS "  Output Dir: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
+message(STATUS "  GPU: D3D12=${REXGLUE_GPU_D3D12} Vulkan=${REXGLUE_BUILD_XENOS_HOST_DRIVERS}")
+message(STATUS "  Dependencies: ${REXGLUE_DEPS_DIR}")
+message(STATUS "  Tracy: ${REXGLUE_ENABLE_TRACY}")
+message(STATUS "  Perf Counters: ${REXGLUE_ENABLE_PERF_COUNTERS}")
+message(STATUS "===========================================")
+
+include(cmake/rexglue_export_targets.cmake)
+
+# SDK install/export rules (skipped when consumed as a subdirectory)
+if (PROJECT_IS_TOP_LEVEL)
+  include(cmake/rexglue_devenv.cmake)
+  include(cmake/rexglue_install.cmake)
+else ()
+  # When consumed via add_subdirectory(), provide the same interface as find_package().
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_target.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_module.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_metadata.cmake)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_project.cmake)
+  foreach (target IN LISTS REXGLUE_INSTALL_TARGETS)
+    get_target_property(_export_name ${target} EXPORT_NAME)
+    if (NOT _export_name)
+      set(_export_name ${target})
+    endif ()
+    if (NOT TARGET rex::${_export_name})
+      add_library(rex::${_export_name} ALIAS ${target})
+    endif ()
+  endforeach ()
+endif ()

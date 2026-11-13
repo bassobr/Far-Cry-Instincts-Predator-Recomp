@@ -1,0 +1,6 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+#pragma once
+#include <setjmp.h>
+namespace std {
+using ::jmp_buf;
+}  // namespace std

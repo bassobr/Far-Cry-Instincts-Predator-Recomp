@@ -1,0 +1,41 @@
+# Data addresses for the runtime layer (src/fcp), not for codegen. Only default.xex of the
+# disc release. tools/boot/gen_addresses.py turns them into fcp_addresses.h (namespace fcp::addr).
+# Function addresses stay in default.toml ([function_names]).
+
+# Pointer to the game session manager; +0x30 = current session (campaign +0x158/+0xC, difficulty
+# +0x158/+0x10, type +0x160). Read in Game_Relaunch 0x8220B31C and in the menu start 0x821B7354.
+session_manager_ptr = 0x8293A79C
+
+# Pointer to the profile manager; +0x14 = current profile (name UTF-16 from +2, +1 valid, +0x8C user,
+# +0x90 sign-in). Created in 0x82215A40 (developer start and relaunch).
+profile_manager_ptr = 0x8293A7A4
+
+# Test tools. Roles read from the image:
+# Pointer to the game object (r3 of Game_PushCommand/Game_MainLoop; FrameTimer_Update 0x823176CC reads it);
+# local players from +0x30 (Lua Game:GetLocalPlayer 0x820F3BA4).
+game_ptr = 0x8291234C
+# Pointer to the entity system (first argument of EntitySystem_GetEntity, 0x820F3BC4).
+entity_system_ptr = 0x829122B0
+# Frame timer (FrameTimer_Update 0x82317600): +0 frame counter, +0x28 game time (double, stops while paused),
+# +0x68 frame time (double).
+frame_timer = 0x828BBE50
+# Output pointer of Direct3D_CreateDevice (r8, measured 0x829161B4); device +0x35DC = presentation interval.
+d3d_device_ptr = 0x829161B4
+# Global behind the CVar r_vsynch (registration 0x82364108, initial value 2). The renderer method 0x823696A0
+# reads it once per frame on the render thread and sets the device's presentation interval (1 -> ONE, 2 -> TWO,
+# otherwise IMMEDIATE) through a device function (+0x1DC, setter 0x8273B1C0). This caps the frame rate.
+r_vsynch = 0x828BB0DC
+# Frame rate audit. Pointer to the script system (Game_ScriptGlobals 0x82333A84: [pointer] +0 = lua_State
+# for Lua_PushNumber / Lua_SetGlobal) and the name of the Lua global "_frametime"
+# (Game_ScriptGlobals 0x82333ABC).
+script_system_ptr = 0x8291288C
+lua_name_frametime = 0x8206E4B8
+# Frame rate audit part 2. Vtable of CLivingEntity (player and NPCs; after the string
+# "CLivingEntityMemento", slot +0x18 Action 0x8254DC60, +0x44 step 0x82553710). Layout as in
+# Far Cry Instincts Recomp (MIT) 0x00625C40.
+living_entity_vtable = 0x8207E120
+# Double 0.7156 rad (41 degrees): angle of the step test in Living_Move 0x82551E88 (only reader 0x82552278).
+living_edge_angle = 0x82082CA0
+# Frame rate audit part 3: return address of the timer call in the entity update
+# (0x820D1D80: +0x3FC period, +0x400 start in ms, clock [entity system +0xF8] +0x28; bl Entity_CallScriptEvent at 0x820D20D0).
+entity_timer_return = 0x820D20D4

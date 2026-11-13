@@ -1,0 +1,10 @@
+# Variant of the title configuration for predator_semtest: [fp_rules] on (PowerPC NaN results, VMX NaN
+# lanes and vmaxfp/vminfp rules, single rounding of the fmadds family). The build fails when this variant
+# gets a case wrong that the plain emission gets right (compare.py, "fprules_regress").
+# The game uses config/predator/default.toml.
+includes = ["../../config/predator/default.toml"]
+
+[fp_rules]
+nan = "ppc"
+vmx_nan = "ppc"
+fmadds_rounding = "single"

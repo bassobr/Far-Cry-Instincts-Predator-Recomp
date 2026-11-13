@@ -1,0 +1,30 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_C_FLAGS": "-march=x86-64-v2",
+                "CMAKE_CXX_FLAGS": "-march=x86-64-v2",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY": "ON",
+                "CMAKE_EXPORT_NO_PACKAGE_REGISTRY": "ON"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+        },
+        { "name": "release", "inherits": "base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+        { "name": "relwithdebinfo", "inherits": "base", "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" } },
+        { "name": "debug", "inherits": "base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } }
+    ],
+    "buildPresets": [
+        { "name": "release", "configurePreset": "release" },
+        { "name": "relwithdebinfo", "configurePreset": "relwithdebinfo" },
+        { "name": "debug", "configurePreset": "debug" }
+    ]
+}

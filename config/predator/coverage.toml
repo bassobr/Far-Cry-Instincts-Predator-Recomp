@@ -1,0 +1,15 @@
+# Settings for tools/coverage_check.py (build step after the codegen of default.xex).
+# A candidate is an address behind an unconditional branch end outside every .pdata function that
+# looks like a prologue or is the target of a code pointer, and that was neither registered as a function
+# nor emitted as a label. Every candidate fails the build unless it is listed here under ignore (checked,
+# not an entry point) or registered in config/predator/default.toml under [functions].
+
+# As of 351bc94d (measured 2026-11-12): 0 candidates. Not counted as candidates, but noted:
+# - 16 __except bodies in .pdata functions with the exception flag (only take effect on an SEH exception);
+# - 0x826427D4 (formed via lis/addi in 0x826427AC/0x826427C0) is a continuation address in the middle of the
+#   .pdata function 0x82642770 (return behind bl 0x8286D9EC), not a function start; assumed: target address
+#   of an unwind/continuation path (passed as an argument to 0x826322A8 or 0x8286D9EC), not checked.
+
+[coverage]
+# Checked and deliberately without a function (address = comment with the reason).
+ignore = []

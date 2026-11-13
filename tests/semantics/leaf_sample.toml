@@ -1,0 +1,206 @@
+# Leaf function sample of the semantic test (tests/semantics/py/pick_leaves.py, seed 20261112).
+# Addresses in default.xex of the disc version; the code is read from the user's image at test
+# time and never committed. Candidates: 13 math helpers, 36 other leaf functions.
+[[leaf]]
+address = 0x820B06A0
+size = 0x88
+math = 0
+[[leaf]]
+address = 0x820BD508
+size = 0x94
+math = 0
+[[leaf]]
+address = 0x820BEBB8
+size = 0xA4
+math = 22
+[[leaf]]
+address = 0x820BEC90
+size = 0xE0
+math = 33
+[[leaf]]
+address = 0x820BEF58
+size = 0x9C
+math = 9
+[[leaf]]
+address = 0x821B5C58
+size = 0x68
+math = 0
+[[leaf]]
+address = 0x82218560
+size = 0x100
+math = 0
+[[leaf]]
+address = 0x82218D10
+size = 0xCC
+math = 0
+[[leaf]]
+address = 0x822B4820
+size = 0xAC
+math = 27
+[[leaf]]
+address = 0x82332CF0
+size = 0xE0
+math = 33
+[[leaf]]
+address = 0x82349AA0
+size = 0xA0
+math = 25
+[[leaf]]
+address = 0x8234C3A8
+size = 0x130
+math = 0
+[[leaf]]
+address = 0x8234C6D8
+size = 0x1C4
+math = 1
+[[leaf]]
+address = 0x82361D68
+size = 0x1C4
+math = 1
+[[leaf]]
+address = 0x8238A088
+size = 0x170
+math = 0
+[[leaf]]
+address = 0x8239F978
+size = 0xA4
+math = 0
+[[leaf]]
+address = 0x823BD090
+size = 0x248
+math = 0
+[[leaf]]
+address = 0x823FF088
+size = 0x1B0
+math = 0
+[[leaf]]
+address = 0x8250D3D8
+size = 0x134
+math = 41
+[[leaf]]
+address = 0x825279E8
+size = 0x134
+math = 27
+[[leaf]]
+address = 0x8253A2E8
+size = 0x168
+math = 0
+[[leaf]]
+address = 0x82588FC8
+size = 0xE0
+math = 16
+[[leaf]]
+address = 0x82596AB0
+size = 0x15C
+math = 44
+[[leaf]]
+address = 0x825B5A60
+size = 0x11C
+math = 26
+[[leaf]]
+address = 0x825B5B80
+size = 0x150
+math = 26
+[[leaf]]
+address = 0x825BBA38
+size = 0x154
+math = 26
+[[leaf]]
+address = 0x82611CF8
+size = 0x1B4
+math = 0
+[[leaf]]
+address = 0x8262BFB0
+size = 0x50
+math = 0
+[[leaf]]
+address = 0x8263E5CC
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8263E6FC
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8263EE88
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8263EEF0
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8263EF4C
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x82647BA4
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x82649038
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8267569C
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x826916B0
+size = 0x78
+math = 0
+[[leaf]]
+address = 0x8273B2E8
+size = 0x88
+math = 0
+[[leaf]]
+address = 0x8273B478
+size = 0x84
+math = 0
+[[leaf]]
+address = 0x8273B568
+size = 0x88
+math = 0
+[[leaf]]
+address = 0x82782108
+size = 0xD4
+math = 0
+[[leaf]]
+address = 0x827859FC
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8278A9E0
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8278A9EC
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8278ABD4
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x8278ABE0
+size = 0xC
+math = 0
+[[leaf]]
+address = 0x82790730
+size = 0x94
+math = 0
+[[leaf]]
+address = 0x827A5FB8
+size = 0xCC
+math = 0
+[[leaf]]
+address = 0x8285D930
+size = 0x6C
+math = 0
+
+# __chkstk (MSVC Xenon CRT): takes the negative frame size in r12 and probes the stack pages below r1
+# (r12 must not be a local of the callee). Fixed r12 inputs.
+[[chkstk]]
+address = 0x8277E8D4
+size = 0x24
+r12 = [-16, -4096, -4100, -8192, -12288, -65520]

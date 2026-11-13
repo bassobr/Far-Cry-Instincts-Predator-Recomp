@@ -1,0 +1,3 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+// Only what <rex/types.h> needs from <compare> (nothing at present).
+#pragma once

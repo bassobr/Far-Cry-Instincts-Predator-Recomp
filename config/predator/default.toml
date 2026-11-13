@@ -1,0 +1,115 @@
+# Far Cry Instincts Predator, default.xex: title configuration for codegen (rexglue-sdk 351bc94d).
+# Addresses apply only to default.xex of the disc release (title 555307DC, XDK 2.0.2417, PE timestamp
+# 2006-02-28, SHA-256 in disc.toml). Included via config/predator/predator_manifest.toml.in.
+# Carried over from the phase-0 ReXGlue v0.10.1 title configuration, as of 2026-11-12.
+# Codegen switches stay at their defaults (all *_as_local = false), except [vector_math] and [fp_rules] (below).
+
+
+# CRT setjmp (MS variant: first checks a hook pointer and, if set, jumps via bnectr; saves f14-f31,
+# r13-r31, LR, CR, r1) and longjmp (loads the same structure, calls RtlUnwind if the unwind flag is set).
+# Found in the phase-0 analysis with a setjmp pattern search; the layout of both sides was compared by hand.
+# 351bc94d does not detect them on its own (measured: without these lines 0 ppc_setjmp/ppc_longjmp, 42
+# ordinary calls instead). With these lines: 11 ppc_setjmp and 31 ppc_longjmp sites.
+setjmp_address = 0x8277E900
+longjmp_address = 0x82630280
+
+# [functions]: in phase 0 (v0.10.1) 57 entries were needed (one leaf function 0x8275E838 behind a tail
+# branch and 56 vcall/adjustor thunks without .pdata that GapFill assigned to the preceding function).
+# 351bc94d finds all 57 by itself (assumed cause: "fix(codegen): stop block discovery at the entry of
+# another known function" 11742bf4 and "register code that no function reaches" a86428b0; measured: all
+# registered; output with and without the 57 entries byte-identical). They are therefore not carried over.
+# If an entry point goes missing in the future, tools/coverage_check.py fails the build and suggests entries.
+
+# Names for the logging engine hooks of the first boot (src/fcp/engine_hooks.cpp). Renaming only;
+# function boundaries stay unchanged (local SDK change [function_names], rexglue/UPSTREAM.md).
+# Roles from comparing the engine with the earlier Far Cry Instincts titles and from the D3D mapping;
+# confirmed at runtime during the first boot.
+[function_names]
+0x8230B9A8 = "Game_Run"                  # -map, XamLoaderGetLaunchData, main loop
+0x8220D008 = "Game_MainLoop"             # only caller of the command dispatcher
+0x8220E638 = "Game_DispatchCommands"     # StartLevel, ReturnToMenu, Relaunch ...
+0x820EA4F8 = "Game_PushCommand"          # command queue (49 call sites)
+0x823175F0 = "FrameTimer_Update"         # once per frame from CSystem::Update
+0x82317708 = "FrameTimer_GetFrameTime"   # 114 call sites
+0x82316838 = "System_Update"             # CSystem::Update
+0x8286EAF8 = "BinkOpen"                  # section BINK
+0x8233FFA0 = "Video_Open"                # video player open, 4 callers
+0x823B4568 = "Engine_CompileShader"      # compiler wrapper (FC_XENON), calls D3DX Compile/Assemble
+0x8220B260 = "Game_Relaunch"             # XLaunchNewImage("game:\default.xex") with launch data
+0x821B3130 = "Menu_LaunchMapEditor"      # XLaunchNewImage("game:\ige.xex")
+# Developer start and relaunch. Roles read from the image:
+0x8220B4A8 = "Game_ReadLaunchData"       # after relaunch: controller port (+0x3F2), select profile, profile block
+0x8220FB90 = "Game_NoProfileToMenu"      # active profile without valid flag (+1) -> "ReturnToMenu"
+0x821E2548 = "ProfileMgr_SelectUser"     # (profile manager, user index, set): loads/creates, sets +0x14
+0x821E0CE8 = "Profile_WriteLaunchData"   # profile -> launch data +0x180 (12 bytes of settings, flags +0x181)
+0x821E0BB8 = "Profile_ReadLaunchData"    # launch data +0x180 -> profile (counterpart)
+0x8222AE98 = "Session_Create"            # (manager, campaign, type): new game session, as in the menu start 0x821B735C
+0x8222AC40 = "Session_Setup"             # (manager, &id, name, check flag): id +0x10, name +0x18, save game name +0x118
+# Test tools. Roles read from the image:
+0x821E1340 = "Profile_Save"              # (profile): statistics from Lua/session, then XamUserWriteProfileSettings (title settings incl. +0x9C)
+0x821E1178 = "Profile_CheckStored"       # profile still valid? sign-in (+0x90) and 20 bytes +0x9C against title setting 0x63E83FFF; sets +1
+0x82401338 = "Archive_Decompress"        # (source: tag byte + LZMA-alone header, length, destination, ...) -> 0; calls LZMA init 0x824013D8 / decoder 0x8240AD38
+0x820D19B8 = "EntitySystem_GetEntity"    # (entity system, id) -> entity; as in Lua Game:GetLocalPlayer 0x820F3BCC
+0x82211FD8 = "Game_OnSystemUi"           # XN_SYS_UI handler (r5 = on/off); in -map mode (+0x3FC = 1) on "on": "Switch pause handlemenu"
+# Frame rate audit, counting hooks only. Roles read from the image:
+0x82283F90 = "Weapon_Fire"               # one shot: Lua GameRules:OnWeaponFire, then fire mode 1 (0x82284530) / 2 (0x82284218)
+0x82263A68 = "Player_Land"               # landing (player or NPC, r3 = player object): script event 0x17 with fEntitySpeed = -[+0xB24] (Far Cry Instincts Recomp (MIT): Game_PlayerLand)
+0x8226F0B8 = "Player_UpdateMovement"     # per frame (player or NPC): +0xB20/+0xB24 = horizontal/vertical speed from the living entity's status
+0x8226F5E8 = "Player_WaterBob"           # virtual (entry 0x8206256C): under water (+0x39C) phases +0xB3C/+0xB40 += p_waterbob_*speed x dt, angle += sin x amplitude per frame
+0x82333A60 = "Game_ScriptGlobals"        # per frame from System_Update: Lua _time (f1), _frametime (f2), _aitick (r6)
+0x820BEE98 = "Entity_CallScriptEvent"    # (entity, event r4, argument r5): server (+0x118) and client table (+0x114); 4 = OnTimer from 0x820D20D0 (period +0x3FC, start +0x400 in ms)
+0x823D7F50 = "Lua_PushNumber"            # (lua_State, f1)
+0x823D8510 = "Lua_SetGlobal"             # (lua_State, name): top value -> global
+0x822ACA60 = "AI_UpdateEntity"           # from the NPC update 0x822A79B0 per NPC and frame; r5 = 0 for the list whose turn it is in the 4-frame cycle (+0x74)
+0x82870848 = "Bink_NextFrame"            # Bink: from the video update 0x82340A48 after BinkWait 0x8286FCB8 (timing) and BinkDoFrame 0x828702A8
+# Frame rate audit part 2. Roles read from the image (as in FCI, offsets +4):
+0x821E64E8 = "Boat_WaterModel"           # (CVehicle r3, f1 step time): water model of the boats, from the post-step 0x821E63C8 in mode 1/2 (+0xAC); drag Dampv +0xC0 / Dampvs +0xC4 per call
+0x82556AA8 = "Vehicle_WheelForces"       # CWheeledVehicleEntity (vtable 0x8207E228) +0xD8: wheel forces per physics step (r3, f1 step time, r5 contact mask), from the rigid step 0x825455E8
+0x82108EB8 = "Player_IsUnderWater"       # Lua Player:IsUnderWater (r3 script object, CPlayer [+0x10], flag +0x39C)
+0x8254DC60 = "Living_Action"             # CLivingEntity +0x18 Action (r3, r4 = pe_action*): type 1 movement (air control 1: v = direction + [+0x730]), type 0x0A sets +0x724
+0x82553710 = "Living_Step"              # CLivingEntity (vtable 0x8207E120) +0x44: step (f1 step time)
+0x82551E88 = "Living_Move"               # movement of the living entity: step test with angle 0x82082CA0 (double 0.7156), 1 mm threshold (1e-6)
+0x822A79B0 = "AI_SystemUpdate"           # NPC system per frame from System_Update: phase +0x74 = (+0x74 + 1) mod 4, the phase's list gets its turn (AI_UpdateEntity r5 = 0)
+0x822F1048 = "AI_PathFollow"            # from the movement step 0x825530B8 before Living_Move (path object +0x74 bit 0x40): target point +0x58 reached -> movement = target - position, r3 = 1 (image; no path following)
+# Frame rate audit part 3. Role read from the image, same code as FCI 0x001E50B0:
+0x822F2470 = "AI_PathPursuit"           # (path r3, &position r4 = living entity +0x118, &movement r5): look-ahead = length of the movement, points 16 B [+0x14, +0x18), index +0x20 (halfword), circle-segment 0x822B1288
+0x8228AB20 = "Look_StickRamp"           # (target controller r3), only caller Player_LookInput: turn rate +0xAC/+0xB0 = quadratic in (game time - start +0xBC/+0xC0), clamped, x stick
+0x8262BAF8 = "CRT_tan"                  # tan (f1 -> f1), 17 call sites; Living_Move calls it with the edge angle (0x825522A4, after lfd f30 0x82552278)
+# Frame rate audit part 4. Role read from the image:
+0x82283B00 = "Weapon_TryFire"           # (weapon class r3, shooter r6, weapon state r7, &fire flags r8, mode r9): mode 0: interval rate = [game +0x404] x fire mode +4 (fire_rate), flag 2 against +0x20, flag 1 against +0x1C; blocked if now - last < rate (float), else last = now
+# Input. Role read from the image, as in Far Cry Instincts Evolution Recomp (MIT) 0x00030CB2:
+0x8228BC78 = "Player_LookInput"          # (target controller r3, command r4 = client +0x38C, f1 TURNLR, f2 TURNUD): yaw/pitch of the frame -> command +0xBC/+0xC0 (degrees)
+# Graphics extras, FOV factor (src/fcp/camera_fov.cpp). Role read statically from the image:
+0x825C37D8 = "CCamera_Update"            # (camera r3 = camera object + 4): projection +0x23C from fov +0x3C / aspect +0x1B4 (ortho +0x32C = 0), frustum from tan(fov/2); second projection +0x2BC with angle +0x40
+# Cache for the game's shader compiler. Roles read from the image:
+0x82657460 = "D3DX_CreateBuffer"         # (size, &buffer) -> HRESULT; 0x10 object vtable 0x82005A68, init via vtable +0x18; target of the thunk 0x82657530
+0x8230BEA0 = "XMemAlloc"                 # (size, attributes) -> pointer; D3DX passes attributes 0x24810000
+0x8267A090 = "D3DX_ConstantTable_Construct" # (this): vtable 0x8200A3F8, reference count 1, fields 0; called by the compiler 0x826991F0 and D3DXGetShaderConstantTable 0x8264B7F0
+0x8267A0C0 = "D3DX_ConstantTable_Init"   # (this, CTAB blob, size, flag) -> HRESULT; copies the blob (+8/+0xC), builds the constants; the compiler calls it with flag 0 (0x82699210)
+
+# [vector_math]: all keys "exact" instead of the default "fast" (decided 2026-11-12).
+# Measured with predator_semtest: against 3,236 hardware vectors "fast" differs in 1,472 cases
+# (598 sites in the game), "exact" in 0. Accuracy before speed; the performance cost is measured
+# specifically before the handheld measurements. Back to the SDK behavior: remove this block.
+[vector_math]
+vmaddfp = "exact"
+vnmsubfp = "exact"
+vmsum3fp128 = "exact"
+vmsum4fp128 = "exact"
+vrefp = "exact"
+vrsqrtefp = "exact"
+vexptefp = "exact"
+fres = "exact"
+frsqrte = "exact"
+
+# [fp_rules] (rexglue/UPSTREAM.md, change 70): on since 2026-11-12 (accuracy before speed, like
+# [vector_math]). Measured: NaNs occur in the game (~3,000/s, of which ~800/s with different bits than
+# on the 360), and in no run do they reach a site that reads float bits as an integer; fmadds rounds
+# 5-7 times per run differently by 1 ulp. Cost: rexguest 38.96 -> 44.41 MB; A/B without other processes,
+# 21_dunea, FCP_FPS=120, 3 alternating pairs: off 104.1 frames/s / 18.9 ms CPU per frame, on 103.7 / 18.7
+# (within noise). Back to the SDK behavior: nan = "host", vmx_nan = "host", fmadds_rounding = "double",
+# or at codegen time FCP_CODEGEN_ORIGINAL=fp_nan,vmx_nan,fmadds_single.
+[fp_rules]
+nan = "ppc"
+vmx_nan = "ppc"
+fmadds_rounding = "single"

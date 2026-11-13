@@ -1,0 +1,9 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+#pragma once
+#include <stdlib.h>
+namespace std {
+using ::size_t;
+using ::malloc; using ::calloc; using ::realloc; using ::free; using ::abort; using ::getenv;
+using ::abs; using ::llabs;
+inline long long abs(long long v) { return ::llabs(v); }
+}  // namespace std

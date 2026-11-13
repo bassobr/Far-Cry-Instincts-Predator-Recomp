@@ -1,0 +1,35 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+// Only for constexpr use in the SDK headers (rex/ppc/mmio.h); no optional crosses a DLL boundary.
+#pragma once
+#include <type_traits>
+#include <utility>
+namespace std {
+struct nullopt_t {
+  explicit constexpr nullopt_t(int) noexcept {}
+};
+inline constexpr nullopt_t nullopt{0};
+template <class T>
+class optional {
+ public:
+  using value_type = T;
+  constexpr optional() noexcept : has_(false), dummy_() {}
+  constexpr optional(nullopt_t) noexcept : has_(false), dummy_() {}
+  constexpr optional(const T& v) : has_(true), value_(v) {}
+  constexpr bool has_value() const noexcept { return has_; }
+  constexpr explicit operator bool() const noexcept { return has_; }
+  constexpr const T& value() const { return value_; }
+  constexpr const T& operator*() const { return value_; }
+  constexpr const T* operator->() const { return &value_; }
+  template <class U>
+  constexpr T value_or(U&& u) const {
+    return has_ ? value_ : static_cast<T>(std::forward<U>(u));
+  }
+
+ private:
+  bool has_;
+  union {
+    char dummy_;
+    T value_;
+  };
+};
+}  // namespace std

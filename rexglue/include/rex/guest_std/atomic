@@ -1,0 +1,163 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+// On the __atomic builtins, which give the same x86-64 instructions as the MSVC STL (plain loads and stores for
+// relaxed/acquire/release, xchg for seq_cst stores, lock-prefixed read-modify-write).
+#pragma once
+#include <cstddef>
+#include <cstdint>
+#include <type_traits>
+namespace std {
+enum class memory_order : int { relaxed, consume, acquire, release, acq_rel, seq_cst };
+inline constexpr memory_order memory_order_relaxed = memory_order::relaxed;
+inline constexpr memory_order memory_order_consume = memory_order::consume;
+inline constexpr memory_order memory_order_acquire = memory_order::acquire;
+inline constexpr memory_order memory_order_release = memory_order::release;
+inline constexpr memory_order memory_order_acq_rel = memory_order::acq_rel;
+inline constexpr memory_order memory_order_seq_cst = memory_order::seq_cst;
+
+namespace fcp_detail {
+constexpr int Order(memory_order o) noexcept { return static_cast<int>(o); }
+// The failure order of a compare-exchange given only the success order.
+constexpr int FailOrder(memory_order o) noexcept {
+  return o == memory_order::acq_rel   ? __ATOMIC_ACQUIRE
+         : o == memory_order::release ? __ATOMIC_RELAXED
+                                      : static_cast<int>(o);
+}
+template <class T>
+constexpr size_t AtomicAlign() noexcept {
+  return (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8) && alignof(T) < sizeof(T)
+             ? sizeof(T)
+             : alignof(T);
+}
+
+template <class T>
+struct AtomicOps {
+  static T Load(const T* p, memory_order o) noexcept {
+    T v;
+    __atomic_load(const_cast<T*>(p), &v, Order(o));
+    return v;
+  }
+  static void Store(T* p, T v, memory_order o) noexcept { __atomic_store(p, &v, Order(o)); }
+  static T Exchange(T* p, T v, memory_order o) noexcept {
+    T r;
+    __atomic_exchange(p, &v, &r, Order(o));
+    return r;
+  }
+  static bool CompareExchange(T* p, T& expected, T desired, bool weak, memory_order s, int f) noexcept {
+    return __atomic_compare_exchange(p, &expected, &desired, weak, Order(s), f);
+  }
+};
+}  // namespace fcp_detail
+
+// seq_cst as in the MSVC STL (a locked increment of a stack guard), so the generated code keeps the instructions
+// of the hosted build (measured: predator_recomp.0.cpp gives the same machine code apart from this fence).
+inline void atomic_thread_fence(memory_order o) noexcept {
+  if (o == memory_order::relaxed) {
+    return;
+  }
+  if (o == memory_order::seq_cst) {
+    volatile long guard;
+    (void)__atomic_fetch_add(&guard, 1, __ATOMIC_SEQ_CST);
+    __atomic_signal_fence(__ATOMIC_SEQ_CST);
+    return;
+  }
+  __atomic_signal_fence(__ATOMIC_SEQ_CST);
+}
+inline void atomic_signal_fence(memory_order o) noexcept { __atomic_signal_fence(static_cast<int>(o)); }
+
+template <class T>
+struct atomic {
+  using value_type = T;
+  static constexpr bool is_always_lock_free = __atomic_always_lock_free(sizeof(T), 0);
+
+  constexpr atomic() noexcept : value_() {}
+  constexpr atomic(T v) noexcept : value_(v) {}
+  atomic(const atomic&) = delete;
+  atomic& operator=(const atomic&) = delete;
+
+  T load(memory_order o = memory_order::seq_cst) const noexcept { return fcp_detail::AtomicOps<T>::Load(&value_, o); }
+  void store(T v, memory_order o = memory_order::seq_cst) noexcept { fcp_detail::AtomicOps<T>::Store(&value_, v, o); }
+  operator T() const noexcept { return load(); }
+  T operator=(T v) noexcept {
+    store(v);
+    return v;
+  }
+  T exchange(T v, memory_order o = memory_order::seq_cst) noexcept {
+    return fcp_detail::AtomicOps<T>::Exchange(&value_, v, o);
+  }
+  bool compare_exchange_strong(T& e, T d, memory_order o = memory_order::seq_cst) noexcept {
+    return fcp_detail::AtomicOps<T>::CompareExchange(&value_, e, d, false, o, fcp_detail::FailOrder(o));
+  }
+  bool compare_exchange_strong(T& e, T d, memory_order s, memory_order f) noexcept {
+    return fcp_detail::AtomicOps<T>::CompareExchange(&value_, e, d, false, s, static_cast<int>(f));
+  }
+  bool compare_exchange_weak(T& e, T d, memory_order o = memory_order::seq_cst) noexcept {
+    return fcp_detail::AtomicOps<T>::CompareExchange(&value_, e, d, true, o, fcp_detail::FailOrder(o));
+  }
+  bool compare_exchange_weak(T& e, T d, memory_order s, memory_order f) noexcept {
+    return fcp_detail::AtomicOps<T>::CompareExchange(&value_, e, d, true, s, static_cast<int>(f));
+  }
+  T fetch_add(T v, memory_order o = memory_order::seq_cst) noexcept
+    requires(__is_integral(T))
+  {
+    return __atomic_fetch_add(&value_, v, static_cast<int>(o));
+  }
+  T fetch_sub(T v, memory_order o = memory_order::seq_cst) noexcept
+    requires(__is_integral(T))
+  {
+    return __atomic_fetch_sub(&value_, v, static_cast<int>(o));
+  }
+  T fetch_and(T v, memory_order o = memory_order::seq_cst) noexcept
+    requires(__is_integral(T))
+  {
+    return __atomic_fetch_and(&value_, v, static_cast<int>(o));
+  }
+  T fetch_or(T v, memory_order o = memory_order::seq_cst) noexcept
+    requires(__is_integral(T))
+  {
+    return __atomic_fetch_or(&value_, v, static_cast<int>(o));
+  }
+  T fetch_xor(T v, memory_order o = memory_order::seq_cst) noexcept
+    requires(__is_integral(T))
+  {
+    return __atomic_fetch_xor(&value_, v, static_cast<int>(o));
+  }
+
+ private:
+  alignas(fcp_detail::AtomicAlign<T>()) T value_;
+};
+
+template <class T>
+struct atomic_ref {
+  using value_type = T;
+  static constexpr bool is_always_lock_free = __atomic_always_lock_free(sizeof(T), 0);
+  static constexpr size_t required_alignment = fcp_detail::AtomicAlign<T>();
+
+  explicit atomic_ref(T& obj) noexcept : ptr_(&obj) {}
+  atomic_ref(const atomic_ref&) noexcept = default;
+
+  T load(memory_order o = memory_order::seq_cst) const noexcept { return fcp_detail::AtomicOps<T>::Load(ptr_, o); }
+  void store(T v, memory_order o = memory_order::seq_cst) const noexcept {
+    fcp_detail::AtomicOps<T>::Store(ptr_, v, o);
+  }
+  T exchange(T v, memory_order o = memory_order::seq_cst) const noexcept {
+    return fcp_detail::AtomicOps<T>::Exchange(ptr_, v, o);
+  }
+  bool compare_exchange_strong(T& e, T d, memory_order o = memory_order::seq_cst) const noexcept {
+    return fcp_detail::AtomicOps<T>::CompareExchange(ptr_, e, d, false, o, fcp_detail::FailOrder(o));
+  }
+  bool compare_exchange_strong(T& e, T d, memory_order s, memory_order f) const noexcept {
+    return fcp_detail::AtomicOps<T>::CompareExchange(ptr_, e, d, false, s, static_cast<int>(f));
+  }
+  bool compare_exchange_weak(T& e, T d, memory_order o = memory_order::seq_cst) const noexcept {
+    return fcp_detail::AtomicOps<T>::CompareExchange(ptr_, e, d, true, o, fcp_detail::FailOrder(o));
+  }
+  T fetch_add(T v, memory_order o = memory_order::seq_cst) const noexcept
+    requires(__is_integral(T))
+  {
+    return __atomic_fetch_add(ptr_, v, static_cast<int>(o));
+  }
+
+ private:
+  T* ptr_;
+};
+}  // namespace std

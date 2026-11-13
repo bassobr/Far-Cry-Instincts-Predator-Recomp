@@ -1,0 +1,102 @@
+# DRAFT (not run, not enabled: this private repository has no remote). Release build of Far Cry Instincts Predator
+# Recomp: predator.exe without any game code, the runtime DLLs and the compiler folder that builds the game code on
+# the player's first start (src/fcp/game_code.cpp). There is no disc image here:
+# the configure step warns that FCP_GAME_ISO is missing, and only targets that need no game data are built
+# (predator, fcshaders_tool, predator_code_libs via `dist`). Never codegen, predator_code.dll, the semantic test
+# (it reads functions of the game) or the shader pack. tools/dist.ps1 refuses anything derived from the game, and
+# the release job checks the zip again.
+# Derived from .github/workflows/release.yml of Far Cry Instincts Recomp (MIT, same author); action SHAs as there.
+name: Release
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          V=$(tr -d '[:space:]' < VERSION)
+          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION $V" >&2; exit 1
+          fi
+      - name: Cache the LLVM download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: llvm-download
+          key: llvm-22.1.8-x86_64-pc-windows-msvc
+      # The same pinned LLVM builds the executable and is bundled in compiler\: the game code ABI hash contains its
+      # version (cmake/fcp_game_code_abi.cmake), and the first-start flags are made for it.
+      - name: LLVM (pinned, checksum verified)
+        run: tools\get_llvm.ps1 -Out toolchain\llvm -Cache llvm-download
+      - name: Dependencies (pinned commits)
+        run: |
+          tools\get_deps.ps1
+          tools\get_renderer_deps.ps1
+          tools\get_lzma.ps1
+      - name: Build predator.exe and the release folder (no disc image, no game code)
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VSDIR=%%i"
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          set "PATH=%CD%\toolchain\llvm\bin;%PATH%"
+          for /f "usebackq delims=" %%p in (`where python`) do if not defined PY set "PY=%%p"
+          cmake --preset release -DFCP_PYTHON="%PY%" -DFCP_SEMTEST=OFF -DFCP_GAME_ISO=none || exit /b 1
+          cmake --build --preset release --target dist || exit /b 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-zip
+          path: |
+            out/dist/*.zip
+            out/dist/SHA256SUMS
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-zip
+      - name: Check the package
+        run: |
+          sha256sum -c SHA256SUMS
+          ZIP="Far-Cry-Instincts-Predator-Recomp-${GITHUB_REF_NAME}-win64.zip"
+          for f in predator.exe rexkernel.dll rexffmpeg.dll SDL3.dll dxcompiler.dll fcshaders.exe compiler/bin/clang.exe \
+                   compiler/bin/lld-link.exe compiler/bin/rexglue.exe compiler/src/entry.cpp compiler/src/runtime.cpp \
+                   compiler/config/default.toml compiler/LICENSE-LLVM.txt README.md LICENSE THIRD_PARTY_NOTICES.md; do
+            unzip -Z1 "$ZIP" | grep -qx "[^/]*/$f" || { echo "missing $f" >&2; exit 1; }
+          done
+          # no game code, no generated sources, no game files, no caches, no user data
+          if unzip -Z1 "$ZIP" | grep -iE 'predator_code|game_code/|generated/|work/|predator_(funcs|recomp|init|register|pch)|portable\.txt|predator\.toml|\.(xex|iso|xiso|obj|pdb|fcpack|profraw|log)$'; then
+            echo "game code, game files or files derived from the game in the package" >&2; exit 1
+          fi
+          # an executable or DLL with recompiled code has the section "rexguest" (the name also occurs as a string in
+          # predator.exe, so the section tables are read)
+          mkdir -p chk && unzip -q "$ZIP" '*.exe' '*.dll' -d chk
+          find chk -type f \( -name '*.exe' -o -name '*.dll' \) | while read -r b; do
+            if objdump -h "$b" | grep -qw rexguest; then echo "$b has the section rexguest (recompiled code)" >&2; exit 1; fi
+          done
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: Far-Cry-Instincts-Predator-Recomp-*.zip
+      - name: Create GitHub release (draft)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" Far-Cry-Instincts-Predator-Recomp-*.zip SHA256SUMS \
+            --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --draft --generate-notes

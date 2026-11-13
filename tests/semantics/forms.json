@@ -1,0 +1,11541 @@
+{
+ "code_base": 2181758976,
+ "code_size": 8184468,
+ "comment_mismatches": 0,
+ "forms": {
+  "add": {
+   "count": 31128,
+   "game": 21731,
+   "id": 1058,
+   "lib": 9397,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 31128,
+     "ops": "r10,r10,r9",
+     "word": 2102020628
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181868416,
+     "count": 31128,
+     "key": "R,R,R",
+     "ops": "r10,r10,r9",
+     "word": 2102020628
+    }
+   ],
+   "xenia": {
+    "addx": 31128
+   }
+  },
+  "add.": {
+   "count": 49,
+   "game": 28,
+   "id": 1058,
+   "lib": 21,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 49,
+     "ops": "r11,r11,r10",
+     "word": 2104185365
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188092972,
+     "count": 49,
+     "key": "R,R,R",
+     "ops": "r11,r11,r10",
+     "word": 2104185365
+    }
+   ],
+   "xenia": {
+    "addx": 49
+   }
+  },
+  "addi": {
+   "count": 195644,
+   "game": 141786,
+   "id": 580,
+   "lib": 53858,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 195644,
+     "ops": "r1,r1,96",
+     "word": 941686880
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181813012,
+     "count": 195644,
+     "key": "R,R,N",
+     "ops": "r1,r1,96",
+     "word": 941686880
+    }
+   ],
+   "xenia": {
+    "addi": 195644
+   }
+  },
+  "addic.": {
+   "count": 2337,
+   "game": 362,
+   "id": 575,
+   "lib": 1975,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2337,
+     "ops": "r3,r4,-2",
+     "word": 879034366
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182093112,
+     "count": 2337,
+     "key": "R,R,N",
+     "ops": "r3,r4,-2",
+     "word": 879034366
+    }
+   ],
+   "xenia": {
+    "addicx": 2337
+   }
+  },
+  "addis": {
+   "count": 1680,
+   "game": 1379,
+   "id": 586,
+   "lib": 301,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1680,
+     "ops": "r3,r10,24576",
+     "word": 1013604352
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182131132,
+     "count": 1680,
+     "key": "R,R,N",
+     "ops": "r3,r10,24576",
+     "word": 1013604352
+    }
+   ],
+   "xenia": {
+    "addis": 1680
+   }
+  },
+  "addze": {
+   "count": 1417,
+   "game": 1272,
+   "id": 1022,
+   "lib": 145,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1417,
+     "ops": "r10,r9",
+     "word": 2101936532
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183765816,
+     "count": 1417,
+     "key": "R,R",
+     "ops": "r10,r9",
+     "word": 2101936532
+    }
+   ],
+   "xenia": {
+    "addzex": 1417
+   }
+  },
+  "addze.": {
+   "count": 4,
+   "game": 0,
+   "id": 1022,
+   "lib": 4,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4,
+     "ops": "r26,r11",
+     "word": 2135622037
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189473596,
+     "count": 4,
+     "key": "R,R",
+     "ops": "r26,r11",
+     "word": 2135622037
+    }
+   ],
+   "xenia": {
+    "addzex": 4
+   }
+  },
+  "and": {
+   "count": 1775,
+   "game": 995,
+   "id": 927,
+   "lib": 780,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1775,
+     "ops": "r4,r5,r10",
+     "word": 2091143224
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186500236,
+     "count": 1775,
+     "key": "R,R,R",
+     "ops": "r4,r5,r10",
+     "word": 2091143224
+    }
+   ],
+   "xenia": {
+    "andx": 1775
+   }
+  },
+  "and.": {
+   "count": 167,
+   "game": 0,
+   "id": 927,
+   "lib": 167,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 167,
+     "ops": "r11,r31,r26",
+     "word": 2146160697
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188061732,
+     "count": 167,
+     "key": "R,R,R",
+     "ops": "r11,r31,r26",
+     "word": 2146160697
+    }
+   ],
+   "xenia": {
+    "andx": 167
+   }
+  },
+  "andc": {
+   "count": 572,
+   "game": 178,
+   "id": 945,
+   "lib": 394,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 572,
+     "ops": "r6,r10,r8",
+     "word": 2101756024
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183766400,
+     "count": 572,
+     "key": "R,R,R",
+     "ops": "r6,r10,r8",
+     "word": 2101756024
+    }
+   ],
+   "xenia": {
+    "andcx": 572
+   }
+  },
+  "andc.": {
+   "count": 10,
+   "game": 0,
+   "id": 945,
+   "lib": 10,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 10,
+     "ops": "r9,r9,r8",
+     "word": 2099855481
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189057344,
+     "count": 10,
+     "key": "R,R,R",
+     "ops": "r9,r9,r8",
+     "word": 2099855481
+    }
+   ],
+   "xenia": {
+    "andcx": 10
+   }
+  },
+  "andi.": {
+   "count": 499,
+   "game": 254,
+   "id": 852,
+   "lib": 245,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 499,
+     "ops": "r11,r11,4128",
+     "word": 1902841888
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188170916,
+     "count": 499,
+     "key": "R,R,N",
+     "ops": "r11,r11,4128",
+     "word": 1902841888
+    }
+   ],
+   "xenia": {
+    "andix": 499
+   }
+  },
+  "andis.": {
+   "count": 225,
+   "game": 205,
+   "id": 854,
+   "lib": 20,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 225,
+     "ops": "r10,r11,65440",
+     "word": 1969946528
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186527324,
+     "count": 225,
+     "key": "R,R,N",
+     "ops": "r10,r11,65440",
+     "word": 1969946528
+    }
+   ],
+   "xenia": {
+    "andisx": 225
+   }
+  },
+  "b": {
+   "count": 56124,
+   "game": 36495,
+   "id": 690,
+   "lib": 19629,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 56124,
+     "ops": "0x820bfaac",
+     "word": 1207959596
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181823104,
+     "count": 56124,
+     "key": "N",
+     "ops": "0x820bfaac",
+     "word": 1207959596
+    }
+   ],
+   "xenia": {
+    "bx": 56124
+   }
+  },
+  "bctr": {
+   "count": 1169,
+   "game": 988,
+   "id": 793,
+   "lib": 181,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1169,
+     "ops": "",
+     "word": 1317012512
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181810404,
+     "count": 1169,
+     "key": "",
+     "ops": "",
+     "word": 1317012512
+    }
+   ],
+   "xenia": {
+    "bcctrx": 1169
+   }
+  },
+  "bctrl": {
+   "count": 17043,
+   "game": 14382,
+   "id": 794,
+   "lib": 2661,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 17043,
+     "ops": "",
+     "word": 1317012513
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181927028,
+     "count": 17043,
+     "key": "",
+     "ops": "",
+     "word": 1317012513
+    }
+   ],
+   "xenia": {
+    "bcctrx": 17043
+   }
+  },
+  "bdnz": {
+   "count": 2314,
+   "game": 1723,
+   "id": 589,
+   "lib": 591,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2314,
+     "ops": "0x820e9de0",
+     "word": 1107361776
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181996016,
+     "count": 2314,
+     "key": "N",
+     "ops": "0x820e9de0",
+     "word": 1107361776
+    }
+   ],
+   "xenia": {
+    "bcx": 2314
+   }
+  },
+  "bdnz+": {
+   "count": 5,
+   "game": 0,
+   "id": 589,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5,
+     "ops": "0x8262c748",
+     "word": 1126236140
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187511644,
+     "count": 5,
+     "key": "N",
+     "ops": "0x8262c748",
+     "word": 1126236140
+    }
+   ],
+   "xenia": {
+    "bcx": 5
+   }
+  },
+  "bdnzf": {
+   "count": 6,
+   "game": 0,
+   "id": 653,
+   "lib": 6,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "4*cr1+eq,0x82630b58",
+     "word": 1074135048
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187511600,
+     "count": 4,
+     "key": "eq,N",
+     "ops": "eq,0x8262c720",
+     "word": 1073938416
+    },
+    {
+     "addr": 2187529040,
+     "count": 2,
+     "key": "N*CR+eq,N",
+     "ops": "4*cr1+eq,0x82630b58",
+     "word": 1074135048
+    }
+   ],
+   "xenia": {
+    "bcx": 6
+   }
+  },
+  "bdz-": {
+   "count": 2,
+   "game": 0,
+   "id": 597,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "0x8262c78c",
+     "word": 1128267800
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187511668,
+     "count": 2,
+     "key": "N",
+     "ops": "0x8262c78c",
+     "word": 1128267800
+    }
+   ],
+   "xenia": {
+    "bcx": 2
+   }
+  },
+  "bdzlr-": {
+   "count": 2,
+   "game": 0,
+   "id": 701,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "",
+     "word": 1329594400
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187511708,
+     "count": 2,
+     "key": "",
+     "ops": "",
+     "word": 1329594400
+    }
+   ],
+   "xenia": {
+    "bclrx": 2
+   }
+  },
+  "beq": {
+   "count": 80578,
+   "game": 52649,
+   "id": 609,
+   "lib": 27929,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 80578,
+     "ops": "cr6,0x820d3288",
+     "word": 1100611592
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181902976,
+     "count": 68924,
+     "key": "CR,N",
+     "ops": "cr6,0x820d3288",
+     "word": 1100611592
+    },
+    {
+     "addr": 2182093116,
+     "count": 11654,
+     "key": "N",
+     "ops": "0x82101964",
+     "word": 1099038760
+    }
+   ],
+   "xenia": {
+    "bcx": 80578
+   }
+  },
+  "beq+": {
+   "count": 1,
+   "game": 0,
+   "id": 609,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "0x8262c760",
+     "word": 1105330208
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187511616,
+     "count": 1,
+     "key": "N",
+     "ops": "0x8262c760",
+     "word": 1105330208
+    }
+   ],
+   "xenia": {
+    "bcx": 1
+   }
+  },
+  "beq-": {
+   "count": 4,
+   "game": 0,
+   "id": 609,
+   "lib": 4,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4,
+     "ops": "0x82634f40",
+     "word": 1103233068
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187546388,
+     "count": 4,
+     "key": "N",
+     "ops": "0x82634f40",
+     "word": 1103233068
+    }
+   ],
+   "xenia": {
+    "bcx": 4
+   }
+  },
+  "beqlr": {
+   "count": 634,
+   "game": 452,
+   "id": 711,
+   "lib": 182,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 634,
+     "ops": "cr6",
+     "word": 1301938208
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181810384,
+     "count": 570,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1301938208
+    },
+    {
+     "addr": 2188575456,
+     "count": 64,
+     "key": "",
+     "ops": "",
+     "word": 1300365344
+    }
+   ],
+   "xenia": {
+    "bclrx": 634
+   }
+  },
+  "beqlr+": {
+   "count": 3,
+   "game": 0,
+   "id": 711,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "",
+     "word": 1306656800
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187511700,
+     "count": 3,
+     "key": "",
+     "ops": "",
+     "word": 1306656800
+    }
+   ],
+   "xenia": {
+    "bclrx": 3
+   }
+  },
+  "beqlr-": {
+   "count": 1,
+   "game": 0,
+   "id": 711,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "",
+     "word": 1304559648
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187509860,
+     "count": 1,
+     "key": "",
+     "ops": "",
+     "word": 1304559648
+    }
+   ],
+   "xenia": {
+    "bclrx": 1
+   }
+  },
+  "bge": {
+   "count": 9571,
+   "game": 6466,
+   "id": 621,
+   "lib": 3105,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 9571,
+     "ops": "cr6,0x820bfa84",
+     "word": 1083703340
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181823064,
+     "count": 9164,
+     "key": "CR,N",
+     "ops": "cr6,0x820bfa84",
+     "word": 1083703340
+    },
+    {
+     "addr": 2187665580,
+     "count": 407,
+     "key": "N",
+     "ops": "0x826520cc",
+     "word": 1082130464
+    }
+   ],
+   "xenia": {
+    "bcx": 9571
+   }
+  },
+  "bge+": {
+   "count": 1,
+   "game": 0,
+   "id": 621,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "0x8262c070",
+     "word": 1088421896
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187509864,
+     "count": 1,
+     "key": "N",
+     "ops": "0x8262c070",
+     "word": 1088421896
+    }
+   ],
+   "xenia": {
+    "bcx": 1
+   }
+  },
+  "bge-": {
+   "count": 1,
+   "game": 0,
+   "id": 621,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "0x82634f40",
+     "word": 1086324768
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187546400,
+     "count": 1,
+     "key": "N",
+     "ops": "0x82634f40",
+     "word": 1086324768
+    }
+   ],
+   "xenia": {
+    "bcx": 1
+   }
+  },
+  "bgelr": {
+   "count": 70,
+   "game": 56,
+   "id": 721,
+   "lib": 14,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 70,
+     "ops": "cr6",
+     "word": 1285029920
+    }
+   },
+   "variants": [
+    {
+     "addr": 2184719696,
+     "count": 70,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1285029920
+    }
+   ],
+   "xenia": {
+    "bclrx": 70
+   }
+  },
+  "bgt": {
+   "count": 5603,
+   "game": 4011,
+   "id": 605,
+   "lib": 1592,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 5603,
+     "ops": "cr6,0x820de9a4",
+     "word": 1100546056
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181949852,
+     "count": 5494,
+     "key": "CR,N",
+     "ops": "cr6,0x820de9a4",
+     "word": 1100546056
+    },
+    {
+     "addr": 2185732132,
+     "count": 109,
+     "key": "N",
+     "ops": "0x8247a02c",
+     "word": 1098973192
+    }
+   ],
+   "xenia": {
+    "bcx": 5603
+   }
+  },
+  "bgtlr": {
+   "count": 46,
+   "game": 32,
+   "id": 707,
+   "lib": 14,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 46,
+     "ops": "cr6",
+     "word": 1301872672
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187505608,
+     "count": 42,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1301872672
+    },
+    {
+     "addr": 2185177428,
+     "count": 4,
+     "key": "",
+     "ops": "",
+     "word": 1300299808
+    }
+   ],
+   "xenia": {
+    "bclrx": 46
+   }
+  },
+  "bl": {
+   "count": 119229,
+   "game": 88310,
+   "id": 691,
+   "lib": 30919,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 119229,
+     "ops": "0x82627f50",
+     "word": 1213639749
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181813004,
+     "count": 119229,
+     "key": "N",
+     "ops": "0x82627f50",
+     "word": 1213639749
+    }
+   ],
+   "xenia": {
+    "bx": 119229
+   }
+  },
+  "ble": {
+   "count": 10447,
+   "game": 6742,
+   "id": 629,
+   "lib": 3705,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 10447,
+     "ops": "cr6,0x820d32ec",
+     "word": 1083768840
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181903076,
+     "count": 10292,
+     "key": "CR,N",
+     "ops": "cr6,0x820d32ec",
+     "word": 1083768840
+    },
+    {
+     "addr": 2182190664,
+     "count": 155,
+     "key": "N",
+     "ops": "0x8211966c",
+     "word": 1082196004
+    }
+   ],
+   "xenia": {
+    "bcx": 10447
+   }
+  },
+  "blelr": {
+   "count": 67,
+   "game": 39,
+   "id": 729,
+   "lib": 28,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 67,
+     "ops": "cr6",
+     "word": 1285095456
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189885564,
+     "count": 63,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1285095456
+    },
+    {
+     "addr": 2188896480,
+     "count": 4,
+     "key": "",
+     "ops": "",
+     "word": 1283522592
+    }
+   ],
+   "xenia": {
+    "bclrx": 67
+   }
+  },
+  "blr": {
+   "count": 14080,
+   "game": 10182,
+   "id": 695,
+   "lib": 3898,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 14080,
+     "ops": "",
+     "word": 1317011488
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181759000,
+     "count": 14080,
+     "key": "",
+     "ops": "",
+     "word": 1317011488
+    }
+   ],
+   "xenia": {
+    "bclrx": 14080
+   }
+  },
+  "blrl": {
+   "count": 1,
+   "game": 0,
+   "id": 697,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "",
+     "word": 1317011489
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187601500,
+     "count": 1,
+     "key": "",
+     "ops": "",
+     "word": 1317011489
+    }
+   ],
+   "xenia": {
+    "bclrx": 1
+   }
+  },
+  "blt": {
+   "count": 17360,
+   "game": 8533,
+   "id": 601,
+   "lib": 8827,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 17360,
+     "ops": "cr6,0x820d32e8",
+     "word": 1100480528
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181903064,
+     "count": 14793,
+     "key": "CR,N",
+     "ops": "cr6,0x820d32e8",
+     "word": 1100480528
+    },
+    {
+     "addr": 2187680040,
+     "count": 2567,
+     "key": "N",
+     "ops": "0x82655974",
+     "word": 1098907724
+    }
+   ],
+   "xenia": {
+    "bcx": 17360
+   }
+  },
+  "bltlr": {
+   "count": 51,
+   "game": 36,
+   "id": 703,
+   "lib": 15,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 51,
+     "ops": "cr6",
+     "word": 1301807136
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185955676,
+     "count": 48,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1301807136
+    },
+    {
+     "addr": 2188900832,
+     "count": 3,
+     "key": "",
+     "ops": "",
+     "word": 1300234272
+    }
+   ],
+   "xenia": {
+    "bclrx": 51
+   }
+  },
+  "bne": {
+   "count": 45449,
+   "game": 27325,
+   "id": 637,
+   "lib": 18124,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 45449,
+     "ops": "cr6,0x820b0014",
+     "word": 1083834376
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181758988,
+     "count": 39164,
+     "key": "CR,N",
+     "ops": "cr6,0x820b0014",
+     "word": 1083834376
+    },
+    {
+     "addr": 2182576712,
+     "count": 6285,
+     "key": "N",
+     "ops": "0x82177a5c",
+     "word": 1082261524
+    }
+   ],
+   "xenia": {
+    "bcx": 45449
+   }
+  },
+  "bne-": {
+   "count": 2,
+   "game": 0,
+   "id": 637,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "0x8262c0ec",
+     "word": 1086455868
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187509936,
+     "count": 2,
+     "key": "N",
+     "ops": "0x8262c0ec",
+     "word": 1086455868
+    }
+   ],
+   "xenia": {
+    "bcx": 2
+   }
+  },
+  "bnectr": {
+   "count": 1,
+   "game": 0,
+   "id": 813,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "",
+     "word": 1283589152
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188896528,
+     "count": 1,
+     "key": "",
+     "ops": "",
+     "word": 1283589152
+    }
+   ],
+   "xenia": {
+    "bcctrx": 1
+   }
+  },
+  "bnelr": {
+   "count": 344,
+   "game": 254,
+   "id": 737,
+   "lib": 90,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 344,
+     "ops": "cr6",
+     "word": 1285160992
+    }
+   },
+   "variants": [
+    {
+     "addr": 2184729740,
+     "count": 309,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1285160992
+    },
+    {
+     "addr": 2189090332,
+     "count": 35,
+     "key": "",
+     "ops": "",
+     "word": 1283588128
+    }
+   ],
+   "xenia": {
+    "bclrx": 344
+   }
+  },
+  "bns": {
+   "count": 91,
+   "game": 75,
+   "id": 641,
+   "lib": 16,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 91,
+     "ops": "cr6,0x82154224",
+     "word": 1083900240
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182430932,
+     "count": 91,
+     "key": "CR,N",
+     "ops": "cr6,0x82154224",
+     "word": 1083900240
+    }
+   ],
+   "xenia": {
+    "bcx": 91
+   }
+  },
+  "bnslr": {
+   "count": 4,
+   "game": 2,
+   "id": 741,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4,
+     "ops": "cr6",
+     "word": 1285226528
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187563576,
+     "count": 4,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1285226528
+    }
+   ],
+   "xenia": {
+    "bclrx": 4
+   }
+  },
+  "bso": {
+   "count": 806,
+   "game": 610,
+   "id": 613,
+   "lib": 196,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 806,
+     "ops": "cr6,0x82154234",
+     "word": 1100677140
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182431264,
+     "count": 806,
+     "key": "CR,N",
+     "ops": "cr6,0x82154234",
+     "word": 1100677140
+    }
+   ],
+   "xenia": {
+    "bcx": 806
+   }
+  },
+  "bsolr": {
+   "count": 4,
+   "game": 4,
+   "id": 715,
+   "lib": 0,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4,
+     "ops": "cr6",
+     "word": 1302003744
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183057444,
+     "count": 4,
+     "key": "CR",
+     "ops": "cr6",
+     "word": 1302003744
+    }
+   ],
+   "xenia": {
+    "bclrx": 4
+   }
+  },
+  "clrldi": {
+   "count": 584,
+   "game": 180,
+   "id": 857,
+   "lib": 404,
+   "n_variants": 11,
+   "regclass": {
+    "0": {
+     "count": 584,
+     "ops": "r7,r8,1",
+     "word": 2030501952
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189037996,
+     "count": 478,
+     "key": "R,R,32",
+     "ops": "r11,r28,32",
+     "word": 2072707104
+    },
+    {
+     "addr": 2189038080,
+     "count": 68,
+     "key": "R,R,58",
+     "ops": "r6,r9,58",
+     "word": 2032535200
+    },
+    {
+     "addr": 2189031384,
+     "count": 9,
+     "key": "R,R,60",
+     "ops": "r9,r5,60",
+     "word": 2024343328
+    },
+    {
+     "addr": 2187906260,
+     "count": 8,
+     "key": "R,R,48",
+     "ops": "r9,r9,48",
+     "word": 2032731168
+    },
+    {
+     "addr": 2185358856,
+     "count": 6,
+     "key": "R,R,1",
+     "ops": "r7,r8,1",
+     "word": 2030501952
+    },
+    {
+     "addr": 2189374960,
+     "count": 6,
+     "key": "R,R,56",
+     "ops": "r10,r10,56",
+     "word": 2034894368
+    },
+    {
+     "addr": 2187564984,
+     "count": 3,
+     "key": "R,R,63",
+     "ops": "r11,r11,63",
+     "word": 2037057504
+    },
+    {
+     "addr": 2185879300,
+     "count": 2,
+     "key": "R,R,16",
+     "ops": "r12,r12,16",
+     "word": 2039219200
+    },
+    {
+     "addr": 2188665736,
+     "count": 2,
+     "key": "R,R,26",
+     "ops": "r12,r12,26",
+     "word": 2039219840
+    },
+    {
+     "addr": 2188663476,
+     "count": 1,
+     "key": "R,R,21",
+     "ops": "r10,r10,21",
+     "word": 2034894144
+    },
+    {
+     "addr": 2188663780,
+     "count": 1,
+     "key": "R,R,38",
+     "ops": "r10,r10,38",
+     "word": 2034893216
+    }
+   ],
+   "xenia": {
+    "rldiclx": 584
+   }
+  },
+  "clrlwi": {
+   "count": 22681,
+   "game": 18191,
+   "id": 832,
+   "lib": 4490,
+   "n_variants": 30,
+   "regclass": {
+    "0": {
+     "count": 22681,
+     "ops": "r3,r11,24",
+     "word": 1432553022
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181758996,
+     "count": 16161,
+     "key": "R,R,24",
+     "ops": "r3,r11,24",
+     "word": 1432553022
+    },
+    {
+     "addr": 2183463680,
+     "count": 1598,
+     "key": "R,R,31",
+     "ops": "r11,r30,31",
+     "word": 1472923646
+    },
+    {
+     "addr": 2184660376,
+     "count": 1188,
+     "key": "R,R,16",
+     "ops": "r31,r11,16",
+     "word": 1434387518
+    },
+    {
+     "addr": 2189038168,
+     "count": 775,
+     "key": "R,R,27",
+     "ops": "r10,r11,27",
+     "word": 1433011966
+    },
+    {
+     "addr": 2187519200,
+     "count": 549,
+     "key": "R,R,30",
+     "ops": "r5,r11,30",
+     "word": 1432684478
+    },
+    {
+     "addr": 2183098092,
+     "count": 387,
+     "key": "R,R,25",
+     "ops": "r5,r6,25",
+     "word": 1422198398
+    },
+    {
+     "addr": 2188527440,
+     "count": 340,
+     "key": "R,R,29",
+     "ops": "r4,r5,29",
+     "word": 1420035966
+    },
+    {
+     "addr": 2189042232,
+     "count": 339,
+     "key": "R,R,28",
+     "ops": "r11,r11,28",
+     "word": 1433077566
+    },
+    {
+     "addr": 2188170820,
+     "count": 274,
+     "key": "R,R,12",
+     "ops": "r31,r11,12",
+     "word": 1434387262
+    },
+    {
+     "addr": 2188612004,
+     "count": 206,
+     "key": "R,R,26",
+     "ops": "r9,r24,26",
+     "word": 1460209342
+    },
+    {
+     "addr": 2189905776,
+     "count": 183,
+     "key": "R,R,3",
+     "ops": "r8,r11,3",
+     "word": 1432879358
+    },
+    {
+     "addr": 2188575436,
+     "count": 129,
+     "key": "R,R,20",
+     "ops": "r10,r11,20",
+     "word": 1433011518
+    },
+    {
+     "addr": 2188952484,
+     "count": 91,
+     "key": "R,R,21",
+     "ops": "r4,r31,21",
+     "word": 1474561406
+    },
+    {
+     "addr": 2188437888,
+     "count": 90,
+     "key": "R,R,17",
+     "ops": "r11,r7,17",
+     "word": 1424688254
+    },
+    {
+     "addr": 2183766016,
+     "count": 72,
+     "key": "R,R,1",
+     "ops": "r8,r9,1",
+     "word": 1428684926
+    },
+    {
+     "addr": 2189539872,
+     "count": 63,
+     "key": "R,R,13",
+     "ops": "r8,r10,13",
+     "word": 1430782846
+    },
+    {
+     "addr": 2183331804,
+     "count": 56,
+     "key": "R,R,22",
+     "ops": "r5,r6,22",
+     "word": 1422198206
+    },
+    {
+     "addr": 2188595152,
+     "count": 47,
+     "key": "R,R,19",
+     "ops": "r10,r10,19",
+     "word": 1430914302
+    },
+    {
+     "addr": 2188611984,
+     "count": 26,
+     "key": "R,R,23",
+     "ops": "r26,r11,23",
+     "word": 1434060286
+    },
+    {
+     "addr": 2189465980,
+     "count": 24,
+     "key": "R,R,8",
+     "ops": "r11,r11,8",
+     "word": 1433076286
+    },
+    {
+     "addr": 2189307964,
+     "count": 21,
+     "key": "R,R,18",
+     "ops": "r10,r11,18",
+     "word": 1433011390
+    },
+    {
+     "addr": 2188683664,
+     "count": 15,
+     "key": "R,R,6",
+     "ops": "r11,r11,6",
+     "word": 1433076158
+    },
+    {
+     "addr": 2184510116,
+     "count": 12,
+     "key": "R,R,2",
+     "ops": "r8,r9,2",
+     "word": 1428684990
+    },
+    {
+     "addr": 2188952624,
+     "count": 11,
+     "key": "R,R,10",
+     "ops": "r11,r3,10",
+     "word": 1416299198
+    },
+    {
+     "addr": 2187560396,
+     "count": 8,
+     "key": "R,R,15",
+     "ops": "r10,r10,15",
+     "word": 1430914046
+    },
+    {
+     "addr": 2188642644,
+     "count": 6,
+     "key": "R,R,9",
+     "ops": "r11,r11,9",
+     "word": 1433076350
+    },
+    {
+     "addr": 2185233180,
+     "count": 4,
+     "key": "R,R,14",
+     "ops": "r6,r7,14",
+     "word": 1424360382
+    },
+    {
+     "addr": 2189466968,
+     "count": 3,
+     "key": "R,R,4",
+     "ops": "r11,r11,4",
+     "word": 1433076030
+    },
+    {
+     "addr": 2187546040,
+     "count": 2,
+     "key": "R,R,5",
+     "ops": "r11,r11,5",
+     "word": 1433076094
+    },
+    {
+     "addr": 2187962632,
+     "count": 1,
+     "key": "R,R,7",
+     "ops": "r11,r9,7",
+     "word": 1428881918
+    }
+   ],
+   "xenia": {
+    "rlwinmx": 22681
+   }
+  },
+  "clrlwi.": {
+   "count": 3750,
+   "game": 0,
+   "id": 832,
+   "lib": 3750,
+   "n_variants": 14,
+   "regclass": {
+    "0": {
+     "count": 3750,
+     "ops": "r11,r11,31",
+     "word": 1433077759
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189119724,
+     "count": 1811,
+     "key": "R,R,24",
+     "ops": "r11,r3,24",
+     "word": 1416300095
+    },
+    {
+     "addr": 2188061824,
+     "count": 1677,
+     "key": "R,R,31",
+     "ops": "r11,r11,31",
+     "word": 1433077759
+    },
+    {
+     "addr": 2188909676,
+     "count": 53,
+     "key": "R,R,30",
+     "ops": "r10,r11,30",
+     "word": 1433012159
+    },
+    {
+     "addr": 2188359752,
+     "count": 43,
+     "key": "R,R,12",
+     "ops": "r7,r11,12",
+     "word": 1432814399
+    },
+    {
+     "addr": 2189127216,
+     "count": 38,
+     "key": "R,R,27",
+     "ops": "r11,r8,27",
+     "word": 1426786047
+    },
+    {
+     "addr": 2188265776,
+     "count": 37,
+     "key": "R,R,16",
+     "ops": "r10,r10,16",
+     "word": 1430914111
+    },
+    {
+     "addr": 2189042004,
+     "count": 26,
+     "key": "R,R,28",
+     "ops": "r11,r11,28",
+     "word": 1433077567
+    },
+    {
+     "addr": 2189038152,
+     "count": 25,
+     "key": "R,R,29",
+     "ops": "r27,r11,29",
+     "word": 1434126207
+    },
+    {
+     "addr": 2189496672,
+     "count": 19,
+     "key": "R,R,1",
+     "ops": "r10,r11,1",
+     "word": 1433010303
+    },
+    {
+     "addr": 2188978284,
+     "count": 6,
+     "key": "R,R,26",
+     "ops": "r5,r11,26",
+     "word": 1432684223
+    },
+    {
+     "addr": 2187808464,
+     "count": 5,
+     "key": "R,R,25",
+     "ops": "r11,r11,25",
+     "word": 1433077375
+    },
+    {
+     "addr": 2188955192,
+     "count": 5,
+     "key": "R,R,21",
+     "ops": "r11,r30,21",
+     "word": 1472923007
+    },
+    {
+     "addr": 2187508208,
+     "count": 4,
+     "key": "R,R,13",
+     "ops": "r10,r10,13",
+     "word": 1430913919
+    },
+    {
+     "addr": 2189798572,
+     "count": 1,
+     "key": "R,R,19",
+     "ops": "r11,r11,19",
+     "word": 1433076991
+    }
+   ],
+   "xenia": {
+    "rlwinmx": 3750
+   }
+  },
+  "cmpd": {
+   "count": 78,
+   "game": 1,
+   "id": 866,
+   "lib": 77,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 78,
+     "ops": "cr6,r8,r30",
+     "word": 2133389312
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853420,
+     "count": 78,
+     "key": "CR,R,R",
+     "ops": "cr6,r8,r30",
+     "word": 2133389312
+    }
+   ],
+   "xenia": {
+    "cmp": 78
+   }
+  },
+  "cmpdi": {
+   "count": 84,
+   "game": 12,
+   "id": 573,
+   "lib": 72,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 84,
+     "ops": "cr6,r9,0",
+     "word": 791216128
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853072,
+     "count": 83,
+     "key": "CR,R,N",
+     "ops": "cr6,r9,0",
+     "word": 791216128
+    },
+    {
+     "addr": 2188898312,
+     "count": 1,
+     "key": "R,N",
+     "ops": "r3,0",
+     "word": 740491264
+    }
+   ],
+   "xenia": {
+    "cmpi": 84
+   }
+  },
+  "cmpld": {
+   "count": 115,
+   "game": 87,
+   "id": 932,
+   "lib": 28,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 115,
+     "ops": "cr6,r11,r29",
+     "word": 2133583936
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188699024,
+     "count": 115,
+     "key": "CR,R,R",
+     "ops": "cr6,r11,r29",
+     "word": 2133583936
+    }
+   ],
+   "xenia": {
+    "cmpl": 115
+   }
+  },
+  "cmpldi": {
+   "count": 118,
+   "game": 14,
+   "id": 570,
+   "lib": 104,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 118,
+     "ops": "cr6,r25,0",
+     "word": 725155840
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185451300,
+     "count": 118,
+     "key": "CR,R,N",
+     "ops": "cr6,r25,0",
+     "word": 725155840
+    }
+   ],
+   "xenia": {
+    "cmpli": 118
+   }
+  },
+  "cmplw": {
+   "count": 27505,
+   "game": 16607,
+   "id": 931,
+   "lib": 10898,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 27505,
+     "ops": "cr6,r5,r29",
+     "word": 2131093568
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181902968,
+     "count": 27501,
+     "key": "CR,R,R",
+     "ops": "cr6,r5,r29",
+     "word": 2131093568
+    },
+    {
+     "addr": 2187510072,
+     "count": 4,
+     "key": "R,R",
+     "ops": "r5,r6",
+     "word": 2080714816
+    }
+   ],
+   "xenia": {
+    "cmpl": 27505
+   }
+  },
+  "cmplwi": {
+   "count": 81609,
+   "game": 59809,
+   "id": 569,
+   "lib": 21800,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 81609,
+     "ops": "cr6,r11,0",
+     "word": 722141184
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181758980,
+     "count": 76949,
+     "key": "CR,R,N",
+     "ops": "cr6,r11,0",
+     "word": 722141184
+    },
+    {
+     "addr": 2187489924,
+     "count": 4660,
+     "key": "R,N",
+     "ops": "r29,0",
+     "word": 672989184
+    }
+   ],
+   "xenia": {
+    "cmpli": 81609
+   }
+  },
+  "cmpw": {
+   "count": 5608,
+   "game": 3975,
+   "id": 865,
+   "lib": 1633,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 5608,
+     "ops": "cr6,r10,r6",
+     "word": 2131374080
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182576724,
+     "count": 5602,
+     "key": "CR,R,R",
+     "ops": "cr6,r10,r6",
+     "word": 2131374080
+    },
+    {
+     "addr": 2187497104,
+     "count": 6,
+     "key": "R,R",
+     "ops": "r6,r4",
+     "word": 2080776192
+    }
+   ],
+   "xenia": {
+    "cmp": 5608
+   }
+  },
+  "cmpwi": {
+   "count": 33690,
+   "game": 19277,
+   "id": 572,
+   "lib": 14413,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 33690,
+     "ops": "cr6,r6,1",
+     "word": 788922369
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181949940,
+     "count": 30238,
+     "key": "CR,R,N",
+     "ops": "cr6,r6,1",
+     "word": 788922369
+    },
+    {
+     "addr": 2187546016,
+     "count": 3452,
+     "key": "R,N",
+     "ops": "r3,0",
+     "word": 738394112
+    }
+   ],
+   "xenia": {
+    "cmpi": 33690
+   }
+  },
+  "cntlzd": {
+   "count": 20,
+   "game": 0,
+   "id": 944,
+   "lib": 20,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 20,
+     "ops": "r11,r11",
+     "word": 2104164468
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189057832,
+     "count": 20,
+     "key": "R,R",
+     "ops": "r11,r11",
+     "word": 2104164468
+    }
+   ],
+   "xenia": {
+    "cntlzdx": 20
+   }
+  },
+  "cntlzw": {
+   "count": 4726,
+   "game": 2921,
+   "id": 924,
+   "lib": 1805,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4726,
+     "ops": "r8,r9",
+     "word": 2099773492
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181902988,
+     "count": 4726,
+     "key": "R,R",
+     "ops": "r8,r9",
+     "word": 2099773492
+    }
+   ],
+   "xenia": {
+    "cntlzwx": 4726
+   }
+  },
+  "db16cyc": {
+   "count": 2,
+   "game": 0,
+   "id": 1327,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "",
+     "word": 2147482488
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188604016,
+     "count": 2,
+     "key": "",
+     "ops": "",
+     "word": 2147482488
+    }
+   ],
+   "xenia": {
+    "orx": 2
+   }
+  },
+  "dcbf": {
+   "count": 13,
+   "game": 0,
+   "id": 968,
+   "lib": 13,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 13,
+     "ops": "r0,r11",
+     "word": 2080397484
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188653808,
+     "count": 13,
+     "key": "R,R",
+     "ops": "r0,r11",
+     "word": 2080397484
+    }
+   ],
+   "xenia": {
+    "dcbf": 13
+   }
+  },
+  "dcbst": {
+   "count": 4,
+   "game": 4,
+   "id": 939,
+   "lib": 0,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4,
+     "ops": "r0,r10",
+     "word": 2080395372
+    }
+   },
+   "variants": [
+    {
+     "addr": 2184503700,
+     "count": 4,
+     "key": "R,R",
+     "ops": "r0,r10",
+     "word": 2080395372
+    }
+   ],
+   "xenia": {
+    "dcbst": 4
+   }
+  },
+  "dcbt": {
+   "count": 123,
+   "game": 5,
+   "id": 1065,
+   "lib": 118,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 123,
+     "ops": "r0,r11",
+     "word": 2080397868
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188852908,
+     "count": 123,
+     "key": "R,R",
+     "ops": "r0,r11",
+     "word": 2080397868
+    }
+   ],
+   "xenia": {
+    "dcbt": 123
+   }
+  },
+  "dcbtst": {
+   "count": 6,
+   "game": 0,
+   "id": 1050,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "r0,r3",
+     "word": 2080381420
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187510144,
+     "count": 6,
+     "key": "R,R",
+     "ops": "r0,r3",
+     "word": 2080381420
+    }
+   ],
+   "xenia": {
+    "dcbtst": 6
+   }
+  },
+  "dcbz": {
+   "count": 1,
+   "game": 0,
+   "id": 1647,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "r0,r8",
+     "word": 2080393196
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188947316,
+     "count": 1,
+     "key": "R,R",
+     "ops": "r0,r8",
+     "word": 2080393196
+    }
+   ],
+   "xenia": {
+    "dcbz": 1
+   }
+  },
+  "dcbzl": {
+   "count": 12,
+   "game": 0,
+   "id": 1646,
+   "lib": 12,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 12,
+     "ops": "r11,r9",
+     "word": 2083213292
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188899416,
+     "count": 12,
+     "key": "R,R",
+     "ops": "r11,r9",
+     "word": 2083213292
+    }
+   ],
+   "xenia": {
+    "dcbz128": 12
+   }
+  },
+  "divd": {
+   "count": 24,
+   "game": 2,
+   "id": 1520,
+   "lib": 22,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 24,
+     "ops": "r8,r9,r10",
+     "word": 2097763282
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185056784,
+     "count": 24,
+     "key": "R,R,R",
+     "ops": "r8,r9,r10",
+     "word": 2097763282
+    }
+   ],
+   "xenia": {
+    "divdx": 24
+   }
+  },
+  "divdu": {
+   "count": 29,
+   "game": 5,
+   "id": 1367,
+   "lib": 24,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 29,
+     "ops": "r10,r11,r10",
+     "word": 2102088594
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188698960,
+     "count": 29,
+     "key": "R,R,R",
+     "ops": "r10,r11,r10",
+     "word": 2102088594
+    }
+   ],
+   "xenia": {
+    "divdux": 29
+   }
+  },
+  "divw": {
+   "count": 228,
+   "game": 60,
+   "id": 1524,
+   "lib": 168,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 228,
+     "ops": "r9,r28,r10",
+     "word": 2101105622
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183766388,
+     "count": 228,
+     "key": "R,R,R",
+     "ops": "r9,r28,r10",
+     "word": 2101105622
+    }
+   ],
+   "xenia": {
+    "divwx": 228
+   }
+  },
+  "divw.": {
+   "count": 3,
+   "game": 0,
+   "id": 1524,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r29,r11,r26",
+     "word": 2141967319
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188584640,
+     "count": 3,
+     "key": "R,R,R",
+     "ops": "r29,r11,r26",
+     "word": 2141967319
+    }
+   ],
+   "xenia": {
+    "divwx": 3
+   }
+  },
+  "divwu": {
+   "count": 416,
+   "game": 96,
+   "id": 1371,
+   "lib": 320,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 416,
+     "ops": "r11,r9,r11",
+     "word": 2104056726
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187680768,
+     "count": 416,
+     "key": "R,R,R",
+     "ops": "r11,r9,r11",
+     "word": 2104056726
+    }
+   ],
+   "xenia": {
+    "divwux": 416
+   }
+  },
+  "divwu.": {
+   "count": 30,
+   "game": 3,
+   "id": 1371,
+   "lib": 27,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 30,
+     "ops": "r21,r11,r24",
+     "word": 2125185943
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188349936,
+     "count": 30,
+     "key": "R,R,R",
+     "ops": "r21,r11,r24",
+     "word": 2125185943
+    }
+   ],
+   "xenia": {
+    "divwux": 30
+   }
+  },
+  "eieio": {
+   "count": 13,
+   "game": 0,
+   "id": 1611,
+   "lib": 13,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 13,
+     "ops": "",
+     "word": 2080376492
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188655028,
+     "count": 13,
+     "key": "",
+     "ops": "",
+     "word": 2080376492
+    }
+   ],
+   "xenia": {
+    "eieio": 13
+   }
+  },
+  "eqv": {
+   "count": 3,
+   "game": 3,
+   "id": 1067,
+   "lib": 0,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r7,r11,r30",
+     "word": 2103964216
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186939176,
+     "count": 3,
+     "key": "R,R,R",
+     "ops": "r7,r11,r30",
+     "word": 2103964216
+    }
+   ],
+   "xenia": {
+    "eqvx": 3
+   }
+  },
+  "extsb": {
+   "count": 895,
+   "game": 495,
+   "id": 1630,
+   "lib": 400,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 895,
+     "ops": "r10,r7",
+     "word": 2095712116
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185058812,
+     "count": 895,
+     "key": "R,R",
+     "ops": "r10,r7",
+     "word": 2095712116
+    }
+   ],
+   "xenia": {
+    "extsbx": 895
+   }
+  },
+  "extsb.": {
+   "count": 85,
+   "game": 0,
+   "id": 1630,
+   "lib": 85,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 85,
+     "ops": "r3,r11",
+     "word": 2103641973
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188406100,
+     "count": 85,
+     "key": "R,R",
+     "ops": "r3,r11",
+     "word": 2103641973
+    }
+   ],
+   "xenia": {
+    "extsbx": 85
+   }
+  },
+  "extsh": {
+   "count": 2182,
+   "game": 1511,
+   "id": 1621,
+   "lib": 671,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2182,
+     "ops": "r6,r30",
+     "word": 2143684404
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185701052,
+     "count": 2182,
+     "key": "R,R",
+     "ops": "r6,r30",
+     "word": 2143684404
+    }
+   ],
+   "xenia": {
+    "extshx": 2182
+   }
+  },
+  "extsh.": {
+   "count": 23,
+   "game": 0,
+   "id": 1621,
+   "lib": 23,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 23,
+     "ops": "r11,r7",
+     "word": 2095777589
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188720636,
+     "count": 23,
+     "key": "R,R",
+     "ops": "r11,r7",
+     "word": 2095777589
+    }
+   ],
+   "xenia": {
+    "extshx": 23
+   }
+  },
+  "extsw": {
+   "count": 2512,
+   "game": 1921,
+   "id": 1640,
+   "lib": 591,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2512,
+     "ops": "r6,r31",
+     "word": 2145781684
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182072232,
+     "count": 2512,
+     "key": "R,R",
+     "ops": "r6,r31",
+     "word": 2145781684
+    }
+   ],
+   "xenia": {
+    "extswx": 2512
+   }
+  },
+  "extsw.": {
+   "count": 3,
+   "game": 0,
+   "id": 1640,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r10,r10",
+     "word": 2102003637
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187513196,
+     "count": 3,
+     "key": "R,R",
+     "ops": "r10,r10",
+     "word": 2102003637
+    }
+   ],
+   "xenia": {
+    "extswx": 3
+   }
+  },
+  "fabs": {
+   "count": 1116,
+   "game": 1041,
+   "id": 1824,
+   "lib": 75,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1116,
+     "ops": "f0,f0",
+     "word": 4227858960
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181823044,
+     "count": 1116,
+     "key": "F,F",
+     "ops": "f0,f0",
+     "word": 4227858960
+    }
+   ],
+   "xenia": {
+    "fabsx": 1116
+   }
+  },
+  "fadd": {
+   "count": 94,
+   "game": 18,
+   "id": 1788,
+   "lib": 76,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 94,
+     "ops": "f0,f0,f13",
+     "word": 4227885098
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188241312,
+     "count": 94,
+     "key": "F,F,F",
+     "ops": "f0,f0,f13",
+     "word": 4227885098
+    }
+   ],
+   "xenia": {
+    "faddx": 94
+   }
+  },
+  "fadds": {
+   "count": 8797,
+   "game": 7185,
+   "id": 1725,
+   "lib": 1612,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 8797,
+     "ops": "f0,f11,f28",
+     "word": 3960201258
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183055840,
+     "count": 8797,
+     "key": "F,F,F",
+     "ops": "f0,f11,f28",
+     "word": 3960201258
+    }
+   ],
+   "xenia": {
+    "faddsx": 8797
+   }
+  },
+  "fcfid": {
+   "count": 3553,
+   "game": 2420,
+   "id": 1843,
+   "lib": 1133,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3553,
+     "ops": "f13,f0",
+     "word": 4255123100
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182072248,
+     "count": 3553,
+     "key": "F,F",
+     "ops": "f13,f0",
+     "word": 4255123100
+    }
+   ],
+   "xenia": {
+    "fcfidx": 3553
+   }
+  },
+  "fcmpu": {
+   "count": 7426,
+   "game": 6033,
+   "id": 1775,
+   "lib": 1393,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 7426,
+     "ops": "cr6,f0,f13",
+     "word": 4278216704
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181823060,
+     "count": 7426,
+     "key": "CR,F,F",
+     "ops": "cr6,f0,f13",
+     "word": 4278216704
+    }
+   ],
+   "xenia": {
+    "fcmpu": 7426
+   }
+  },
+  "fctid": {
+   "count": 9,
+   "game": 0,
+   "id": 1840,
+   "lib": 9,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 9,
+     "ops": "f0,f0",
+     "word": 4227860060
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187497188,
+     "count": 9,
+     "key": "F,F",
+     "ops": "f0,f0",
+     "word": 4227860060
+    }
+   ],
+   "xenia": {
+    "fctidx": 9
+   }
+  },
+  "fctidz": {
+   "count": 371,
+   "game": 233,
+   "id": 1841,
+   "lib": 138,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 371,
+     "ops": "f10,f12",
+     "word": 4248856158
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853020,
+     "count": 371,
+     "key": "F,F",
+     "ops": "f10,f12",
+     "word": 4248856158
+    }
+   ],
+   "xenia": {
+    "fctidzx": 371
+   }
+  },
+  "fctiwz": {
+   "count": 1331,
+   "game": 830,
+   "id": 1782,
+   "lib": 501,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1331,
+     "ops": "f0,f1",
+     "word": 4227860510
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181978044,
+     "count": 1331,
+     "key": "F,F",
+     "ops": "f0,f1",
+     "word": 4227860510
+    }
+   ],
+   "xenia": {
+    "fctiwzx": 1331
+   }
+  },
+  "fdiv": {
+   "count": 116,
+   "game": 31,
+   "id": 1784,
+   "lib": 85,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 116,
+     "ops": "f0,f13,f0",
+     "word": 4228710436
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853016,
+     "count": 116,
+     "key": "F,F,F",
+     "ops": "f0,f13,f0",
+     "word": 4228710436
+    }
+   ],
+   "xenia": {
+    "fdivx": 116
+   }
+  },
+  "fdivs": {
+   "count": 1271,
+   "game": 1079,
+   "id": 1723,
+   "lib": 192,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1271,
+     "ops": "f31,f7,f13",
+     "word": 4024920100
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182431160,
+     "count": 1271,
+     "key": "F,F,F",
+     "ops": "f31,f7,f13",
+     "word": 4024920100
+    }
+   ],
+   "xenia": {
+    "fdivsx": 1271
+   }
+  },
+  "fmadd": {
+   "count": 119,
+   "game": 29,
+   "id": 1798,
+   "lib": 90,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 119,
+     "ops": "f0,f13,f0,f12",
+     "word": 4228735034
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188698868,
+     "count": 119,
+     "key": "F,F,F,F",
+     "ops": "f0,f13,f0,f12",
+     "word": 4228735034
+    }
+   ],
+   "xenia": {
+    "fmaddx": 119
+   }
+  },
+  "fmadds": {
+   "count": 10218,
+   "game": 9041,
+   "id": 1731,
+   "lib": 1177,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 10218,
+     "ops": "f7,f13,f13,f8",
+     "word": 3974972282
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812996,
+     "count": 10218,
+     "key": "F,F,F,F",
+     "ops": "f7,f13,f13,f8",
+     "word": 3974972282
+    }
+   ],
+   "xenia": {
+    "fmaddsx": 10218
+   }
+  },
+  "fmr": {
+   "count": 10189,
+   "game": 8220,
+   "id": 1813,
+   "lib": 1969,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 10189,
+     "ops": "f6,f11",
+     "word": 4240464016
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182430984,
+     "count": 10189,
+     "key": "F,F",
+     "ops": "f6,f11",
+     "word": 4240464016
+    }
+   ],
+   "xenia": {
+    "fmrx": 10189
+   }
+  },
+  "fmsub": {
+   "count": 51,
+   "game": 11,
+   "id": 1796,
+   "lib": 40,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 51,
+     "ops": "f13,f13,f31,f0",
+     "word": 4255975416
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187495648,
+     "count": 51,
+     "key": "F,F,F,F",
+     "ops": "f13,f13,f31,f0",
+     "word": 4255975416
+    }
+   ],
+   "xenia": {
+    "fmsubx": 51
+   }
+  },
+  "fmsubs": {
+   "count": 2672,
+   "game": 2555,
+   "id": 1730,
+   "lib": 117,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2672,
+     "ops": "f29,f0,f13,f5",
+     "word": 4020251512
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183056084,
+     "count": 2672,
+     "key": "F,F,F,F",
+     "ops": "f29,f0,f13,f5",
+     "word": 4020251512
+    }
+   ],
+   "xenia": {
+    "fmsubsx": 2672
+   }
+  },
+  "fmul": {
+   "count": 593,
+   "game": 156,
+   "id": 1793,
+   "lib": 437,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 593,
+     "ops": "f3,f30,f0",
+     "word": 4236116018
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183056524,
+     "count": 593,
+     "key": "F,F,F",
+     "ops": "f3,f30,f0",
+     "word": 4236116018
+    }
+   ],
+   "xenia": {
+    "fmulx": 593
+   }
+  },
+  "fmuls": {
+   "count": 21189,
+   "game": 18912,
+   "id": 1728,
+   "lib": 2277,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 21189,
+     "ops": "f8,f0,f0",
+     "word": 3976200242
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812992,
+     "count": 21189,
+     "key": "F,F,F",
+     "ops": "f8,f0,f0",
+     "word": 3976200242
+    }
+   ],
+   "xenia": {
+    "fmulsx": 21189
+   }
+  },
+  "fneg": {
+   "count": 1560,
+   "game": 1392,
+   "id": 1808,
+   "lib": 168,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1560,
+     "ops": "f0,f0",
+     "word": 4227858512
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181822980,
+     "count": 1560,
+     "key": "F,F",
+     "ops": "f0,f0",
+     "word": 4227858512
+    }
+   ],
+   "xenia": {
+    "fnegx": 1560
+   }
+  },
+  "fnmadds": {
+   "count": 25,
+   "game": 25,
+   "id": 1733,
+   "lib": 0,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 25,
+     "ops": "f11,f31,f0,f30",
+     "word": 3984584766
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186381748,
+     "count": 25,
+     "key": "F,F,F,F",
+     "ops": "f11,f31,f0,f30",
+     "word": 3984584766
+    }
+   ],
+   "xenia": {
+    "fnmaddsx": 25
+   }
+  },
+  "fnmsub": {
+   "count": 39,
+   "game": 14,
+   "id": 1800,
+   "lib": 25,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 39,
+     "ops": "f13,f31,f0,f13",
+     "word": 4257179708
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187495632,
+     "count": 39,
+     "key": "F,F,F,F",
+     "ops": "f13,f31,f0,f13",
+     "word": 4257179708
+    }
+   ],
+   "xenia": {
+    "fnmsubx": 39
+   }
+  },
+  "fnmsubs": {
+   "count": 598,
+   "game": 556,
+   "id": 1732,
+   "lib": 42,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 598,
+     "ops": "f30,f2,f0,f13",
+     "word": 4022495292
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183056592,
+     "count": 598,
+     "key": "F,F,F,F",
+     "ops": "f30,f2,f0,f13",
+     "word": 4022495292
+    }
+   ],
+   "xenia": {
+    "fnmsubsx": 598
+   }
+  },
+  "frsp": {
+   "count": 5076,
+   "game": 3623,
+   "id": 1779,
+   "lib": 1453,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5076,
+     "ops": "f1,f1",
+     "word": 4229957656
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181813008,
+     "count": 5076,
+     "key": "F,F",
+     "ops": "f1,f1",
+     "word": 4229957656
+    }
+   ],
+   "xenia": {
+    "frspx": 5076
+   }
+  },
+  "frsqrte": {
+   "count": 6,
+   "game": 4,
+   "id": 1795,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "f7,f13",
+     "word": 4242565172
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187104180,
+     "count": 6,
+     "key": "F,F",
+     "ops": "f7,f13",
+     "word": 4242565172
+    }
+   ],
+   "xenia": {
+    "frsqrtex": 6
+   }
+  },
+  "fsel": {
+   "count": 494,
+   "game": 481,
+   "id": 1791,
+   "lib": 13,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 494,
+     "ops": "f0,f11,f0,f13",
+     "word": 4228605998
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181823004,
+     "count": 494,
+     "key": "F,F,F,F",
+     "ops": "f0,f11,f0,f13",
+     "word": 4228605998
+    }
+   ],
+   "xenia": {
+    "fselx": 494
+   }
+  },
+  "fsqrt": {
+   "count": 3,
+   "game": 1,
+   "id": 1790,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "f1,f1",
+     "word": 4229957676
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187493200,
+     "count": 3,
+     "key": "F,F",
+     "ops": "f1,f1",
+     "word": 4229957676
+    }
+   ],
+   "xenia": {
+    "fsqrtx": 3
+   }
+  },
+  "fsqrts": {
+   "count": 3,
+   "game": 0,
+   "id": 1726,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "f13,f13",
+     "word": 3986712620
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188737048,
+     "count": 3,
+     "key": "F,F",
+     "ops": "f13,f13",
+     "word": 3986712620
+    }
+   ],
+   "xenia": {
+    "fsqrtsx": 3
+   }
+  },
+  "fsub": {
+   "count": 132,
+   "game": 46,
+   "id": 1786,
+   "lib": 86,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 132,
+     "ops": "f12,f1,f0",
+     "word": 4253089832
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182417604,
+     "count": 132,
+     "key": "F,F,F",
+     "ops": "f12,f1,f0",
+     "word": 4253089832
+    }
+   ],
+   "xenia": {
+    "fsubx": 132
+   }
+  },
+  "fsubs": {
+   "count": 10513,
+   "game": 9162,
+   "id": 1724,
+   "lib": 1351,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 10513,
+     "ops": "f0,f0,f12",
+     "word": 3959447592
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812972,
+     "count": 10513,
+     "key": "F,F,F",
+     "ops": "f0,f0,f12",
+     "word": 3959447592
+    }
+   ],
+   "xenia": {
+    "fsubsx": 10513
+   }
+  },
+  "lbz": {
+   "count": 20671,
+   "game": 15667,
+   "id": 1674,
+   "lib": 5004,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 20671,
+     "ops": "r31,0(r11)",
+     "word": 2347433984
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181868360,
+     "count": 20671,
+     "key": "R,N(R)",
+     "ops": "r31,0(r11)",
+     "word": 2347433984
+    }
+   ],
+   "xenia": {
+    "lbz": 20671
+   }
+  },
+  "lbzu": {
+   "count": 15,
+   "game": 0,
+   "id": 1675,
+   "lib": 15,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 15,
+     "ops": "r6,1(r4)",
+     "word": 2361655297
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187529192,
+     "count": 15,
+     "key": "R,N(R)",
+     "ops": "r6,1(r4)",
+     "word": 2361655297
+    }
+   ],
+   "xenia": {
+    "lbzu": 15
+   }
+  },
+  "lbzx": {
+   "count": 829,
+   "game": 272,
+   "id": 969,
+   "lib": 557,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 829,
+     "ops": "r11,r11,r5",
+     "word": 2104174766
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188437892,
+     "count": 829,
+     "key": "R,R,R",
+     "ops": "r11,r11,r5",
+     "word": 2104174766
+    }
+   ],
+   "xenia": {
+    "lbzx": 829
+   }
+  },
+  "ld": {
+   "count": 13093,
+   "game": 10072,
+   "id": 1718,
+   "lib": 3021,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 13093,
+     "ops": "r30,-24(r1)",
+     "word": 3955359720
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181823160,
+     "count": 13093,
+     "key": "R,N(R)",
+     "ops": "r30,-24(r1)",
+     "word": 3955359720
+    }
+   ],
+   "xenia": {
+    "ld": 13093
+   }
+  },
+  "ldarx": {
+   "count": 2,
+   "game": 0,
+   "id": 966,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "r8,0,r3",
+     "word": 2097158312
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188604268,
+     "count": 2,
+     "key": "R,N,R",
+     "ops": "r8,0,r3",
+     "word": 2097158312
+    }
+   ],
+   "xenia": {
+    "ldarx": 2
+   }
+  },
+  "ldu": {
+   "count": 3,
+   "game": 0,
+   "id": 1719,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r7,8(r4)",
+     "word": 3907256329
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187510180,
+     "count": 3,
+     "key": "R,N(R)",
+     "ops": "r7,8(r4)",
+     "word": 3907256329
+    }
+   ],
+   "xenia": {
+    "ldu": 3
+   }
+  },
+  "ldx": {
+   "count": 115,
+   "game": 10,
+   "id": 918,
+   "lib": 105,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 115,
+     "ops": "r9,r9,r4",
+     "word": 2099847210
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189038096,
+     "count": 115,
+     "key": "R,R,R",
+     "ops": "r9,r9,r4",
+     "word": 2099847210
+    }
+   ],
+   "xenia": {
+    "ldx": 115
+   }
+  },
+  "lfd": {
+   "count": 8770,
+   "game": 5541,
+   "id": 1694,
+   "lib": 3229,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 8770,
+     "ops": "f13,8904(r11)",
+     "word": 3383435976
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181822968,
+     "count": 8770,
+     "key": "F,N(R)",
+     "ops": "f13,8904(r11)",
+     "word": 3383435976
+    }
+   ],
+   "xenia": {
+    "lfd": 8770
+   }
+  },
+  "lfdx": {
+   "count": 83,
+   "game": 2,
+   "id": 1559,
+   "lib": 81,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 83,
+     "ops": "f0,r11,r31",
+     "word": 2081160366
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188698864,
+     "count": 83,
+     "key": "F,R,R",
+     "ops": "f0,r11,r31",
+     "word": 2081160366
+    }
+   ],
+   "xenia": {
+    "lfdx": 83
+   }
+  },
+  "lfs": {
+   "count": 65022,
+   "game": 59110,
+   "id": 1692,
+   "lib": 5912,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 65022,
+     "ops": "f0,4(r3)",
+     "word": 3221422084
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812952,
+     "count": 65010,
+     "key": "F,N(R)",
+     "ops": "f0,4(r3)",
+     "word": 3221422084
+    },
+    {
+     "addr": 2183998176,
+     "count": 12,
+     "key": "F,N(N)",
+     "ops": "f0,0(0)",
+     "word": 3221225472
+    }
+   ],
+   "xenia": {
+    "lfs": 65022
+   }
+  },
+  "lfsx": {
+   "count": 1923,
+   "game": 1280,
+   "id": 1539,
+   "lib": 643,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1923,
+     "ops": "f1,r11,r10",
+     "word": 2083214382
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182431176,
+     "count": 1923,
+     "key": "F,R,R",
+     "ops": "f1,r11,r10",
+     "word": 2083214382
+    }
+   ],
+   "xenia": {
+    "lfsx": 1923
+   }
+  },
+  "lha": {
+   "count": 41,
+   "game": 0,
+   "id": 1684,
+   "lib": 41,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 41,
+     "ops": "r11,-10(r1)",
+     "word": 2841772022
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188755140,
+     "count": 41,
+     "key": "R,N(R)",
+     "ops": "r11,-10(r1)",
+     "word": 2841772022
+    }
+   ],
+   "xenia": {
+    "lha": 41
+   }
+  },
+  "lhax": {
+   "count": 60,
+   "game": 0,
+   "id": 1285,
+   "lib": 60,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 60,
+     "ops": "r11,r29,r11",
+     "word": 2105367214
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187681420,
+     "count": 60,
+     "key": "R,R,R",
+     "ops": "r11,r29,r11",
+     "word": 2105367214
+    }
+   ],
+   "xenia": {
+    "lhax": 60
+   }
+  },
+  "lhz": {
+   "count": 5120,
+   "game": 3182,
+   "id": 1682,
+   "lib": 1938,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5120,
+     "ops": "r25,0(r6)",
+     "word": 2737176576
+    }
+   },
+   "variants": [
+    {
+     "addr": 2184060144,
+     "count": 5120,
+     "key": "R,N(R)",
+     "ops": "r25,0(r6)",
+     "word": 2737176576
+    }
+   ],
+   "xenia": {
+    "lhz": 5120
+   }
+  },
+  "lhzx": {
+   "count": 449,
+   "game": 269,
+   "id": 1066,
+   "lib": 180,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 449,
+     "ops": "r0,r12,r0",
+     "word": 2081161774
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187680136,
+     "count": 449,
+     "key": "R,R,R",
+     "ops": "r0,r12,r0",
+     "word": 2081161774
+    }
+   ],
+   "xenia": {
+    "lhzx": 449
+   }
+  },
+  "li": {
+   "count": 129010,
+   "game": 90296,
+   "id": 578,
+   "lib": 38714,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 129010,
+     "ops": "r11,1",
+     "word": 962592769
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181758984,
+     "count": 129010,
+     "key": "R,N",
+     "ops": "r11,1",
+     "word": 962592769
+    }
+   ],
+   "xenia": {
+    "addi": 129010
+   }
+  },
+  "lis": {
+   "count": 61243,
+   "game": 44904,
+   "id": 584,
+   "lib": 16339,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 61243,
+     "ops": "r11,-32248",
+     "word": 1029734920
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181822956,
+     "count": 61243,
+     "key": "R,N",
+     "ops": "r11,-32248",
+     "word": 1029734920
+    }
+   ],
+   "xenia": {
+    "addis": 61243
+   }
+  },
+  "lvlx": {
+   "count": 505,
+   "game": 0,
+   "id": 1662,
+   "lib": 505,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 505,
+     "ops": "v13,0,r9",
+     "word": 2107657230
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188852932,
+     "count": 404,
+     "key": "V,N,R",
+     "ops": "v13,0,r9",
+     "word": 2107657230
+    },
+    {
+     "addr": 2188853044,
+     "count": 101,
+     "key": "V,R,R",
+     "ops": "v11,r24,r8",
+     "word": 2105033742
+    }
+   ],
+   "xenia": {
+    "lvlx": 505
+   }
+  },
+  "lvrx": {
+   "count": 28,
+   "game": 0,
+   "id": 1664,
+   "lib": 28,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 28,
+     "ops": "v13,r11,r7",
+     "word": 2108374094
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188905192,
+     "count": 28,
+     "key": "V,R,R",
+     "ops": "v13,r11,r7",
+     "word": 2108374094
+    }
+   ],
+   "xenia": {
+    "lvrx": 28
+   }
+  },
+  "lvsl": {
+   "count": 46,
+   "game": 5,
+   "id": 1653,
+   "lib": 41,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 46,
+     "ops": "v7,r0,r8",
+     "word": 2095071244
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187639096,
+     "count": 46,
+     "key": "V,R,R",
+     "ops": "v7,r0,r8",
+     "word": 2095071244
+    }
+   ],
+   "xenia": {
+    "lvsl": 46
+   }
+  },
+  "lvsr": {
+   "count": 22,
+   "game": 1,
+   "id": 1654,
+   "lib": 21,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 22,
+     "ops": "v0,r0,r31",
+     "word": 2080438348
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187646368,
+     "count": 22,
+     "key": "V,R,R",
+     "ops": "v0,r0,r31",
+     "word": 2080438348
+    }
+   ],
+   "xenia": {
+    "lvsr": 22
+   }
+  },
+  "lvx": {
+   "count": 36,
+   "game": 0,
+   "id": 1655,
+   "lib": 36,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 36,
+     "ops": "v14,r11,r12",
+     "word": 2110480590
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188895804,
+     "count": 36,
+     "key": "V,R,R",
+     "ops": "v14,r11,r12",
+     "word": 2110480590
+    }
+   ],
+   "xenia": {
+    "lvx": 36
+   }
+  },
+  "lvx128": {
+   "count": 746,
+   "game": 114,
+   "id": 266,
+   "lib": 632,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 662,
+     "ops": "v0,r0,r8",
+     "word": 268452035
+    },
+    "2": {
+     "count": 32,
+     "ops": "v88,r11,r12",
+     "word": 319512779
+    },
+    "3": {
+     "count": 52,
+     "ops": "v110,r11,r12",
+     "word": 298541263
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188896320,
+     "count": 746,
+     "key": "V,R,R",
+     "ops": "v110,r11,r12",
+     "word": 298541263
+    }
+   ],
+   "xenia": {
+    "lvx128": 746
+   }
+  },
+  "lwa": {
+   "count": 69,
+   "game": 0,
+   "id": 1720,
+   "lib": 69,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 69,
+     "ops": "r11,80(r1)",
+     "word": 3915448402
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189742312,
+     "count": 69,
+     "key": "R,N(R)",
+     "ops": "r11,80(r1)",
+     "word": 3915448402
+    }
+   ],
+   "xenia": {
+    "lwa": 69
+   }
+  },
+  "lwarx": {
+   "count": 53,
+   "game": 16,
+   "id": 917,
+   "lib": 37,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 53,
+     "ops": "r9,0,r11",
+     "word": 2099271720
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185884196,
+     "count": 53,
+     "key": "R,N,R",
+     "ops": "r9,0,r11",
+     "word": 2099271720
+    }
+   ],
+   "xenia": {
+    "lwarx": 53
+   }
+  },
+  "lwax": {
+   "count": 6,
+   "game": 0,
+   "id": 1282,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "r27,r11,r27",
+     "word": 2137774762
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188677880,
+     "count": 6,
+     "key": "R,R,R",
+     "ops": "r27,r11,r27",
+     "word": 2137774762
+    }
+   ],
+   "xenia": {
+    "lwax": 6
+   }
+  },
+  "lwbrx": {
+   "count": 264,
+   "game": 230,
+   "id": 1537,
+   "lib": 34,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 264,
+     "ops": "r11,0,r6",
+     "word": 2103456812
+    }
+   },
+   "variants": [
+    {
+     "addr": 2184055796,
+     "count": 259,
+     "key": "R,N,R",
+     "ops": "r11,0,r6",
+     "word": 2103456812
+    },
+    {
+     "addr": 2189798164,
+     "count": 5,
+     "key": "R,R,R",
+     "ops": "r11,r11,r10",
+     "word": 2104185900
+    }
+   ],
+   "xenia": {
+    "lwbrx": 264
+   }
+  },
+  "lwsync": {
+   "count": 6,
+   "game": 6,
+   "id": 1554,
+   "lib": 0,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "",
+     "word": 2082473132
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186128040,
+     "count": 6,
+     "key": "",
+     "ops": "",
+     "word": 2082473132
+    }
+   ],
+   "xenia": {
+    "sync": 6
+   }
+  },
+  "lwz": {
+   "count": 247181,
+   "game": 171493,
+   "id": 1670,
+   "lib": 75688,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 247181,
+     "ops": "r11,44(r3)",
+     "word": 2170748972
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181758976,
+     "count": 247180,
+     "key": "R,N(R)",
+     "ops": "r11,44(r3)",
+     "word": 2170748972
+    },
+    {
+     "addr": 2184980376,
+     "count": 1,
+     "key": "R,N(N)",
+     "ops": "r8,596(0)",
+     "word": 2164261460
+    }
+   ],
+   "xenia": {
+    "lwz": 247181
+   }
+  },
+  "lwzu": {
+   "count": 6,
+   "game": 0,
+   "id": 1672,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "r0,-4096(r11)",
+     "word": 2215374848
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188896492,
+     "count": 6,
+     "key": "R,N(R)",
+     "ops": "r0,-4096(r11)",
+     "word": 2215374848
+    }
+   ],
+   "xenia": {
+    "lwzu": 6
+   }
+  },
+  "lwzx": {
+   "count": 10479,
+   "game": 4045,
+   "id": 920,
+   "lib": 6434,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 10479,
+     "ops": "r3,r11,r8",
+     "word": 2087403566
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181995940,
+     "count": 10479,
+     "key": "R,R,R",
+     "ops": "r3,r11,r8",
+     "word": 2087403566
+    }
+   ],
+   "xenia": {
+    "lwzx": 10479
+   }
+  },
+  "mfcr": {
+   "count": 1,
+   "game": 0,
+   "id": 916,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "r4",
+     "word": 2088763430
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188896536,
+     "count": 1,
+     "key": "R",
+     "ops": "r4",
+     "word": 2088763430
+    }
+   ],
+   "xenia": {
+    "mfcr": 1
+   }
+  },
+  "mffs": {
+   "count": 5,
+   "game": 0,
+   "id": 1834,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5,
+     "ops": "f0",
+     "word": 4227859598
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187546240,
+     "count": 5,
+     "key": "F",
+     "ops": "f0",
+     "word": 4227859598
+    }
+   ],
+   "xenia": {
+    "mffsx": 5
+   }
+  },
+  "mflr": {
+   "count": 16778,
+   "game": 11932,
+   "id": 1119,
+   "lib": 4846,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 16778,
+     "ops": "r12",
+     "word": 2106065574
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812936,
+     "count": 16778,
+     "key": "R",
+     "ops": "r12",
+     "word": 2106065574
+    }
+   ],
+   "xenia": {
+    "mfspr": 16778
+   }
+  },
+  "mfmsr": {
+   "count": 55,
+   "game": 16,
+   "id": 965,
+   "lib": 39,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 55,
+     "ops": "r7",
+     "word": 2095055014
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185884188,
+     "count": 55,
+     "key": "R",
+     "ops": "r7",
+     "word": 2095055014
+    }
+   ],
+   "xenia": {
+    "mfmsr": 55
+   }
+  },
+  "mfocrf": {
+   "count": 3,
+   "game": 0,
+   "id": 915,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r11,2",
+     "word": 2104500262
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187641264,
+     "count": 3,
+     "key": "R,N",
+     "ops": "r11,2",
+     "word": 2104500262
+    }
+   ],
+   "xenia": {
+    "mfcr": 3
+   }
+  },
+  "mftb": {
+   "count": 6,
+   "game": 1,
+   "id": 1153,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "r29",
+     "word": 2141995750
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188775920,
+     "count": 6,
+     "key": "R",
+     "ops": "r29",
+     "word": 2141995750
+    }
+   ],
+   "xenia": {
+    "mftb": 6
+   }
+  },
+  "mr": {
+   "count": 171413,
+   "game": 107294,
+   "id": 1328,
+   "lib": 64119,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 171413,
+     "ops": "r31,r4",
+     "word": 2090804088
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181822960,
+     "count": 171413,
+     "key": "R,R",
+     "ops": "r31,r4",
+     "word": 2090804088
+    }
+   ],
+   "xenia": {
+    "orx": 171413
+   }
+  },
+  "mr.": {
+   "count": 1702,
+   "game": 0,
+   "id": 1328,
+   "lib": 1702,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1702,
+     "ops": "r30,r3",
+     "word": 2088639353
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187665576,
+     "count": 1702,
+     "key": "R,R",
+     "ops": "r30,r3",
+     "word": 2088639353
+    }
+   ],
+   "xenia": {
+    "orx": 1702
+   }
+  },
+  "mtcr": {
+   "count": 2,
+   "game": 0,
+   "id": 996,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "r5",
+     "word": 2091905312
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187601716,
+     "count": 2,
+     "key": "R",
+     "ops": "r5",
+     "word": 2091905312
+    }
+   ],
+   "xenia": {
+    "mtcrf": 2
+   }
+  },
+  "mtctr": {
+   "count": 20841,
+   "game": 17385,
+   "id": 1376,
+   "lib": 3456,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 20841,
+     "ops": "r9",
+     "word": 2099839910
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181810400,
+     "count": 20841,
+     "key": "R",
+     "ops": "r9",
+     "word": 2099839910
+    }
+   ],
+   "xenia": {
+    "mtspr": 20841
+   }
+  },
+  "mtfsf": {
+   "count": 5,
+   "game": 0,
+   "id": 1837,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5,
+     "ops": "255,f0",
+     "word": 4261283214
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187601708,
+     "count": 5,
+     "key": "255,F",
+     "ops": "255,f0",
+     "word": 4261283214
+    }
+   ],
+   "xenia": {
+    "mtfsfx": 5
+   }
+  },
+  "mtlr": {
+   "count": 8382,
+   "game": 6516,
+   "id": 1375,
+   "lib": 1866,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 8382,
+     "ops": "r12",
+     "word": 2106065830
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181813020,
+     "count": 8382,
+     "key": "R",
+     "ops": "r12",
+     "word": 2106065830
+    }
+   ],
+   "xenia": {
+    "mtspr": 8382
+   }
+  },
+  "mtmsrd": {
+   "count": 127,
+   "game": 35,
+   "id": 1011,
+   "lib": 92,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 127,
+     "ops": "r13,1",
+     "word": 2107703652
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185884192,
+     "count": 127,
+     "key": "R,N",
+     "ops": "r13,1",
+     "word": 2107703652
+    }
+   ],
+   "xenia": {
+    "mtmsrd": 127
+   }
+  },
+  "mtxer": {
+   "count": 1,
+   "game": 0,
+   "id": 1374,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "r6",
+     "word": 2093024166
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187601720,
+     "count": 1,
+     "key": "R",
+     "ops": "r6",
+     "word": 2093024166
+    }
+   ],
+   "xenia": {
+    "mtspr": 1
+   }
+  },
+  "mulhd": {
+   "count": 1,
+   "game": 1,
+   "id": 961,
+   "lib": 0,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "r3,r11,r9",
+     "word": 2087405714
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185856476,
+     "count": 1,
+     "key": "R,R,R",
+     "ops": "r3,r11,r9",
+     "word": 2087405714
+    }
+   ],
+   "xenia": {
+    "mulhdx": 1
+   }
+  },
+  "mulhdu": {
+   "count": 9,
+   "game": 8,
+   "id": 905,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 9,
+     "ops": "r10,r9,r8",
+     "word": 2101952530
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185915468,
+     "count": 9,
+     "key": "R,R,R",
+     "ops": "r10,r9,r8",
+     "word": 2101952530
+    }
+   ],
+   "xenia": {
+    "mulhdux": 9
+   }
+  },
+  "mulhw": {
+   "count": 3848,
+   "game": 3832,
+   "id": 962,
+   "lib": 16,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3848,
+     "ops": "r7,r11,r3",
+     "word": 2095782038
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181949920,
+     "count": 3848,
+     "key": "R,R,R",
+     "ops": "r7,r11,r3",
+     "word": 2095782038
+    }
+   ],
+   "xenia": {
+    "mulhwx": 3848
+   }
+  },
+  "mulhwu": {
+   "count": 47,
+   "game": 42,
+   "id": 910,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 47,
+     "ops": "r7,r31,r8",
+     "word": 2097102870
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182044776,
+     "count": 47,
+     "key": "R,R,R",
+     "ops": "r7,r31,r8",
+     "word": 2097102870
+    }
+   ],
+   "xenia": {
+    "mulhwux": 47
+   }
+  },
+  "mulld": {
+   "count": 28,
+   "game": 7,
+   "id": 1037,
+   "lib": 21,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 28,
+     "ops": "r11,r11,r6",
+     "word": 2104177106
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185922376,
+     "count": 28,
+     "key": "R,R,R",
+     "ops": "r11,r11,r6",
+     "word": 2104177106
+    }
+   ],
+   "xenia": {
+    "mulldx": 28
+   }
+  },
+  "mulli": {
+   "count": 2426,
+   "game": 1408,
+   "id": 560,
+   "lib": 1018,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2426,
+     "ops": "r11,r11,28",
+     "word": 493551644
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181995928,
+     "count": 2426,
+     "key": "R,R,N",
+     "ops": "r11,r11,28",
+     "word": 493551644
+    }
+   ],
+   "xenia": {
+    "mulli": 2426
+   }
+  },
+  "mullw": {
+   "count": 2228,
+   "game": 779,
+   "id": 1043,
+   "lib": 1449,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2228,
+     "ops": "r7,r9,r10",
+     "word": 2095665622
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183766396,
+     "count": 2228,
+     "key": "R,R,R",
+     "ops": "r7,r9,r10",
+     "word": 2095665622
+    }
+   ],
+   "xenia": {
+    "mullwx": 2228
+   }
+  },
+  "mullw.": {
+   "count": 38,
+   "game": 9,
+   "id": 1043,
+   "lib": 29,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 38,
+     "ops": "r4,r5,r28",
+     "word": 2089148887
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186275796,
+     "count": 38,
+     "key": "R,R,R",
+     "ops": "r4,r5,r28",
+     "word": 2089148887
+    }
+   ],
+   "xenia": {
+    "mullwx": 38
+   }
+  },
+  "neg": {
+   "count": 469,
+   "game": 307,
+   "id": 972,
+   "lib": 162,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 469,
+     "ops": "r5,r3",
+     "word": 2091057360
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186500228,
+     "count": 469,
+     "key": "R,R",
+     "ops": "r5,r3",
+     "word": 2091057360
+    }
+   ],
+   "xenia": {
+    "negx": 469
+   }
+  },
+  "neg.": {
+   "count": 17,
+   "game": 16,
+   "id": 972,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 17,
+     "ops": "r10,r11",
+     "word": 2102067409
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186783912,
+     "count": 17,
+     "key": "R,R",
+     "ops": "r10,r11",
+     "word": 2102067409
+    }
+   ],
+   "xenia": {
+    "negx": 17
+   }
+  },
+  "nop": {
+   "count": 123,
+   "game": 0,
+   "id": 843,
+   "lib": 123,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 123,
+     "ops": "",
+     "word": 1610612736
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187680156,
+     "count": 123,
+     "key": "",
+     "ops": "",
+     "word": 1610612736
+    }
+   ],
+   "xenia": {
+    "ori": 123
+   }
+  },
+  "nor": {
+   "count": 7,
+   "game": 0,
+   "id": 981,
+   "lib": 7,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 7,
+     "ops": "r11,r10,r11",
+     "word": 2102089976
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189631916,
+     "count": 7,
+     "key": "R,R,R",
+     "ops": "r11,r10,r11",
+     "word": 2102089976
+    }
+   ],
+   "xenia": {
+    "norx": 7
+   }
+  },
+  "not": {
+   "count": 392,
+   "game": 90,
+   "id": 980,
+   "lib": 302,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 392,
+     "ops": "r11,r11",
+     "word": 2104187128
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187920144,
+     "count": 392,
+     "key": "R,R",
+     "ops": "r11,r11",
+     "word": 2104187128
+    }
+   ],
+   "xenia": {
+    "norx": 392
+   }
+  },
+  "not.": {
+   "count": 1,
+   "game": 0,
+   "id": 980,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "r31,r11",
+     "word": 2105497849
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187812332,
+     "count": 1,
+     "key": "R,R",
+     "ops": "r31,r11",
+     "word": 2105497849
+    }
+   ],
+   "xenia": {
+    "norx": 1
+   }
+  },
+  "or": {
+   "count": 3640,
+   "game": 1208,
+   "id": 1329,
+   "lib": 2432,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3640,
+     "ops": "r4,r7,r5",
+     "word": 2095328120
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183423844,
+     "count": 3640,
+     "key": "R,R,R",
+     "ops": "r4,r7,r5",
+     "word": 2095328120
+    }
+   ],
+   "xenia": {
+    "orx": 3640
+   }
+  },
+  "or.": {
+   "count": 2,
+   "game": 0,
+   "id": 1329,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "r11,r11,r29",
+     "word": 2104224633
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188236472,
+     "count": 2,
+     "key": "R,R,R",
+     "ops": "r11,r11,r29",
+     "word": 2104224633
+    }
+   ],
+   "xenia": {
+    "orx": 2
+   }
+  },
+  "orc": {
+   "count": 1,
+   "game": 0,
+   "id": 1314,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "r10,r9,r10",
+     "word": 2099925816
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188654304,
+     "count": 1,
+     "key": "R,R,R",
+     "ops": "r10,r9,r10",
+     "word": 2099925816
+    }
+   ],
+   "xenia": {
+    "orcx": 1
+   }
+  },
+  "ori": {
+   "count": 10834,
+   "game": 7193,
+   "id": 844,
+   "lib": 3641,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 10834,
+     "ops": "r28,r11,65535",
+     "word": 1635581951
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181902956,
+     "count": 10834,
+     "key": "R,R,N",
+     "ops": "r28,r11,65535",
+     "word": 1635581951
+    }
+   ],
+   "xenia": {
+    "ori": 10834
+   }
+  },
+  "oris": {
+   "count": 1240,
+   "game": 282,
+   "id": 846,
+   "lib": 958,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1240,
+     "ops": "r7,r8,4096",
+     "word": 1694961664
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183423832,
+     "count": 1240,
+     "key": "R,R,N",
+     "ops": "r7,r8,4096",
+     "word": 1694961664
+    }
+   ],
+   "xenia": {
+    "oris": 1240
+   }
+  },
+  "rldicl": {
+   "count": 108,
+   "game": 50,
+   "id": 858,
+   "lib": 58,
+   "n_variants": 20,
+   "regclass": {
+    "0": {
+     "count": 108,
+     "ops": "r9,r9,32,48",
+     "word": 2032731170
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182298200,
+     "count": 53,
+     "key": "R,R,32,32",
+     "ops": "r11,r6,32,32",
+     "word": 2026569762
+    },
+    {
+     "addr": 2185102768,
+     "count": 9,
+     "key": "R,R,56,8",
+     "ops": "r9,r30,56,8",
+     "word": 2076819970
+    },
+    {
+     "addr": 2185922388,
+     "count": 6,
+     "key": "R,R,63,1",
+     "ops": "r11,r7,63,1",
+     "word": 2028730434
+    },
+    {
+     "addr": 2185915476,
+     "count": 5,
+     "key": "R,R,61,3",
+     "ops": "r9,r10,61,3",
+     "word": 2034886850
+    },
+    {
+     "addr": 2185922396,
+     "count": 5,
+     "key": "R,R,55,9",
+     "ops": "r5,r6,55,9",
+     "word": 2026224194
+    },
+    {
+     "addr": 2189884884,
+     "count": 4,
+     "key": "R,R,48,16",
+     "ops": "r11,r3,48,16",
+     "word": 2020312066
+    },
+    {
+     "addr": 2189735288,
+     "count": 4,
+     "key": "R,R,16,48",
+     "ops": "r5,r10,16,48",
+     "word": 2034598944
+    },
+    {
+     "addr": 2182602176,
+     "count": 3,
+     "key": "R,R,8,56",
+     "ops": "r9,r10,8,56",
+     "word": 2034845216
+    },
+    {
+     "addr": 2182602180,
+     "count": 3,
+     "key": "R,R,24,40",
+     "ops": "r8,r10,24,40",
+     "word": 2034811424
+    },
+    {
+     "addr": 2187906192,
+     "count": 2,
+     "key": "R,R,32,48",
+     "ops": "r9,r9,32,48",
+     "word": 2032731170
+    },
+    {
+     "addr": 2187906224,
+     "count": 2,
+     "key": "R,R,48,48",
+     "ops": "r9,r9,48,48",
+     "word": 2032763938
+    },
+    {
+     "addr": 2187494220,
+     "count": 2,
+     "key": "R,R,12,53",
+     "ops": "r8,r10,12,53",
+     "word": 2034787680
+    },
+    {
+     "addr": 2187494452,
+     "count": 2,
+     "key": "R,R,53,12",
+     "ops": "r10,r10,53,12",
+     "word": 2034936578
+    },
+    {
+     "addr": 2187565188,
+     "count": 2,
+     "key": "R,R,52,12",
+     "ops": "r11,r11,52,12",
+     "word": 2037097218
+    },
+    {
+     "addr": 2187494224,
+     "count": 1,
+     "key": "R,R,11,1",
+     "ops": "r10,r10,11,1",
+     "word": 2034915392
+    },
+    {
+     "addr": 2187565240,
+     "count": 1,
+     "key": "R,R,60,4",
+     "ops": "r10,r10,60,4",
+     "word": 2034950402
+    },
+    {
+     "addr": 2187565484,
+     "count": 1,
+     "key": "R,R,63,53",
+     "ops": "r11,r11,63,53",
+     "word": 2037120354
+    },
+    {
+     "addr": 2185856488,
+     "count": 1,
+     "key": "R,R,1,63",
+     "ops": "r10,r11,1,63",
+     "word": 2036994016
+    },
+    {
+     "addr": 2187525540,
+     "count": 1,
+     "key": "R,R,2,62",
+     "ops": "r11,r11,2,62",
+     "word": 2037061536
+    },
+    {
+     "addr": 2189044472,
+     "count": 1,
+     "key": "R,R,59,62",
+     "ops": "r9,r9,59,62",
+     "word": 2032787362
+    }
+   ],
+   "xenia": {
+    "rldiclx": 108
+   }
+  },
+  "rldicr": {
+   "count": 581,
+   "game": 321,
+   "id": 859,
+   "lib": 260,
+   "n_variants": 59,
+   "regclass": {
+    "0": {
+     "count": 581,
+     "ops": "r7,r7,32,63",
+     "word": 2028406758
+    }
+   },
+   "variants": [
+    {
+     "addr": 2184414744,
+     "count": 304,
+     "key": "R,R,32,63",
+     "ops": "r7,r7,32,63",
+     "word": 2028406758
+    },
+    {
+     "addr": 2188854052,
+     "count": 64,
+     "key": "R,R,32,31",
+     "ops": "r7,r5,32,31",
+     "word": 2024212422
+    },
+    {
+     "addr": 2188620940,
+     "count": 41,
+     "key": "R,R,63,63",
+     "ops": "r9,r9,63,63",
+     "word": 2032795622
+    },
+    {
+     "addr": 2188617752,
+     "count": 17,
+     "key": "R,R,39,63",
+     "ops": "r12,r12,39,63",
+     "word": 2039234534
+    },
+    {
+     "addr": 2188615528,
+     "count": 16,
+     "key": "R,R,37,63",
+     "ops": "r12,r12,37,63",
+     "word": 2039230438
+    },
+    {
+     "addr": 2187900352,
+     "count": 12,
+     "key": "R,R,16,47",
+     "ops": "r7,r7,16,47",
+     "word": 2028438500
+    },
+    {
+     "addr": 2188620088,
+     "count": 10,
+     "key": "R,R,34,63",
+     "ops": "r12,r12,34,63",
+     "word": 2039224294
+    },
+    {
+     "addr": 2188633424,
+     "count": 9,
+     "key": "R,R,59,63",
+     "ops": "r12,r12,59,63",
+     "word": 2039275494
+    },
+    {
+     "addr": 2188633500,
+     "count": 9,
+     "key": "R,R,36,63",
+     "ops": "r12,r12,36,63",
+     "word": 2039228390
+    },
+    {
+     "addr": 2188611820,
+     "count": 6,
+     "key": "R,R,61,63",
+     "ops": "r12,r12,61,63",
+     "word": 2039279590
+    },
+    {
+     "addr": 2187176076,
+     "count": 6,
+     "key": "R,R,8,63",
+     "ops": "r12,r12,8,63",
+     "word": 2039236580
+    },
+    {
+     "addr": 2185915492,
+     "count": 6,
+     "key": "R,R,1,62",
+     "ops": "r3,r4,1,62",
+     "word": 2021855140
+    },
+    {
+     "addr": 2188633484,
+     "count": 5,
+     "key": "R,R,35,63",
+     "ops": "r12,r12,35,63",
+     "word": 2039226342
+    },
+    {
+     "addr": 2189730704,
+     "count": 4,
+     "key": "R,R,10,63",
+     "ops": "r12,r12,10,63",
+     "word": 2039240676
+    },
+    {
+     "addr": 2188632616,
+     "count": 4,
+     "key": "R,R,50,63",
+     "ops": "r12,r12,50,63",
+     "word": 2039257062
+    },
+    {
+     "addr": 2188616516,
+     "count": 3,
+     "key": "R,R,51,63",
+     "ops": "r12,r12,51,63",
+     "word": 2039259110
+    },
+    {
+     "addr": 2188616560,
+     "count": 3,
+     "key": "R,R,33,63",
+     "ops": "r12,r12,33,63",
+     "word": 2039222246
+    },
+    {
+     "addr": 2188623544,
+     "count": 3,
+     "key": "R,R,45,63",
+     "ops": "r12,r12,45,63",
+     "word": 2039246822
+    },
+    {
+     "addr": 2188624736,
+     "count": 3,
+     "key": "R,R,62,63",
+     "ops": "r12,r12,62,63",
+     "word": 2039281638
+    },
+    {
+     "addr": 2187494448,
+     "count": 3,
+     "key": "R,R,52,11",
+     "ops": "r11,r11,52,11",
+     "word": 2037097158
+    },
+    {
+     "addr": 2185915484,
+     "count": 2,
+     "key": "R,R,2,61",
+     "ops": "r6,r10,2,61",
+     "word": 2034636644
+    },
+    {
+     "addr": 2187598932,
+     "count": 2,
+     "key": "R,R,48,63",
+     "ops": "r4,r11,48,63",
+     "word": 2036631526
+    },
+    {
+     "addr": 2182602220,
+     "count": 2,
+     "key": "R,R,56,63",
+     "ops": "r7,r10,56,63",
+     "word": 2034747366
+    },
+    {
+     "addr": 2188619676,
+     "count": 2,
+     "key": "R,R,60,63",
+     "ops": "r12,r12,60,63",
+     "word": 2039277542
+    },
+    {
+     "addr": 2187565168,
+     "count": 2,
+     "key": "R,R,48,15",
+     "ops": "r10,r10,48,15",
+     "word": 2034926534
+    },
+    {
+     "addr": 2188664768,
+     "count": 2,
+     "key": "R,R,41,22",
+     "ops": "r12,r12,41,22",
+     "word": 2039238022
+    },
+    {
+     "addr": 2188665380,
+     "count": 2,
+     "key": "R,R,0,37",
+     "ops": "r4,r11,0,37",
+     "word": 2036597092
+    },
+    {
+     "addr": 2188665432,
+     "count": 2,
+     "key": "R,R,38,7",
+     "ops": "r4,r11,38,7",
+     "word": 2036609478
+    },
+    {
+     "addr": 2188665628,
+     "count": 2,
+     "key": "R,R,34,15",
+     "ops": "r4,r11,34,15",
+     "word": 2036601798
+    },
+    {
+     "addr": 2188665656,
+     "count": 2,
+     "key": "R,R,0,20",
+     "ops": "r4,r11,0,20",
+     "word": 2036598020
+    },
+    {
+     "addr": 2188665692,
+     "count": 2,
+     "key": "R,R,38,25",
+     "ops": "r12,r12,38,25",
+     "word": 2039232070
+    },
+    {
+     "addr": 2188665716,
+     "count": 2,
+     "key": "R,R,21,4",
+     "ops": "r4,r11,21,4",
+     "word": 2036640004
+    },
+    {
+     "addr": 2188665760,
+     "count": 2,
+     "key": "R,R,26,11",
+     "ops": "r4,r11,26,11",
+     "word": 2036650692
+    },
+    {
+     "addr": 2188665796,
+     "count": 2,
+     "key": "R,R,38,20",
+     "ops": "r4,r11,38,20",
+     "word": 2036610310
+    },
+    {
+     "addr": 2185890940,
+     "count": 1,
+     "key": "R,R,4,63",
+     "ops": "r11,r7,4,63",
+     "word": 2028677092
+    },
+    {
+     "addr": 2188623512,
+     "count": 1,
+     "key": "R,R,47,63",
+     "ops": "r12,r12,47,63",
+     "word": 2039250918
+    },
+    {
+     "addr": 2188623528,
+     "count": 1,
+     "key": "R,R,46,63",
+     "ops": "r12,r12,46,63",
+     "word": 2039248870
+    },
+    {
+     "addr": 2188623560,
+     "count": 1,
+     "key": "R,R,44,63",
+     "ops": "r12,r12,44,63",
+     "word": 2039244774
+    },
+    {
+     "addr": 2188623576,
+     "count": 1,
+     "key": "R,R,43,63",
+     "ops": "r12,r12,43,63",
+     "word": 2039242726
+    },
+    {
+     "addr": 2188614988,
+     "count": 1,
+     "key": "R,R,49,63",
+     "ops": "r12,r12,49,63",
+     "word": 2039255014
+    },
+    {
+     "addr": 2188636516,
+     "count": 1,
+     "key": "R,R,34,29",
+     "ops": "r12,r12,34,29",
+     "word": 2039224134
+    },
+    {
+     "addr": 2187494216,
+     "count": 1,
+     "key": "R,R,0,0",
+     "ops": "r4,r7,0,0",
+     "word": 2028208132
+    },
+    {
+     "addr": 2187494240,
+     "count": 1,
+     "key": "R,R,0,52",
+     "ops": "r10,r10,0,52",
+     "word": 2034894116
+    },
+    {
+     "addr": 2187565152,
+     "count": 1,
+     "key": "R,R,0,51",
+     "ops": "r11,r11,0,51",
+     "word": 2037056740
+    },
+    {
+     "addr": 2188664556,
+     "count": 1,
+     "key": "R,R,40,23",
+     "ops": "r12,r12,40,23",
+     "word": 2039236038
+    },
+    {
+     "addr": 2188665532,
+     "count": 1,
+     "key": "R,R,0,31",
+     "ops": "r4,r11,0,31",
+     "word": 2036598724
+    },
+    {
+     "addr": 2188619836,
+     "count": 1,
+     "key": "R,R,58,63",
+     "ops": "r12,r12,58,63",
+     "word": 2039273446
+    },
+    {
+     "addr": 2188619932,
+     "count": 1,
+     "key": "R,R,57,63",
+     "ops": "r12,r12,57,63",
+     "word": 2039271398
+    }
+   ],
+   "xenia": {
+    "rldicrx": 581
+   }
+  },
+  "rldimi": {
+   "count": 52,
+   "game": 8,
+   "id": 861,
+   "lib": 44,
+   "n_variants": 3,
+   "regclass": {
+    "0": {
+     "count": 52,
+     "ops": "r10,r9,32,0",
+     "word": 2032795662
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189038000,
+     "count": 50,
+     "key": "R,R,32,0",
+     "ops": "r10,r9,32,0",
+     "word": 2032795662
+    },
+    {
+     "addr": 2187494296,
+     "count": 1,
+     "key": "R,R,11,1",
+     "ops": "r10,r7,11,1",
+     "word": 2028623948
+    },
+    {
+     "addr": 2188898328,
+     "count": 1,
+     "key": "R,R,52,1",
+     "ops": "r3,r5,52,1",
+     "word": 2023989326
+    }
+   ],
+   "xenia": {
+    "rldimix": 52
+   }
+  },
+  "rlwimi": {
+   "count": 3807,
+   "game": 617,
+   "id": 829,
+   "lib": 3190,
+   "n_variants": 568,
+   "regclass": {
+    "0": {
+     "count": 3807,
+     "ops": "r11,r31,12,21,23",
+     "word": 1407935854
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189742100,
+     "count": 191,
+     "key": "R,R,2,0,29",
+     "ops": "r9,r5,2,0,29",
+     "word": 1353257018
+    },
+    {
+     "addr": 2189419236,
+     "count": 148,
+     "key": "R,R,18,8,15",
+     "ops": "r7,r8,18,8,15",
+     "word": 1359450654
+    },
+    {
+     "addr": 2189316528,
+     "count": 106,
+     "key": "R,R,14,15,17",
+     "ops": "r7,r11,14,15,17",
+     "word": 1365734370
+    },
+    {
+     "addr": 2189119920,
+     "count": 103,
+     "key": "R,R,2,28,29",
+     "ops": "r8,r9,2,28,29",
+     "word": 1361581882
+    },
+    {
+     "addr": 2185151544,
+     "count": 101,
+     "key": "R,R,16,0,15",
+     "ops": "r4,r11,16,0,15",
+     "word": 1365540894
+    },
+    {
+     "addr": 2189419272,
+     "count": 90,
+     "key": "R,R,0,16,9",
+     "ops": "r7,r10,0,16,9",
+     "word": 1363608594
+    },
+    {
+     "addr": 2189419288,
+     "count": 86,
+     "key": "R,R,0,9,7",
+     "ops": "r7,r10,0,9,7",
+     "word": 1363608142
+    },
+    {
+     "addr": 2184055900,
+     "count": 84,
+     "key": "R,R,24,0,7",
+     "ops": "r11,r6,24,0,7",
+     "word": 1355530254
+    },
+    {
+     "addr": 2188406440,
+     "count": 83,
+     "key": "R,R,8,16,23",
+     "ops": "r11,r30,8,16,23",
+     "word": 1405830190
+    },
+    {
+     "addr": 2188009764,
+     "count": 75,
+     "key": "R,R,12,21,23",
+     "ops": "r11,r31,12,21,23",
+     "word": 1407935854
+    },
+    {
+     "addr": 2184055892,
+     "count": 75,
+     "key": "R,R,24,16,23",
+     "ops": "r11,r6,24,16,23",
+     "word": 1355531310
+    },
+    {
+     "addr": 2184055896,
+     "count": 75,
+     "key": "R,R,8,8,15",
+     "ops": "r11,r6,8,8,15",
+     "word": 1355498014
+    },
+    {
+     "addr": 2189419872,
+     "count": 68,
+     "key": "R,R,16,8,15",
+     "ops": "r3,r5,16,8,15",
+     "word": 1352892958
+    },
+    {
+     "addr": 2189721220,
+     "count": 66,
+     "key": "R,R,8,0,23",
+     "ops": "r10,r6,8,0,23",
+     "word": 1355431982
+    },
+    {
+     "addr": 2187833252,
+     "count": 61,
+     "key": "R,R,16,16,31",
+     "ops": "r10,r11,16,16,31",
+     "word": 1365935166
+    },
+    {
+     "addr": 2189119664,
+     "count": 54,
+     "key": "R,R,25,4,6",
+     "ops": "r11,r25,25,4,6",
+     "word": 1395378444
+    },
+    {
+     "addr": 2188135792,
+     "count": 51,
+     "key": "R,R,28,0,11",
+     "ops": "r4,r11,28,0,11",
+     "word": 1365565462
+    },
+    {
+     "addr": 2189067196,
+     "count": 40,
+     "key": "R,R,0,28,31",
+     "ops": "r10,r8,0,28,31",
+     "word": 1359611710
+    },
+    {
+     "addr": 2185783252,
+     "count": 36,
+     "key": "R,R,7,17,24",
+     "ops": "r6,r11,7,17,24",
+     "word": 1365654640
+    },
+    {
+     "addr": 2188044396,
+     "count": 34,
+     "key": "R,R,20,0,11",
+     "ops": "r11,r9,20,0,11",
+     "word": 1361813526
+    },
+    {
+     "addr": 2189491976,
+     "count": 31,
+     "key": "R,R,0,26,26",
+     "ops": "r31,r3,0,26,26",
+     "word": 1350502068
+    },
+    {
+     "addr": 2189419360,
+     "count": 29,
+     "key": "R,R,0,20,16",
+     "ops": "r10,r7,0,20,16",
+     "word": 1357514016
+    },
+    {
+     "addr": 2189625152,
+     "count": 28,
+     "key": "R,R,0,29,31",
+     "ops": "r10,r11,0,29,31",
+     "word": 1365903230
+    },
+    {
+     "addr": 2189122060,
+     "count": 27,
+     "key": "R,R,0,0,26",
+     "ops": "r11,r10,0,0,26",
+     "word": 1363869748
+    },
+    {
+     "addr": 2189120084,
+     "count": 26,
+     "key": "R,R,5,19,26",
+     "ops": "r10,r11,5,19,26",
+     "word": 1365912820
+    },
+    {
+     "addr": 2188952532,
+     "count": 26,
+     "key": "R,R,16,10,15",
+     "ops": "r9,r10,16,10,15",
+     "word": 1363772062
+    },
+    {
+     "addr": 2189029396,
+     "count": 24,
+     "key": "R,R,8,20,23",
+     "ops": "r10,r11,8,20,23",
+     "word": 1365919022
+    },
+    {
+     "addr": 2189498980,
+     "count": 22,
+     "key": "R,R,0,0,28",
+     "ops": "r10,r11,0,0,28",
+     "word": 1365901368
+    },
+    {
+     "addr": 2185827636,
+     "count": 21,
+     "key": "R,R,7,0,24",
+     "ops": "r10,r11,7,0,24",
+     "word": 1365915696
+    },
+    {
+     "addr": 2189684768,
+     "count": 20,
+     "key": "R,R,1,30,30",
+     "ops": "r8,r9,1,30,30",
+     "word": 1361579964
+    },
+    {
+     "addr": 2188594568,
+     "count": 20,
+     "key": "R,R,0,0,19",
+     "ops": "r10,r11,0,0,19",
+     "word": 1365901350
+    },
+    {
+     "addr": 2184999440,
+     "count": 20,
+     "key": "R,R,7,0,25",
+     "ops": "r5,r4,7,0,25",
+     "word": 1350907954
+    },
+    {
+     "addr": 2189337548,
+     "count": 19,
+     "key": "R,R,0,27,31",
+     "ops": "r11,r17,0,27,31",
+     "word": 1378551550
+    },
+    {
+     "addr": 2189465896,
+     "count": 19,
+     "key": "R,R,0,26,31",
+     "ops": "r10,r11,0,26,31",
+     "word": 1365903038
+    },
+    {
+     "addr": 2189466548,
+     "count": 19,
+     "key": "R,R,16,13,15",
+     "ops": "r11,r24,16,13,15",
+     "word": 1393263454
+    },
+    {
+     "addr": 2185134208,
+     "count": 19,
+     "key": "R,R,6,0,25",
+     "ops": "r4,r10,6,0,25",
+     "word": 1363423282
+    },
+    {
+     "addr": 2189063400,
+     "count": 18,
+     "key": "R,R,0,24,31",
+     "ops": "r29,r31,0,24,31",
+     "word": 1409091134
+    },
+    {
+     "addr": 2189419056,
+     "count": 18,
+     "key": "R,R,0,10,8",
+     "ops": "r8,r9,0,10,8",
+     "word": 1361576592
+    },
+    {
+     "addr": 2188172252,
+     "count": 17,
+     "key": "R,R,0,12,31",
+     "ops": "r11,r22,0,12,31",
+     "word": 1389036350
+    },
+    {
+     "addr": 2185732156,
+     "count": 17,
+     "key": "R,R,6,25,25",
+     "ops": "r8,r9,6,25,25",
+     "word": 1361589874
+    },
+    {
+     "addr": 2188602728,
+     "count": 17,
+     "key": "R,R,3,0,28",
+     "ops": "r5,r6,3,0,28",
+     "word": 1355094072
+    },
+    {
+     "addr": 2189122760,
+     "count": 16,
+     "key": "R,R,7,19,26",
+     "ops": "r11,r10,7,19,26",
+     "word": 1363885300
+    },
+    {
+     "addr": 2189491972,
+     "count": 16,
+     "key": "R,R,0,30,31",
+     "ops": "r31,r3,0,30,31",
+     "word": 1350502334
+    },
+    {
+     "addr": 2189684792,
+     "count": 16,
+     "key": "R,R,1,0,30",
+     "ops": "r8,r9,1,0,30",
+     "word": 1361578044
+    },
+    {
+     "addr": 2186350516,
+     "count": 16,
+     "key": "R,R,23,1,8",
+     "ops": "r10,r9,23,1,8",
+     "word": 1361754192
+    },
+    {
+     "addr": 2188620084,
+     "count": 15,
+     "key": "R,R,2,29,29",
+     "ops": "r10,r4,2,29,29",
+     "word": 1351227258
+    },
+    {
+     "addr": 2187944316,
+     "count": 15,
+     "key": "R,R,2,23,29",
+     "ops": "r25,r31,2,23,29",
+     "word": 1408833018
+    },
+    {
+     "addr": 2189418596,
+     "count": 15,
+     "key": "R,R,0,24,20",
+     "ops": "r8,r9,0,24,20",
+     "word": 1361577512
+    }
+   ],
+   "xenia": {
+    "rlwimix": 3807
+   }
+  },
+  "rlwinm": {
+   "count": 46888,
+   "game": 25391,
+   "id": 833,
+   "lib": 21497,
+   "n_variants": 766,
+   "regclass": {
+    "0": {
+     "count": 46888,
+     "ops": "r4,r8,27,31,31",
+     "word": 1426382846
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182577604,
+     "count": 13468,
+     "key": "R,R,2,0,29",
+     "ops": "r0,r11,2,0,29",
+     "word": 1432358970
+    },
+    {
+     "addr": 2181949928,
+     "count": 4439,
+     "key": "R,R,1,31,31",
+     "ops": "r10,r11,1,31,31",
+     "word": 1433014270
+    },
+    {
+     "addr": 2181902992,
+     "count": 3988,
+     "key": "R,R,27,31,31",
+     "ops": "r4,r8,27,31,31",
+     "word": 1426382846
+    },
+    {
+     "addr": 2182304004,
+     "count": 3923,
+     "key": "R,R,1,0,30",
+     "ops": "r10,r10,1,0,30",
+     "word": 1430915132
+    },
+    {
+     "addr": 2182130912,
+     "count": 2702,
+     "key": "R,R,3,0,28",
+     "ops": "r29,r10,3,0,28",
+     "word": 1432164408
+    },
+    {
+     "addr": 2186902756,
+     "count": 1728,
+     "key": "R,R,0,0,30",
+     "ops": "r11,r11,0,0,30",
+     "word": 1433075772
+    },
+    {
+     "addr": 2187906316,
+     "count": 1280,
+     "key": "R,R,4,0,27",
+     "ops": "r11,r11,4,0,27",
+     "word": 1433083958
+    },
+    {
+     "addr": 2182130828,
+     "count": 575,
+     "key": "R,R,31,1,31",
+     "ops": "r10,r9,31,1,31",
+     "word": 1428879486
+    },
+    {
+     "addr": 2186500960,
+     "count": 463,
+     "key": "R,R,30,2,31",
+     "ops": "r9,r11,30,2,31",
+     "word": 1433006270
+    },
+    {
+     "addr": 2184334808,
+     "count": 451,
+     "key": "R,R,0,30,30",
+     "ops": "r9,r10,0,30,30",
+     "word": 1430849468
+    },
+    {
+     "addr": 2183703456,
+     "count": 435,
+     "key": "R,R,5,0,26",
+     "ops": "r10,r4,5,0,26",
+     "word": 1418340404
+    },
+    {
+     "addr": 2189291524,
+     "count": 412,
+     "key": "R,R,25,25,31",
+     "ops": "r4,r11,25,25,31",
+     "word": 1432669822
+    },
+    {
+     "addr": 2189119420,
+     "count": 363,
+     "key": "R,R,0,18,24",
+     "ops": "r9,r10,0,18,24",
+     "word": 1430848688
+    },
+    {
+     "addr": 2182250180,
+     "count": 334,
+     "key": "R,R,6,0,25",
+     "ops": "r24,r11,6,0,25",
+     "word": 1433940018
+    },
+    {
+     "addr": 2188124532,
+     "count": 320,
+     "key": "R,R,0,0,11",
+     "ops": "r11,r4,0,0,11",
+     "word": 1418395670
+    },
+    {
+     "addr": 2183423852,
+     "count": 292,
+     "key": "R,R,8,0,23",
+     "ops": "r11,r3,8,0,23",
+     "word": 1416314926
+    },
+    {
+     "addr": 2185329808,
+     "count": 249,
+     "key": "R,R,27,5,31",
+     "ops": "r11,r11,27,5,31",
+     "word": 1433131390
+    },
+    {
+     "addr": 2188438052,
+     "count": 246,
+     "key": "R,R,29,3,31",
+     "ops": "r11,r11,29,3,31",
+     "word": 1433135358
+    },
+    {
+     "addr": 2185359076,
+     "count": 238,
+     "key": "R,R,0,29,29",
+     "ops": "r8,r9,0,29,29",
+     "word": 1428686714
+    },
+    {
+     "addr": 2185359024,
+     "count": 219,
+     "key": "R,R,0,19,19",
+     "ops": "r4,r9,0,19,19",
+     "word": 1428423910
+    },
+    {
+     "addr": 2185358912,
+     "count": 210,
+     "key": "R,R,0,28,28",
+     "ops": "r3,r9,0,28,28",
+     "word": 1428358968
+    },
+    {
+     "addr": 2185359128,
+     "count": 210,
+     "key": "R,R,0,25,25",
+     "ops": "r4,r9,0,25,25",
+     "word": 1428424306
+    },
+    {
+     "addr": 2189038180,
+     "count": 206,
+     "key": "R,R,29,3,29",
+     "ops": "r31,r11,29,3,29",
+     "word": 1434446074
+    },
+    {
+     "addr": 2189119492,
+     "count": 201,
+     "key": "R,R,27,24,31",
+     "ops": "r10,r11,27,24,31",
+     "word": 1433067070
+    },
+    {
+     "addr": 2189291520,
+     "count": 199,
+     "key": "R,R,13,29,31",
+     "ops": "r5,r11,13,29,31",
+     "word": 1432711038
+    },
+    {
+     "addr": 2189741892,
+     "count": 195,
+     "key": "R,R,0,0,29",
+     "ops": "r11,r26,0,0,29",
+     "word": 1464533050
+    },
+    {
+     "addr": 2189291516,
+     "count": 189,
+     "key": "R,R,18,29,31",
+     "ops": "r6,r11,18,29,31",
+     "word": 1432786814
+    },
+    {
+     "addr": 2189119384,
+     "count": 188,
+     "key": "R,R,7,29,31",
+     "ops": "r27,r10,7,29,31",
+     "word": 1432043390
+    },
+    {
+     "addr": 2185358884,
+     "count": 180,
+     "key": "R,R,0,27,27",
+     "ops": "r5,r9,0,27,27",
+     "word": 1428489974
+    },
+    {
+     "addr": 2188612172,
+     "count": 177,
+     "key": "R,R,12,20,31",
+     "ops": "r8,r10,12,20,31",
+     "word": 1430807870
+    },
+    {
+     "addr": 2186903896,
+     "count": 172,
+     "key": "R,R,16,0,15",
+     "ops": "r9,r11,16,0,15",
+     "word": 1432977438
+    },
+    {
+     "addr": 2185701180,
+     "count": 148,
+     "key": "R,R,0,0,24",
+     "ops": "r4,r5,0,0,24",
+     "word": 1420034096
+    },
+    {
+     "addr": 2185358968,
+     "count": 147,
+     "key": "R,R,0,21,21",
+     "ops": "r4,r9,0,21,21",
+     "word": 1428424042
+    },
+    {
+     "addr": 2187597320,
+     "count": 144,
+     "key": "R,R,16,16,31",
+     "ops": "r8,r10,16,16,31",
+     "word": 1430815806
+    },
+    {
+     "addr": 2182667048,
+     "count": 143,
+     "key": "R,R,7,0,24",
+     "ops": "r11,r11,7,0,24",
+     "word": 1433090096
+    },
+    {
+     "addr": 2186892504,
+     "count": 138,
+     "key": "R,R,0,0,0",
+     "ops": "r9,r10,0,0,0",
+     "word": 1430847488
+    },
+    {
+     "addr": 2188211520,
+     "count": 138,
+     "key": "R,R,0,4,6",
+     "ops": "r11,r11,0,4,6",
+     "word": 1433075980
+    },
+    {
+     "addr": 2189029344,
+     "count": 134,
+     "key": "R,R,24,8,31",
+     "ops": "r4,r4,24,8,31",
+     "word": 1417986622
+    },
+    {
+     "addr": 2186551528,
+     "count": 120,
+     "key": "R,R,0,0,28",
+     "ops": "r11,r18,0,0,28",
+     "word": 1447755832
+    },
+    {
+     "addr": 2188527040,
+     "count": 118,
+     "key": "R,R,28,4,31",
+     "ops": "r11,r9,28,4,31",
+     "word": 1428939070
+    },
+    {
+     "addr": 2187874836,
+     "count": 116,
+     "key": "R,R,8,24,31",
+     "ops": "r10,r10,8,24,31",
+     "word": 1430931006
+    },
+    {
+     "addr": 2188952720,
+     "count": 116,
+     "key": "R,R,2,28,29",
+     "ops": "r9,r10,2,28,29",
+     "word": 1430853434
+    },
+    {
+     "addr": 2185701092,
+     "count": 111,
+     "key": "R,R,0,26,26",
+     "ops": "r8,r10,0,26,26",
+     "word": 1430783668
+    },
+    {
+     "addr": 2188801164,
+     "count": 106,
+     "key": "R,R,25,7,31",
+     "ops": "r11,r6,25,7,31",
+     "word": 1422641662
+    },
+    {
+     "addr": 2187919976,
+     "count": 103,
+     "key": "R,R,0,0,19",
+     "ops": "r10,r10,0,0,19",
+     "word": 1430913062
+    },
+    {
+     "addr": 2189307848,
+     "count": 100,
+     "key": "R,R,0,27,18",
+     "ops": "r11,r10,0,27,18",
+     "word": 1430980324
+    },
+    {
+     "addr": 2189119908,
+     "count": 98,
+     "key": "R,R,1,29,30",
+     "ops": "r4,r26,1,29,30",
+     "word": 1464078204
+    },
+    {
+     "addr": 2189419216,
+     "count": 92,
+     "key": "R,R,0,16,2",
+     "ops": "r11,r11,0,16,2",
+     "word": 1433076740
+    }
+   ],
+   "xenia": {
+    "rlwinmx": 46888
+   }
+  },
+  "rlwinm.": {
+   "count": 4547,
+   "game": 0,
+   "id": 833,
+   "lib": 4547,
+   "n_variants": 203,
+   "regclass": {
+    "0": {
+     "count": 4547,
+     "ops": "r11,r29,0,15,15",
+     "word": 1470825439
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189307588,
+     "count": 569,
+     "key": "R,R,27,31,31",
+     "ops": "r11,r11,27,31,31",
+     "word": 1433133055
+    },
+    {
+     "addr": 2188425308,
+     "count": 319,
+     "key": "R,R,0,30,30",
+     "ops": "r11,r11,0,30,30",
+     "word": 1433077693
+    },
+    {
+     "addr": 2188611960,
+     "count": 279,
+     "key": "R,R,0,29,29",
+     "ops": "r10,r10,0,29,29",
+     "word": 1430914939
+    },
+    {
+     "addr": 2188044296,
+     "count": 179,
+     "key": "R,R,0,23,23",
+     "ops": "r7,r7,0,23,23",
+     "word": 1424426479
+    },
+    {
+     "addr": 2188114080,
+     "count": 172,
+     "key": "R,R,0,27,27",
+     "ops": "r10,r10,0,27,27",
+     "word": 1430914807
+    },
+    {
+     "addr": 2189419456,
+     "count": 157,
+     "key": "R,R,0,8,8",
+     "ops": "r10,r10,0,8,8",
+     "word": 1430913553
+    },
+    {
+     "addr": 2187964476,
+     "count": 146,
+     "key": "R,R,0,28,28",
+     "ops": "r11,r11,0,28,28",
+     "word": 1433077561
+    },
+    {
+     "addr": 2189041948,
+     "count": 146,
+     "key": "R,R,0,1,1",
+     "ops": "r11,r11,0,1,1",
+     "word": 1433075779
+    },
+    {
+     "addr": 2188266108,
+     "count": 134,
+     "key": "R,R,0,26,26",
+     "ops": "r11,r11,0,26,26",
+     "word": 1433077429
+    },
+    {
+     "addr": 2188265996,
+     "count": 129,
+     "key": "R,R,0,25,25",
+     "ops": "r9,r9,0,25,25",
+     "word": 1428751987
+    },
+    {
+     "addr": 2189838560,
+     "count": 118,
+     "key": "R,R,0,0,0",
+     "ops": "r10,r11,0,0,0",
+     "word": 1433010177
+    },
+    {
+     "addr": 2187808744,
+     "count": 117,
+     "key": "R,R,0,9,9",
+     "ops": "r11,r11,0,9,9",
+     "word": 1433076307
+    },
+    {
+     "addr": 2188061604,
+     "count": 86,
+     "key": "R,R,0,22,22",
+     "ops": "r11,r11,0,22,22",
+     "word": 1433077165
+    },
+    {
+     "addr": 2189120128,
+     "count": 84,
+     "key": "R,R,9,31,31",
+     "ops": "r11,r10,9,31,31",
+     "word": 1430999039
+    },
+    {
+     "addr": 2189660492,
+     "count": 82,
+     "key": "R,R,30,31,31",
+     "ops": "r10,r10,30,31,31",
+     "word": 1430976511
+    },
+    {
+     "addr": 2188061784,
+     "count": 81,
+     "key": "R,R,0,24,24",
+     "ops": "r11,r11,0,24,24",
+     "word": 1433077297
+    },
+    {
+     "addr": 2188220924,
+     "count": 73,
+     "key": "R,R,0,0,11",
+     "ops": "r11,r11,0,0,11",
+     "word": 1433075735
+    },
+    {
+     "addr": 2187806768,
+     "count": 70,
+     "key": "R,R,0,27,28",
+     "ops": "r11,r27,0,27,28",
+     "word": 1466631929
+    },
+    {
+     "addr": 2188061528,
+     "count": 69,
+     "key": "R,R,0,20,20",
+     "ops": "r10,r11,0,20,20",
+     "word": 1433011497
+    },
+    {
+     "addr": 2188211460,
+     "count": 69,
+     "key": "R,R,0,4,6",
+     "ops": "r10,r11,0,4,6",
+     "word": 1433010445
+    },
+    {
+     "addr": 2189123144,
+     "count": 62,
+     "key": "R,R,31,31,31",
+     "ops": "r10,r10,31,31,31",
+     "word": 1430978559
+    },
+    {
+     "addr": 2188061512,
+     "count": 52,
+     "key": "R,R,0,21,21",
+     "ops": "r10,r11,0,21,21",
+     "word": 1433011563
+    },
+    {
+     "addr": 2188061792,
+     "count": 48,
+     "key": "R,R,0,12,12",
+     "ops": "r11,r26,0,12,12",
+     "word": 1464533785
+    },
+    {
+     "addr": 2189682864,
+     "count": 47,
+     "key": "R,R,26,31,31",
+     "ops": "r11,r11,26,31,31",
+     "word": 1433131007
+    },
+    {
+     "addr": 2189838576,
+     "count": 47,
+     "key": "R,R,0,2,2",
+     "ops": "r11,r11,0,2,2",
+     "word": 1433075845
+    },
+    {
+     "addr": 2188952576,
+     "count": 45,
+     "key": "R,R,0,13,13",
+     "ops": "r8,r11,0,13,13",
+     "word": 1432879963
+    },
+    {
+     "addr": 2188312044,
+     "count": 45,
+     "key": "R,R,0,3,3",
+     "ops": "r11,r11,0,3,3",
+     "word": 1433075911
+    },
+    {
+     "addr": 2188393200,
+     "count": 42,
+     "key": "R,R,0,6,6",
+     "ops": "r7,r7,0,6,6",
+     "word": 1424425357
+    },
+    {
+     "addr": 2188061592,
+     "count": 41,
+     "key": "R,R,0,16,16",
+     "ops": "r10,r11,0,16,16",
+     "word": 1433011233
+    },
+    {
+     "addr": 2187635416,
+     "count": 40,
+     "key": "R,R,0,15,15",
+     "ops": "r11,r29,0,15,15",
+     "word": 1470825439
+    },
+    {
+     "addr": 2188061544,
+     "count": 40,
+     "key": "R,R,0,19,19",
+     "ops": "r10,r11,0,19,19",
+     "word": 1433011431
+    },
+    {
+     "addr": 2189540944,
+     "count": 38,
+     "key": "R,R,10,31,31",
+     "ops": "r11,r11,10,31,31",
+     "word": 1433098239
+    },
+    {
+     "addr": 2188009692,
+     "count": 36,
+     "key": "R,R,0,18,18",
+     "ops": "r11,r31,0,18,18",
+     "word": 1475019941
+    },
+    {
+     "addr": 2187808548,
+     "count": 34,
+     "key": "R,R,0,7,7",
+     "ops": "r11,r11,0,7,7",
+     "word": 1433076175
+    },
+    {
+     "addr": 2189579244,
+     "count": 33,
+     "key": "R,R,23,31,31",
+     "ops": "r11,r11,23,31,31",
+     "word": 1433124863
+    },
+    {
+     "addr": 2189101180,
+     "count": 33,
+     "key": "R,R,6,31,31",
+     "ops": "r11,r11,6,31,31",
+     "word": 1433090047
+    },
+    {
+     "addr": 2189784120,
+     "count": 32,
+     "key": "R,R,0,0,24",
+     "ops": "r11,r3,0,0,24",
+     "word": 1416298545
+    },
+    {
+     "addr": 2189518800,
+     "count": 30,
+     "key": "R,R,7,29,31",
+     "ops": "r9,r10,7,29,31",
+     "word": 1430863743
+    },
+    {
+     "addr": 2189086996,
+     "count": 27,
+     "key": "R,R,7,31,31",
+     "ops": "r11,r10,7,31,31",
+     "word": 1430994943
+    },
+    {
+     "addr": 2188952564,
+     "count": 26,
+     "key": "R,R,0,14,14",
+     "ops": "r8,r11,0,14,14",
+     "word": 1432880029
+    },
+    {
+     "addr": 2187511412,
+     "count": 22,
+     "key": "R,R,31,1,31",
+     "ops": "r28,r5,31,1,31",
+     "word": 1421670527
+    },
+    {
+     "addr": 2189231040,
+     "count": 21,
+     "key": "R,R,13,31,31",
+     "ops": "r10,r10,13,31,31",
+     "word": 1430941695
+    },
+    {
+     "addr": 2189839192,
+     "count": 20,
+     "key": "R,R,1,31,31",
+     "ops": "r10,r11,1,31,31",
+     "word": 1433014271
+    },
+    {
+     "addr": 2189276992,
+     "count": 19,
+     "key": "R,R,0,5,5",
+     "ops": "r11,r11,0,5,5",
+     "word": 1433076043
+    },
+    {
+     "addr": 2187814668,
+     "count": 19,
+     "key": "R,R,2,0,29",
+     "ops": "r10,r30,2,0,29",
+     "word": 1472860219
+    },
+    {
+     "addr": 2187738304,
+     "count": 18,
+     "key": "R,R,0,10,10",
+     "ops": "r11,r11,0,10,10",
+     "word": 1433076373
+    },
+    {
+     "addr": 2189128248,
+     "count": 18,
+     "key": "R,R,13,29,31",
+     "ops": "r11,r11,13,29,31",
+     "word": 1433104255
+    },
+    {
+     "addr": 2189276352,
+     "count": 16,
+     "key": "R,R,0,4,4",
+     "ops": "r10,r11,0,4,4",
+     "word": 1433010441
+    }
+   ],
+   "xenia": {
+    "rlwinmx": 4547
+   }
+  },
+  "rotldi": {
+   "count": 3,
+   "game": 2,
+   "id": 856,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r11,r9,1",
+     "word": 2032863232
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185056788,
+     "count": 3,
+     "key": "R,R,1",
+     "ops": "r11,r9,1",
+     "word": 2032863232
+    }
+   ],
+   "xenia": {
+    "rldiclx": 3
+   }
+  },
+  "rotlw": {
+   "count": 3,
+   "game": 0,
+   "id": 840,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r10,r9,r10",
+     "word": 1563054142
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189027592,
+     "count": 3,
+     "key": "R,R,R",
+     "ops": "r10,r9,r10",
+     "word": 1563054142
+    }
+   ],
+   "xenia": {
+    "rlwnmx": 3
+   }
+  },
+  "rotlwi": {
+   "count": 3334,
+   "game": 2080,
+   "id": 831,
+   "lib": 1254,
+   "n_variants": 13,
+   "regclass": {
+    "0": {
+     "count": 3334,
+     "ops": "r3,r11,0",
+     "word": 1432551486
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181810388,
+     "count": 2717,
+     "key": "R,R,0",
+     "ops": "r3,r11,0",
+     "word": 1432551486
+    },
+    {
+     "addr": 2183766384,
+     "count": 193,
+     "key": "R,R,1",
+     "ops": "r11,r28,1",
+     "word": 1468729406
+    },
+    {
+     "addr": 2185649384,
+     "count": 158,
+     "key": "R,R,2",
+     "ops": "r11,r11,2",
+     "word": 1433079870
+    },
+    {
+     "addr": 2188414628,
+     "count": 108,
+     "key": "R,R,8",
+     "ops": "r11,r9,8",
+     "word": 1428897854
+    },
+    {
+     "addr": 2185329812,
+     "count": 65,
+     "key": "R,R,3",
+     "ops": "r9,r4,3",
+     "word": 1418270782
+    },
+    {
+     "addr": 2183068292,
+     "count": 39,
+     "key": "R,R,4",
+     "ops": "r9,r10,4",
+     "word": 1430855742
+    },
+    {
+     "addr": 2187559740,
+     "count": 25,
+     "key": "R,R,16",
+     "ops": "r11,r11,16",
+     "word": 1433108542
+    },
+    {
+     "addr": 2183211272,
+     "count": 9,
+     "key": "R,R,24",
+     "ops": "r27,r9,24",
+     "word": 1429979198
+    },
+    {
+     "addr": 2185195048,
+     "count": 7,
+     "key": "R,R,6",
+     "ops": "r9,r31,6",
+     "word": 1474900030
+    },
+    {
+     "addr": 2184709900,
+     "count": 5,
+     "key": "R,R,5",
+     "ops": "r9,r11,5",
+     "word": 1432954942
+    },
+    {
+     "addr": 2188806160,
+     "count": 5,
+     "key": "R,R,10",
+     "ops": "r10,r5,10",
+     "word": 1420447806
+    },
+    {
+     "addr": 2188589564,
+     "count": 2,
+     "key": "R,R,13",
+     "ops": "r3,r7,13",
+     "word": 1424189502
+    },
+    {
+     "addr": 2188775204,
+     "count": 1,
+     "key": "R,R,12",
+     "ops": "r9,r11,12",
+     "word": 1432969278
+    }
+   ],
+   "xenia": {
+    "rlwinmx": 3334
+   }
+  },
+  "rotlwi.": {
+   "count": 11,
+   "game": 0,
+   "id": 831,
+   "lib": 11,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 11,
+     "ops": "r11,r11,0",
+     "word": 1433075775
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187690656,
+     "count": 11,
+     "key": "R,R,0",
+     "ops": "r11,r11,0",
+     "word": 1433075775
+    }
+   ],
+   "xenia": {
+    "rlwinmx": 11
+   }
+  },
+  "sld": {
+   "count": 129,
+   "game": 1,
+   "id": 926,
+   "lib": 128,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 129,
+     "ops": "r11,r25,r6",
+     "word": 2133536822
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189038100,
+     "count": 129,
+     "key": "R,R,R",
+     "ops": "r11,r25,r6",
+     "word": 2133536822
+    }
+   ],
+   "xenia": {
+    "sldx": 129
+   }
+  },
+  "slw": {
+   "count": 1666,
+   "game": 472,
+   "id": 922,
+   "lib": 1194,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1666,
+     "ops": "r30,r21,r10",
+     "word": 2126401584
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189038188,
+     "count": 1666,
+     "key": "R,R,R",
+     "ops": "r30,r21,r10",
+     "word": 2126401584
+    }
+   ],
+   "xenia": {
+    "slwx": 1666
+   }
+  },
+  "slw.": {
+   "count": 2,
+   "game": 1,
+   "id": 922,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "r4,r6,r5",
+     "word": 2093230129
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186273400,
+     "count": 2,
+     "key": "R,R,R",
+     "ops": "r4,r6,r5",
+     "word": 2093230129
+    }
+   ],
+   "xenia": {
+    "slwx": 2
+   }
+  },
+  "srad": {
+   "count": 11,
+   "game": 3,
+   "id": 1598,
+   "lib": 8,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 11,
+     "ops": "r9,r10,r11",
+     "word": 2101960244
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185057692,
+     "count": 11,
+     "key": "R,R,R",
+     "ops": "r9,r10,r11",
+     "word": 2101960244
+    }
+   ],
+   "xenia": {
+    "sradx": 11
+   }
+  },
+  "sradi": {
+   "count": 49,
+   "game": 1,
+   "id": 1315,
+   "lib": 48,
+   "n_variants": 5,
+   "regclass": {
+    "0": {
+     "count": 49,
+     "ops": "r7,r9,63",
+     "word": 2099773046
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853408,
+     "count": 30,
+     "key": "R,R,32",
+     "ops": "r8,r9,32",
+     "word": 2099775094
+    },
+    {
+     "addr": 2188853400,
+     "count": 15,
+     "key": "R,R,63",
+     "ops": "r7,r9,63",
+     "word": 2099773046
+    },
+    {
+     "addr": 2187525396,
+     "count": 2,
+     "key": "R,R,2",
+     "ops": "r9,r11,2",
+     "word": 2104039028
+    },
+    {
+     "addr": 2185856480,
+     "count": 1,
+     "key": "R,R,7",
+     "ops": "r11,r3,7",
+     "word": 2087403124
+    },
+    {
+     "addr": 2187525532,
+     "count": 1,
+     "key": "R,R,1",
+     "ops": "r11,r10,1",
+     "word": 2102070900
+    }
+   ],
+   "xenia": {
+    "sradix": 49
+   }
+  },
+  "sraw": {
+   "count": 134,
+   "game": 56,
+   "id": 1596,
+   "lib": 78,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 134,
+     "ops": "r29,r11,r23",
+     "word": 2105392688
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188526972,
+     "count": 134,
+     "key": "R,R,R",
+     "ops": "r29,r11,r23",
+     "word": 2105392688
+    }
+   ],
+   "xenia": {
+    "srawx": 134
+   }
+  },
+  "sraw.": {
+   "count": 2,
+   "game": 0,
+   "id": 1596,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "r11,r10,r11",
+     "word": 2102091313
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188947724,
+     "count": 2,
+     "key": "R,R,R",
+     "ops": "r11,r10,r11",
+     "word": 2102091313
+    }
+   ],
+   "xenia": {
+    "srawx": 2
+   }
+  },
+  "srawi": {
+   "count": 10582,
+   "game": 9760,
+   "id": 1606,
+   "lib": 822,
+   "n_variants": 31,
+   "regclass": {
+    "0": {
+     "count": 10582,
+     "ops": "r11,r7,1",
+     "word": 2095779440
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181949924,
+     "count": 3740,
+     "key": "R,R,1",
+     "ops": "r11,r7,1",
+     "word": 2095779440
+    },
+    {
+     "addr": 2182255332,
+     "count": 1968,
+     "key": "R,R,2",
+     "ops": "r11,r6,2",
+     "word": 2093684336
+    },
+    {
+     "addr": 2182130752,
+     "count": 1732,
+     "key": "R,R,3",
+     "ops": "r9,r10,3",
+     "word": 2101943920
+    },
+    {
+     "addr": 2183056128,
+     "count": 737,
+     "key": "R,R,5",
+     "ops": "r11,r9,5",
+     "word": 2099981936
+    },
+    {
+     "addr": 2183765380,
+     "count": 682,
+     "key": "R,R,4",
+     "ops": "r11,r7,4",
+     "word": 2095785584
+    },
+    {
+     "addr": 2182249940,
+     "count": 474,
+     "key": "R,R,6",
+     "ops": "r25,r11,6",
+     "word": 2105095792
+    },
+    {
+     "addr": 2186500924,
+     "count": 245,
+     "key": "R,R,31",
+     "ops": "r6,r7,31",
+     "word": 2095513200
+    },
+    {
+     "addr": 2188468868,
+     "count": 217,
+     "key": "R,R,8",
+     "ops": "r11,r30,8",
+     "word": 2144028272
+    },
+    {
+     "addr": 2181838076,
+     "count": 194,
+     "key": "R,R,7",
+     "ops": "r11,r7,7",
+     "word": 2095791728
+    },
+    {
+     "addr": 2186902736,
+     "count": 186,
+     "key": "R,R,30",
+     "ops": "r11,r3,30",
+     "word": 2087450224
+    },
+    {
+     "addr": 2189937768,
+     "count": 80,
+     "key": "R,R,11",
+     "ops": "r6,r5,11",
+     "word": 2091277936
+    },
+    {
+     "addr": 2185968836,
+     "count": 60,
+     "key": "R,R,16",
+     "ops": "r11,r7,16",
+     "word": 2095810160
+    },
+    {
+     "addr": 2186796800,
+     "count": 49,
+     "key": "R,R,24",
+     "ops": "r8,r9,24",
+     "word": 2099824240
+    },
+    {
+     "addr": 2188602748,
+     "count": 30,
+     "key": "R,R,9",
+     "ops": "r5,r30,9",
+     "word": 2143637104
+    },
+    {
+     "addr": 2181790396,
+     "count": 24,
+     "key": "R,R,12",
+     "ops": "r9,r4,12",
+     "word": 2089379440
+    },
+    {
+     "addr": 2188602712,
+     "count": 24,
+     "key": "R,R,15",
+     "ops": "r3,r30,15",
+     "word": 2143518320
+    },
+    {
+     "addr": 2188602708,
+     "count": 18,
+     "key": "R,R,17",
+     "ops": "r7,r30,17",
+     "word": 2143784560
+    },
+    {
+     "addr": 2186281972,
+     "count": 15,
+     "key": "R,R,10",
+     "ops": "r27,r8,10",
+     "word": 2098943600
+    },
+    {
+     "addr": 2188602704,
+     "count": 14,
+     "key": "R,R,18",
+     "ops": "r4,r30,18",
+     "word": 2143590000
+    },
+    {
+     "addr": 2185727596,
+     "count": 14,
+     "key": "R,R,20",
+     "ops": "r30,r6,20",
+     "word": 2094966384
+    },
+    {
+     "addr": 2184837992,
+     "count": 13,
+     "key": "R,R,28",
+     "ops": "r4,r5,28",
+     "word": 2091181680
+    },
+    {
+     "addr": 2188622620,
+     "count": 12,
+     "key": "R,R,27",
+     "ops": "r3,r11,27",
+     "word": 2103697008
+    },
+    {
+     "addr": 2188602716,
+     "count": 12,
+     "key": "R,R,13",
+     "ops": "r28,r30,13",
+     "word": 2145152624
+    },
+    {
+     "addr": 2181915772,
+     "count": 8,
+     "key": "R,R,29",
+     "ops": "r7,r8,29",
+     "word": 2097671792
+    },
+    {
+     "addr": 2183326104,
+     "count": 8,
+     "key": "R,R,26",
+     "ops": "r6,r7,26",
+     "word": 2095502960
+    },
+    {
+     "addr": 2185055908,
+     "count": 7,
+     "key": "R,R,14",
+     "ops": "r11,r11,14",
+     "word": 2104194672
+    },
+    {
+     "addr": 2187574528,
+     "count": 6,
+     "key": "R,R,25",
+     "ops": "r11,r11,25",
+     "word": 2104217200
+    },
+    {
+     "addr": 2188602696,
+     "count": 4,
+     "key": "R,R,21",
+     "ops": "r5,r30,21",
+     "word": 2143661680
+    },
+    {
+     "addr": 2188561892,
+     "count": 4,
+     "key": "R,R,19",
+     "ops": "r6,r3,19",
+     "word": 2087100016
+    },
+    {
+     "addr": 2188740212,
+     "count": 3,
+     "key": "R,R,23",
+     "ops": "r11,r11,23",
+     "word": 2104213104
+    },
+    {
+     "addr": 2183331800,
+     "count": 2,
+     "key": "R,R,22",
+     "ops": "r6,r7,22",
+     "word": 2095494768
+    }
+   ],
+   "xenia": {
+    "srawix": 10582
+   }
+  },
+  "srawi.": {
+   "count": 46,
+   "game": 30,
+   "id": 1606,
+   "lib": 16,
+   "n_variants": 9,
+   "regclass": {
+    "0": {
+     "count": 46,
+     "ops": "r11,r8,20",
+     "word": 2097915505
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183088200,
+     "count": 27,
+     "key": "R,R,20",
+     "ops": "r11,r8,20",
+     "word": 2097915505
+    },
+    {
+     "addr": 2188735664,
+     "count": 4,
+     "key": "R,R,1",
+     "ops": "r10,r6,1",
+     "word": 2093616753
+    },
+    {
+     "addr": 2189697824,
+     "count": 4,
+     "key": "R,R,3",
+     "ops": "r9,r10,3",
+     "word": 2101943921
+    },
+    {
+     "addr": 2188318440,
+     "count": 3,
+     "key": "R,R,31",
+     "ops": "r30,r11,31",
+     "word": 2105474673
+    },
+    {
+     "addr": 2188738504,
+     "count": 3,
+     "key": "R,R,2",
+     "ops": "r11,r4,2",
+     "word": 2089490033
+    },
+    {
+     "addr": 2186525796,
+     "count": 2,
+     "key": "R,R,24",
+     "ops": "r11,r9,24",
+     "word": 2100020849
+    },
+    {
+     "addr": 2188896476,
+     "count": 1,
+     "key": "R,R,12",
+     "ops": "r0,r0,12",
+     "word": 2080401009
+    },
+    {
+     "addr": 2189698784,
+     "count": 1,
+     "key": "R,R,13",
+     "ops": "r11,r11,13",
+     "word": 2104192625
+    },
+    {
+     "addr": 2185746044,
+     "count": 1,
+     "key": "R,R,29",
+     "ops": "r11,r9,29",
+     "word": 2100031089
+    }
+   ],
+   "xenia": {
+    "srawix": 46
+   }
+  },
+  "srd": {
+   "count": 200,
+   "game": 3,
+   "id": 1543,
+   "lib": 197,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 200,
+     "ops": "r10,r10,r11",
+     "word": 2102025270
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189038020,
+     "count": 200,
+     "key": "R,R,R",
+     "ops": "r10,r10,r11",
+     "word": 2102025270
+    }
+   ],
+   "xenia": {
+    "srdx": 200
+   }
+  },
+  "srw": {
+   "count": 1043,
+   "game": 46,
+   "id": 1540,
+   "lib": 997,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1043,
+     "ops": "r10,r6,r10",
+     "word": 2093634608
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189038208,
+     "count": 1043,
+     "key": "R,R,R",
+     "ops": "r10,r6,r10",
+     "word": 2093634608
+    }
+   ],
+   "xenia": {
+    "srwx": 1043
+   }
+  },
+  "srw.": {
+   "count": 5,
+   "game": 0,
+   "id": 1540,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5,
+     "ops": "r10,r9,r10",
+     "word": 2099926065
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189038524,
+     "count": 5,
+     "key": "R,R,R",
+     "ops": "r10,r9,r10",
+     "word": 2099926065
+    }
+   ],
+   "xenia": {
+    "srwx": 5
+   }
+  },
+  "stb": {
+   "count": 15000,
+   "game": 12270,
+   "id": 1680,
+   "lib": 2730,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 15000,
+     "ops": "r6,80(r1)",
+     "word": 2562785360
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181868352,
+     "count": 14999,
+     "key": "R,N(R)",
+     "ops": "r6,80(r1)",
+     "word": 2562785360
+    },
+    {
+     "addr": 2189670284,
+     "count": 1,
+     "key": "R,N(N)",
+     "ops": "r11,0(0)",
+     "word": 2573205504
+    }
+   ],
+   "xenia": {
+    "stb": 15000
+   }
+  },
+  "stbu": {
+   "count": 5,
+   "game": 0,
+   "id": 1681,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5,
+     "ops": "r6,1(r3)",
+     "word": 2630025217
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187510100,
+     "count": 5,
+     "key": "R,N(R)",
+     "ops": "r6,1(r3)",
+     "word": 2630025217
+    }
+   ],
+   "xenia": {
+    "stbu": 5
+   }
+  },
+  "stbx": {
+   "count": 607,
+   "game": 353,
+   "id": 1028,
+   "lib": 254,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 607,
+     "ops": "r8,r11,r9",
+     "word": 2097891758
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181868388,
+     "count": 607,
+     "key": "R,R,R",
+     "ops": "r8,r11,r9",
+     "word": 2097891758
+    }
+   ],
+   "xenia": {
+    "stbx": 607
+   }
+  },
+  "std": {
+   "count": 16036,
+   "game": 11446,
+   "id": 1772,
+   "lib": 4590,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 16036,
+     "ops": "r4,128(r1)",
+     "word": 4169203840
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812948,
+     "count": 16036,
+     "key": "R,N(R)",
+     "ops": "r4,128(r1)",
+     "word": 4169203840
+    }
+   ],
+   "xenia": {
+    "std": 16036
+   }
+  },
+  "stdcx.": {
+   "count": 4,
+   "game": 0,
+   "id": 1027,
+   "lib": 4,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4,
+     "ops": "r10,0,r3",
+     "word": 2101352877
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188604280,
+     "count": 4,
+     "key": "R,N,R",
+     "ops": "r10,0,r3",
+     "word": 2101352877
+    }
+   ],
+   "xenia": {
+    "stdcx": 4
+   }
+  },
+  "stdu": {
+   "count": 3,
+   "game": 0,
+   "id": 1773,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r7,8(r3)",
+     "word": 4175626249
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187510184,
+     "count": 3,
+     "key": "R,N(R)",
+     "ops": "r7,8(r3)",
+     "word": 4175626249
+    }
+   ],
+   "xenia": {
+    "stdu": 3
+   }
+  },
+  "stdx": {
+   "count": 70,
+   "game": 6,
+   "id": 999,
+   "lib": 64,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 70,
+     "ops": "r11,r10,r3",
+     "word": 2104105258
+    }
+   },
+   "variants": [
+    {
+     "addr": 2189059924,
+     "count": 70,
+     "key": "R,R,R",
+     "ops": "r11,r10,r3",
+     "word": 2104105258
+    }
+   ],
+   "xenia": {
+    "stdx": 70
+   }
+  },
+  "stfd": {
+   "count": 2752,
+   "game": 1908,
+   "id": 1698,
+   "lib": 844,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2752,
+     "ops": "f30,-32(r1)",
+     "word": 3686924256
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182430852,
+     "count": 2752,
+     "key": "F,N(R)",
+     "ops": "f30,-32(r1)",
+     "word": 3686924256
+    }
+   ],
+   "xenia": {
+    "stfd": 2752
+   }
+  },
+  "stfdx": {
+   "count": 42,
+   "game": 1,
+   "id": 1582,
+   "lib": 41,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 42,
+     "ops": "f0,r11,r31",
+     "word": 2081160622
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188698872,
+     "count": 42,
+     "key": "F,R,R",
+     "ops": "f0,r11,r31",
+     "word": 2081160622
+    }
+   ],
+   "xenia": {
+    "stfdx": 42
+   }
+  },
+  "stfiwx": {
+   "count": 1435,
+   "game": 871,
+   "id": 1639,
+   "lib": 564,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 1435,
+     "ops": "f0,0,r10",
+     "word": 2080397230
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181978052,
+     "count": 1423,
+     "key": "F,N,R",
+     "ops": "f0,0,r10",
+     "word": 2080397230
+    },
+    {
+     "addr": 2184812304,
+     "count": 12,
+     "key": "F,R,R",
+     "ops": "f2,r31,r12",
+     "word": 2086627246
+    }
+   ],
+   "xenia": {
+    "stfiwx": 1435
+   }
+  },
+  "stfs": {
+   "count": 48608,
+   "game": 44355,
+   "id": 1696,
+   "lib": 4253,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 48608,
+     "ops": "f0,4(r30)",
+     "word": 3491627012
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181823028,
+     "count": 48608,
+     "key": "F,N(R)",
+     "ops": "f0,4(r30)",
+     "word": 3491627012
+    }
+   ],
+   "xenia": {
+    "stfs": 48608
+   }
+  },
+  "stfsx": {
+   "count": 991,
+   "game": 642,
+   "id": 1572,
+   "lib": 349,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 991,
+     "ops": "f16,r9,r10",
+     "word": 2114540846
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186500792,
+     "count": 991,
+     "key": "F,R,R",
+     "ops": "f16,r9,r10",
+     "word": 2114540846
+    }
+   ],
+   "xenia": {
+    "stfsx": 991
+   }
+  },
+  "sth": {
+   "count": 4014,
+   "game": 2466,
+   "id": 1686,
+   "lib": 1548,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4014,
+     "ops": "r25,0(r11)",
+     "word": 3005939712
+    }
+   },
+   "variants": [
+    {
+     "addr": 2184060488,
+     "count": 4014,
+     "key": "R,N(R)",
+     "ops": "r25,0(r11)",
+     "word": 3005939712
+    }
+   ],
+   "xenia": {
+    "sth": 4014
+   }
+  },
+  "sthbrx": {
+   "count": 3,
+   "game": 0,
+   "id": 1618,
+   "lib": 3,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r11,0,r3",
+     "word": 2103451436
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188946476,
+     "count": 2,
+     "key": "R,N,R",
+     "ops": "r11,0,r3",
+     "word": 2103451436
+    },
+    {
+     "addr": 2188946524,
+     "count": 1,
+     "key": "R,R,R",
+     "ops": "r10,r11,r3",
+     "word": 2102075180
+    }
+   ],
+   "xenia": {
+    "sthbrx": 3
+   }
+  },
+  "sthx": {
+   "count": 199,
+   "game": 128,
+   "id": 1306,
+   "lib": 71,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 199,
+     "ops": "r9,r10,r11",
+     "word": 2099927854
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182304504,
+     "count": 199,
+     "key": "R,R,R",
+     "ops": "r9,r10,r11",
+     "word": 2099927854
+    }
+   ],
+   "xenia": {
+    "sthx": 199
+   }
+  },
+  "stvehx": {
+   "count": 6,
+   "game": 0,
+   "id": 1658,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "v0,r0,r8",
+     "word": 2080391502
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187639140,
+     "count": 6,
+     "key": "V,R,R",
+     "ops": "v0,r0,r8",
+     "word": 2080391502
+    }
+   ],
+   "xenia": {
+    "stvehx": 6
+   }
+  },
+  "stvewx": {
+   "count": 361,
+   "game": 23,
+   "id": 1659,
+   "lib": 338,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 361,
+     "ops": "v10,r0,r30",
+     "word": 2101408142
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853208,
+     "count": 361,
+     "key": "V,R,R",
+     "ops": "v10,r0,r30",
+     "word": 2101408142
+    }
+   ],
+   "xenia": {
+    "stvewx": 361
+   }
+  },
+  "stvlx": {
+   "count": 16,
+   "game": 0,
+   "id": 1666,
+   "lib": 16,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 16,
+     "ops": "v0,0,r26",
+     "word": 2080429326
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188899352,
+     "count": 16,
+     "key": "V,N,R",
+     "ops": "v0,0,r26",
+     "word": 2080429326
+    }
+   ],
+   "xenia": {
+    "stvlx": 16
+   }
+  },
+  "stvrx": {
+   "count": 16,
+   "game": 0,
+   "id": 1668,
+   "lib": 16,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 16,
+     "ops": "v0,r30,r29",
+     "word": 2082401614
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188899848,
+     "count": 16,
+     "key": "V,R,R",
+     "ops": "v0,r30,r29",
+     "word": 2082401614
+    }
+   ],
+   "xenia": {
+    "stvrx": 16
+   }
+  },
+  "stvx": {
+   "count": 611,
+   "game": 53,
+   "id": 1660,
+   "lib": 558,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 611,
+     "ops": "v0,r0,r9",
+     "word": 2080393678
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853056,
+     "count": 611,
+     "key": "V,R,R",
+     "ops": "v0,r0,r9",
+     "word": 2080393678
+    }
+   ],
+   "xenia": {
+    "stvx": 611
+   }
+  },
+  "stvx128": {
+   "count": 123,
+   "game": 7,
+   "id": 268,
+   "lib": 116,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 17,
+     "ops": "v1,r1,r12",
+     "word": 270623171
+    },
+    "1": {
+     "count": 26,
+     "ops": "v59,r0,r8",
+     "word": 325075399
+    },
+    "2": {
+     "count": 32,
+     "ops": "v71,r11,r12",
+     "word": 283861451
+    },
+    "3": {
+     "count": 48,
+     "ops": "v120,r11,r12",
+     "word": 319513039
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188895736,
+     "count": 123,
+     "key": "V,R,R",
+     "ops": "v120,r11,r12",
+     "word": 319513039
+    }
+   ],
+   "xenia": {
+    "stvx128": 123
+   }
+  },
+  "stw": {
+   "count": 107193,
+   "game": 73070,
+   "id": 1676,
+   "lib": 34123,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 107193,
+     "ops": "r12,-8(r1)",
+     "word": 2441215992
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812940,
+     "count": 107193,
+     "key": "R,N(R)",
+     "ops": "r12,-8(r1)",
+     "word": 2441215992
+    }
+   ],
+   "xenia": {
+    "stw": 107193
+   }
+  },
+  "stwbrx": {
+   "count": 5,
+   "game": 1,
+   "id": 1570,
+   "lib": 4,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5,
+     "ops": "r11,0,r4",
+     "word": 2103452972
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188776748,
+     "count": 5,
+     "key": "R,N,R",
+     "ops": "r11,0,r4",
+     "word": 2103452972
+    }
+   ],
+   "xenia": {
+    "stwbrx": 5
+   }
+  },
+  "stwcx.": {
+   "count": 68,
+   "game": 19,
+   "id": 1000,
+   "lib": 49,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 68,
+     "ops": "r8,0,r11",
+     "word": 2097174829
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185884204,
+     "count": 68,
+     "key": "R,N,R",
+     "ops": "r8,0,r11",
+     "word": 2097174829
+    }
+   ],
+   "xenia": {
+    "stwcx": 68
+   }
+  },
+  "stwu": {
+   "count": 17541,
+   "game": 11818,
+   "id": 1678,
+   "lib": 5723,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 17541,
+     "ops": "r1,-96(r1)",
+     "word": 2485256096
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181812944,
+     "count": 17541,
+     "key": "R,N(R)",
+     "ops": "r1,-96(r1)",
+     "word": 2485256096
+    }
+   ],
+   "xenia": {
+    "stwu": 17541
+   }
+  },
+  "stwux": {
+   "count": 6,
+   "game": 4,
+   "id": 1013,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "r8,r1,r12",
+     "word": 2097242478
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188801032,
+     "count": 6,
+     "key": "R,R,R",
+     "ops": "r8,r1,r12",
+     "word": 2097242478
+    }
+   ],
+   "xenia": {
+    "stwux": 6
+   }
+  },
+  "stwx": {
+   "count": 2643,
+   "game": 992,
+   "id": 1001,
+   "lib": 1651,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 2643,
+     "ops": "r31,r11,r4",
+     "word": 2146115886
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181995980,
+     "count": 2641,
+     "key": "R,R,R",
+     "ops": "r31,r11,r4",
+     "word": 2146115886
+    },
+    {
+     "addr": 2188776016,
+     "count": 2,
+     "key": "R,N,R",
+     "ops": "r30,0,r8",
+     "word": 2143306030
+    }
+   ],
+   "xenia": {
+    "stwx": 2643
+   }
+  },
+  "subf": {
+   "count": 17429,
+   "game": 12945,
+   "id": 934,
+   "lib": 4484,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 17429,
+     "ops": "r11,r8,r9",
+     "word": 2103986256
+    }
+   },
+   "variants": [
+    {
+     "addr": 2181949916,
+     "count": 17429,
+     "key": "R,R,R",
+     "ops": "r11,r8,r9",
+     "word": 2103986256
+    }
+   ],
+   "xenia": {
+    "subfx": 17429
+   }
+  },
+  "subf.": {
+   "count": 284,
+   "game": 65,
+   "id": 934,
+   "lib": 219,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 284,
+     "ops": "r11,r9,r11",
+     "word": 2104055889
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182576708,
+     "count": 284,
+     "key": "R,R,R",
+     "ops": "r11,r9,r11",
+     "word": 2104055889
+    }
+   ],
+   "xenia": {
+    "subfx": 284
+   }
+  },
+  "subfc": {
+   "count": 45,
+   "game": 0,
+   "id": 899,
+   "lib": 45,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 45,
+     "ops": "r10,r10,r9",
+     "word": 2102020112
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187680876,
+     "count": 45,
+     "key": "R,R,R",
+     "ops": "r10,r10,r9",
+     "word": 2102020112
+    }
+   ],
+   "xenia": {
+    "subfcx": 45
+   }
+  },
+  "subfc.": {
+   "count": 2,
+   "game": 0,
+   "id": 899,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "r3,r7,r8",
+     "word": 2087141393
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187529036,
+     "count": 2,
+     "key": "R,R,R",
+     "ops": "r3,r7,r8",
+     "word": 2087141393
+    }
+   ],
+   "xenia": {
+    "subfcx": 2
+   }
+  },
+  "subfe": {
+   "count": 152,
+   "game": 1,
+   "id": 986,
+   "lib": 151,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 152,
+     "ops": "r11,r11,r11",
+     "word": 2104187152
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187519152,
+     "count": 152,
+     "key": "R,R,R",
+     "ops": "r11,r11,r11",
+     "word": 2104187152
+    }
+   ],
+   "xenia": {
+    "subfex": 152
+   }
+  },
+  "subfic": {
+   "count": 1055,
+   "game": 463,
+   "id": 562,
+   "lib": 592,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1055,
+     "ops": "r10,r10,1",
+     "word": 558497793
+    }
+   },
+   "variants": [
+    {
+     "addr": 2182131312,
+     "count": 1055,
+     "key": "R,R,N",
+     "ops": "r10,r10,1",
+     "word": 558497793
+    }
+   ],
+   "xenia": {
+    "subficx": 1055
+   }
+  },
+  "sync": {
+   "count": 8,
+   "game": 0,
+   "id": 1557,
+   "lib": 8,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 8,
+     "ops": "",
+     "word": 2080375980
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188653904,
+     "count": 8,
+     "key": "",
+     "ops": "",
+     "word": 2080375980
+    }
+   ],
+   "xenia": {
+    "sync": 8
+   }
+  },
+  "tdlgei": {
+   "count": 3,
+   "game": 2,
+   "id": 5,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "r4,-1",
+     "word": 145031167
+    }
+   },
+   "variants": [
+    {
+     "addr": 2185056812,
+     "count": 3,
+     "key": "R,-1",
+     "ops": "r4,-1",
+     "word": 145031167
+    }
+   ],
+   "xenia": {
+    "tdi": 3
+   }
+  },
+  "tdllei": {
+   "count": 17,
+   "game": 7,
+   "id": 7,
+   "lib": 10,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 17,
+     "ops": "r8,0",
+     "word": 147324928
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187486676,
+     "count": 17,
+     "key": "R,0",
+     "ops": "r8,0",
+     "word": 147324928
+    }
+   ],
+   "xenia": {
+    "tdi": 17
+   }
+  },
+  "twi": {
+   "count": 16,
+   "game": 4,
+   "id": 45,
+   "lib": 12,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 16,
+     "ops": "31,r0,22",
+     "word": 266338326
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187807572,
+     "count": 15,
+     "key": "31,R,22",
+     "ops": "31,r0,22",
+     "word": 266338326
+    },
+    {
+     "addr": 2187634832,
+     "count": 1,
+     "key": "31,R,20",
+     "ops": "31,r0,20",
+     "word": 266338324
+    }
+   ],
+   "xenia": {
+    "twi": 16
+   }
+  },
+  "twlgei": {
+   "count": 120,
+   "game": 52,
+   "id": 23,
+   "lib": 68,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 120,
+     "ops": "r6,-1",
+     "word": 212271103
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183766412,
+     "count": 120,
+     "key": "R,-1",
+     "ops": "r6,-1",
+     "word": 212271103
+    }
+   ],
+   "xenia": {
+    "twi": 120
+   }
+  },
+  "twllei": {
+   "count": 514,
+   "game": 150,
+   "id": 27,
+   "lib": 364,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 514,
+     "ops": "r10,0",
+     "word": 214564864
+    }
+   },
+   "variants": [
+    {
+     "addr": 2183766404,
+     "count": 514,
+     "key": "R,0",
+     "ops": "r10,0",
+     "word": 214564864
+    }
+   ],
+   "xenia": {
+    "twi": 514
+   }
+  },
+  "vaddfp": {
+   "count": 247,
+   "game": 24,
+   "id": 121,
+   "lib": 223,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 247,
+     "ops": "v0,v0,v3",
+     "word": 268441610
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853340,
+     "count": 247,
+     "key": "V,V,V",
+     "ops": "v0,v0,v3",
+     "word": 268441610
+    }
+   ],
+   "xenia": {
+    "vaddfp": 247
+   }
+  },
+  "vaddfp128": {
+   "count": 10,
+   "game": 0,
+   "id": 280,
+   "lib": 10,
+   "n_variants": 1,
+   "regclass": {
+    "1": {
+     "count": 10,
+     "ops": "v9,v9,v60",
+     "word": 355065873
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188844196,
+     "count": 10,
+     "key": "V,V,V",
+     "ops": "v9,v9,v60",
+     "word": 355065873
+    }
+   ],
+   "xenia": {
+    "vaddfp128": 10
+   }
+  },
+  "vaddubm": {
+   "count": 72,
+   "game": 0,
+   "id": 125,
+   "lib": 72,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 72,
+     "ops": "v8,v8,v7",
+     "word": 285751296
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188858368,
+     "count": 72,
+     "key": "V,V,V",
+     "ops": "v8,v8,v7",
+     "word": 285751296
+    }
+   ],
+   "xenia": {
+    "vaddubm": 72
+   }
+  },
+  "vadduwm": {
+   "count": 150,
+   "game": 0,
+   "id": 129,
+   "lib": 150,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 150,
+     "ops": "v13,v13,v2",
+     "word": 296554624
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853252,
+     "count": 150,
+     "key": "V,V,V",
+     "ops": "v13,v13,v2",
+     "word": 296554624
+    }
+   ],
+   "xenia": {
+    "vadduwm": 150
+   }
+  },
+  "vadduws": {
+   "count": 1,
+   "game": 0,
+   "id": 130,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v0,v12,v0",
+     "word": 269222528
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188805412,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v0,v12,v0",
+     "word": 269222528
+    }
+   ],
+   "xenia": {
+    "vadduws": 1
+   }
+  },
+  "vand": {
+   "count": 3,
+   "game": 0,
+   "id": 131,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "v31,v8,v6",
+     "word": 333984772
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188676984,
+     "count": 3,
+     "key": "V,V,V",
+     "ops": "v31,v8,v6",
+     "word": 333984772
+    }
+   ],
+   "xenia": {
+    "vand": 3
+   }
+  },
+  "vandc": {
+   "count": 3,
+   "game": 0,
+   "id": 132,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "v4,v8,v6",
+     "word": 277361732
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188676828,
+     "count": 3,
+     "key": "V,V,V",
+     "ops": "v4,v8,v6",
+     "word": 277361732
+    }
+   ],
+   "xenia": {
+    "vandc": 3
+   }
+  },
+  "vavgsb": {
+   "count": 1,
+   "game": 0,
+   "id": 133,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v4,v13,v4",
+     "word": 277685506
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188889500,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v4,v13,v4",
+     "word": 277685506
+    }
+   ],
+   "xenia": {
+    "vavgsb": 1
+   }
+  },
+  "vavgsh": {
+   "count": 1,
+   "game": 0,
+   "id": 134,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v8,v0,v8",
+     "word": 285230402
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188888660,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v8,v0,v8",
+     "word": 285230402
+    }
+   ],
+   "xenia": {
+    "vavgsh": 1
+   }
+  },
+  "vcfsx": {
+   "count": 309,
+   "game": 3,
+   "id": 139,
+   "lib": 306,
+   "n_variants": 6,
+   "regclass": {
+    "0": {
+     "count": 309,
+     "ops": "v13,v13,0",
+     "word": 295725898
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188858416,
+     "count": 163,
+     "key": "V,V,7",
+     "ops": "v8,v8,7",
+     "word": 285688650
+    },
+    {
+     "addr": 2188853164,
+     "count": 118,
+     "key": "V,V,15",
+     "ops": "v8,v8,15",
+     "word": 286212938
+    },
+    {
+     "addr": 2188852940,
+     "count": 21,
+     "key": "V,V,0",
+     "ops": "v13,v13,0",
+     "word": 295725898
+    },
+    {
+     "addr": 2187641296,
+     "count": 5,
+     "key": "V,V,1",
+     "ops": "v13,v13,1",
+     "word": 295791434
+    },
+    {
+     "addr": 2188934892,
+     "count": 1,
+     "key": "V,V,9",
+     "ops": "v5,v12,9",
+     "word": 279536458
+    },
+    {
+     "addr": 2188934928,
+     "count": 1,
+     "key": "V,V,8",
+     "ops": "v5,v12,8",
+     "word": 279470922
+    }
+   ],
+   "xenia": {
+    "vcfsx": 309
+   }
+  },
+  "vcfux": {
+   "count": 123,
+   "game": 0,
+   "id": 140,
+   "lib": 123,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 123,
+     "ops": "v4,v7,31",
+     "word": 278870794
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853148,
+     "count": 112,
+     "key": "V,V,31",
+     "ops": "v4,v7,31",
+     "word": 278870794
+    },
+    {
+     "addr": 2188936996,
+     "count": 11,
+     "key": "V,V,0",
+     "ops": "v11,v0,0",
+     "word": 291504906
+    }
+   ],
+   "xenia": {
+    "vcfux": 123
+   }
+  },
+  "vcmpeqfp": {
+   "count": 14,
+   "game": 2,
+   "id": 142,
+   "lib": 12,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 14,
+     "ops": "v5,v0,v13",
+     "word": 278948038
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188676996,
+     "count": 14,
+     "key": "V,V,V",
+     "ops": "v5,v0,v13",
+     "word": 278948038
+    }
+   ],
+   "xenia": {
+    "vcmpeqfp": 14
+   }
+  },
+  "vcmpeqfp128": {
+   "count": 1,
+   "game": 0,
+   "id": 322,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 1,
+     "ops": "v126,v0,v127",
+     "word": 465631247
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187664204,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v126,v0,v127",
+     "word": 465631247
+    }
+   ],
+   "xenia": {
+    "vcmpeqfp128": 1
+   }
+  },
+  "vcmpgefp": {
+   "count": 2,
+   "game": 2,
+   "id": 146,
+   "lib": 0,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "v13,v0,v9",
+     "word": 295717318
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186323080,
+     "count": 2,
+     "key": "V,V,V",
+     "ops": "v13,v0,v9",
+     "word": 295717318
+    }
+   ],
+   "xenia": {
+    "vcmpgefp": 2
+   }
+  },
+  "vcmpgefp.": {
+   "count": 2,
+   "game": 0,
+   "id": 146,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "v0,v10,v12",
+     "word": 269116870
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187641260,
+     "count": 2,
+     "key": "V,V,V",
+     "ops": "v0,v10,v12",
+     "word": 269116870
+    }
+   ],
+   "xenia": {
+    "vcmpgefp": 2
+   }
+  },
+  "vcmpgtfp": {
+   "count": 8,
+   "game": 0,
+   "id": 147,
+   "lib": 8,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 8,
+     "ops": "v27,v13,v0",
+     "word": 325911238
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188677044,
+     "count": 8,
+     "key": "V,V,V",
+     "ops": "v27,v13,v0",
+     "word": 325911238
+    }
+   ],
+   "xenia": {
+    "vcmpgtfp": 8
+   }
+  },
+  "vcmpgtfp.": {
+   "count": 1,
+   "game": 0,
+   "id": 147,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v12,v0,v13",
+     "word": 293629638
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188939136,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v12,v0,v13",
+     "word": 293629638
+    }
+   ],
+   "xenia": {
+    "vcmpgtfp": 1
+   }
+  },
+  "vcsxwfp128": {
+   "count": 1,
+   "game": 0,
+   "id": 307,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 1,
+     "ops": "v126,v0,0",
+     "word": 465568444
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187646320,
+     "count": 1,
+     "key": "V,V,0",
+     "ops": "v126,v0,0",
+     "word": 465568444
+    }
+   ],
+   "xenia": {
+    "vcsxwfp128": 1
+   }
+  },
+  "vctsxs": {
+   "count": 6,
+   "game": 0,
+   "id": 154,
+   "lib": 6,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "v3,v0,0",
+     "word": 274727882
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188677060,
+     "count": 5,
+     "key": "V,V,0",
+     "ops": "v3,v0,0",
+     "word": 274727882
+    },
+    {
+     "addr": 2188805408,
+     "count": 1,
+     "key": "V,V,4",
+     "ops": "v12,v12,4",
+     "word": 293888970
+    }
+   ],
+   "xenia": {
+    "vctsxs": 6
+   }
+  },
+  "vctuxs": {
+   "count": 1,
+   "game": 0,
+   "id": 155,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v13,v13,0",
+     "word": 295725962
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937548,
+     "count": 1,
+     "key": "V,V,0",
+     "ops": "v13,v13,0",
+     "word": 295725962
+    }
+   ],
+   "xenia": {
+    "vctuxs": 1
+   }
+  },
+  "vexptefp": {
+   "count": 7,
+   "game": 0,
+   "id": 156,
+   "lib": 7,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 7,
+     "ops": "v1,v9",
+     "word": 270551434
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188677008,
+     "count": 7,
+     "key": "V,V",
+     "ops": "v1,v9",
+     "word": 270551434
+    }
+   ],
+   "xenia": {
+    "vexptefp": 7
+   }
+  },
+  "vlogefp": {
+   "count": 2,
+   "game": 0,
+   "id": 157,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "v28,v4",
+     "word": 327164362
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188676844,
+     "count": 2,
+     "key": "V,V",
+     "ops": "v28,v4",
+     "word": 327164362
+    }
+   ],
+   "xenia": {
+    "vlogefp": 2
+   }
+  },
+  "vmaddcfp128": {
+   "count": 4,
+   "game": 1,
+   "id": 284,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 4,
+     "ops": "v13,v0,v13,v126",
+     "word": 362869011
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186323104,
+     "count": 4,
+     "key": "V,V,V,V",
+     "ops": "v13,v0,v13,v126",
+     "word": 362869011
+    }
+   ],
+   "xenia": {
+    "vmaddcfp128": 4
+   }
+  },
+  "vmaddfp": {
+   "count": 202,
+   "game": 60,
+   "id": 158,
+   "lib": 142,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 202,
+     "ops": "v0,v0,v3,v4",
+     "word": 268443886
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937540,
+     "count": 202,
+     "key": "V,V,V,V",
+     "ops": "v0,v0,v3,v4",
+     "word": 268443886
+    }
+   ],
+   "xenia": {
+    "vmaddfp": 202
+   }
+  },
+  "vmaxfp": {
+   "count": 5,
+   "game": 0,
+   "id": 159,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 5,
+     "ops": "v0,v5,v1",
+     "word": 268766218
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937508,
+     "count": 5,
+     "key": "V,V,V",
+     "ops": "v0,v5,v1",
+     "word": 268766218
+    }
+   ],
+   "xenia": {
+    "vmaxfp": 5
+   }
+  },
+  "vmaxfp128": {
+   "count": 1,
+   "game": 0,
+   "id": 331,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 1,
+     "ops": "v0,v0,v125",
+     "word": 402713219
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188942568,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v0,v0,v125",
+     "word": 402713219
+    }
+   ],
+   "xenia": {
+    "vmaxfp128": 1
+   }
+  },
+  "vmaxsw": {
+   "count": 1,
+   "game": 0,
+   "id": 162,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v0,v0,v11",
+     "word": 268458370
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188805420,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v0,v0,v11",
+     "word": 268458370
+    }
+   ],
+   "xenia": {
+    "vmaxsw": 1
+   }
+  },
+  "vminfp": {
+   "count": 6,
+   "game": 0,
+   "id": 168,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "v0,v6,v0",
+     "word": 268829770
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937536,
+     "count": 6,
+     "key": "V,V,V",
+     "ops": "v0,v6,v0",
+     "word": 268829770
+    }
+   ],
+   "xenia": {
+    "vminfp": 6
+   }
+  },
+  "vmrghb": {
+   "count": 1,
+   "game": 0,
+   "id": 176,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v3,v4,v13",
+     "word": 275015692
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188889508,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v3,v4,v13",
+     "word": 275015692
+    }
+   ],
+   "xenia": {
+    "vmrghb": 1
+   }
+  },
+  "vmrghh": {
+   "count": 1,
+   "game": 0,
+   "id": 177,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v7,v8,v0",
+     "word": 283639884
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188888688,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v7,v8,v0",
+     "word": 283639884
+    }
+   ],
+   "xenia": {
+    "vmrghh": 1
+   }
+  },
+  "vmrghw": {
+   "count": 229,
+   "game": 1,
+   "id": 178,
+   "lib": 228,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 229,
+     "ops": "v13,v11,v0",
+     "word": 296419468
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187663944,
+     "count": 229,
+     "key": "V,V,V",
+     "ops": "v13,v11,v0",
+     "word": 296419468
+    }
+   ],
+   "xenia": {
+    "vmrghw": 229
+   }
+  },
+  "vmrglb": {
+   "count": 1,
+   "game": 0,
+   "id": 179,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v4,v4,v13",
+     "word": 277113100
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188889512,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v4,v4,v13",
+     "word": 277113100
+    }
+   ],
+   "xenia": {
+    "vmrglb": 1
+   }
+  },
+  "vmrglh": {
+   "count": 1,
+   "game": 0,
+   "id": 180,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v0,v8,v0",
+     "word": 268960076
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188888696,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v0,v8,v0",
+     "word": 268960076
+    }
+   ],
+   "xenia": {
+    "vmrglh": 1
+   }
+  },
+  "vmrglw": {
+   "count": 68,
+   "game": 1,
+   "id": 181,
+   "lib": 67,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 68,
+     "ops": "v11,v11,v0",
+     "word": 292225420
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187663948,
+     "count": 68,
+     "key": "V,V,V",
+     "ops": "v11,v11,v0",
+     "word": 292225420
+    }
+   ],
+   "xenia": {
+    "vmrglw": 68
+   }
+  },
+  "vmsum3fp128": {
+   "count": 88,
+   "game": 1,
+   "id": 286,
+   "lib": 87,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 88,
+     "ops": "v10,v10,v9",
+     "word": 357190032
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853204,
+     "count": 88,
+     "key": "V,V,V",
+     "ops": "v10,v10,v9",
+     "word": 357190032
+    }
+   ],
+   "xenia": {
+    "vmsum3fp128": 88
+   }
+  },
+  "vmsum4fp128": {
+   "count": 226,
+   "game": 0,
+   "id": 287,
+   "lib": 226,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 226,
+     "ops": "v7,v8,v0",
+     "word": 350749136
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187663992,
+     "count": 226,
+     "key": "V,V,V",
+     "ops": "v7,v8,v0",
+     "word": 350749136
+    }
+   ],
+   "xenia": {
+    "vmsum4fp128": 226
+   }
+  },
+  "vmulfp128": {
+   "count": 509,
+   "game": 9,
+   "id": 282,
+   "lib": 500,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 478,
+     "ops": "v12,v12,v9",
+     "word": 361515152
+    },
+    "1": {
+     "count": 26,
+     "ops": "v59,v2,v8",
+     "word": 392315028
+    },
+    "3": {
+     "count": 5,
+     "ops": "v127,v3,v1",
+     "word": 400754844
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853028,
+     "count": 509,
+     "key": "V,V,V",
+     "ops": "v12,v12,v9",
+     "word": 361515152
+    }
+   ],
+   "xenia": {
+    "vmulfp128": 509
+   }
+  },
+  "vnmsubfp": {
+   "count": 35,
+   "game": 11,
+   "id": 196,
+   "lib": 24,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 35,
+     "ops": "v13,v12,v10,v13",
+     "word": 296512175
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187641308,
+     "count": 35,
+     "key": "V,V,V,V",
+     "ops": "v13,v12,v10,v13",
+     "word": 296512175
+    }
+   ],
+   "xenia": {
+    "vnmsubfp": 35
+   }
+  },
+  "vnmsubfp128": {
+   "count": 1,
+   "game": 0,
+   "id": 285,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 1,
+     "ops": "v0,v126,v12,v0",
+     "word": 337536368
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187664352,
+     "count": 1,
+     "key": "V,V,V,V",
+     "ops": "v0,v126,v12,v0",
+     "word": 337536368
+    }
+   ],
+   "xenia": {
+    "vnmsubfp128": 1
+   }
+  },
+  "vor": {
+   "count": 294,
+   "game": 12,
+   "id": 198,
+   "lib": 282,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 294,
+     "ops": "v6,v0,v0",
+     "word": 281019524
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853276,
+     "count": 294,
+     "key": "V,V,V",
+     "ops": "v6,v0,v0",
+     "word": 281019524
+    }
+   ],
+   "xenia": {
+    "vor": 294
+   }
+  },
+  "vor128": {
+   "count": 39,
+   "game": 0,
+   "id": 295,
+   "lib": 39,
+   "n_variants": 1,
+   "regclass": {
+    "1": {
+     "count": 22,
+     "ops": "v61,v13,v13",
+     "word": 397241044
+    },
+    "3": {
+     "count": 17,
+     "ops": "v1,v127,v127",
+     "word": 339738355
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937568,
+     "count": 39,
+     "key": "V,V,V",
+     "ops": "v1,v127,v127",
+     "word": 339738355
+    }
+   ],
+   "xenia": {
+    "vor128": 39
+   }
+  },
+  "vperm": {
+   "count": 260,
+   "game": 43,
+   "id": 199,
+   "lib": 217,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 260,
+     "ops": "v0,v0,v0,v7",
+     "word": 268435947
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187639128,
+     "count": 260,
+     "key": "V,V,V,V",
+     "ops": "v0,v0,v0,v7",
+     "word": 268435947
+    }
+   ],
+   "xenia": {
+    "vperm": 260
+   }
+  },
+  "vperm128": {
+   "count": 5,
+   "game": 0,
+   "id": 279,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 5,
+     "ops": "v127,v0,v13,v7",
+     "word": 400583116
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187642244,
+     "count": 5,
+     "key": "V,V,V,V",
+     "ops": "v127,v0,v13,v7",
+     "word": 400583116
+    }
+   ],
+   "xenia": {
+    "vperm128": 5
+   }
+  },
+  "vpermwi128": {
+   "count": 87,
+   "game": 4,
+   "id": 304,
+   "lib": 83,
+   "n_variants": 33,
+   "regclass": {
+    "0": {
+     "count": 85,
+     "ops": "v10,v0,174",
+     "word": 424543056
+    },
+    "3": {
+     "count": 2,
+     "ops": "v11,v126,99",
+     "word": 425980627
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187662020,
+     "count": 14,
+     "key": "V,V,171",
+     "ops": "v0,v0,171",
+     "word": 403374928
+    },
+    {
+     "addr": 2187663864,
+     "count": 9,
+     "key": "V,V,174",
+     "ops": "v10,v0,174",
+     "word": 424543056
+    },
+    {
+     "addr": 2187663868,
+     "count": 9,
+     "key": "V,V,186",
+     "ops": "v9,v0,186",
+     "word": 423232336
+    },
+    {
+     "addr": 2187663876,
+     "count": 9,
+     "key": "V,V,234",
+     "ops": "v8,v0,234",
+     "word": 420086736
+    },
+    {
+     "addr": 2187640252,
+     "count": 4,
+     "key": "V,V,187",
+     "ops": "v2,v10,187",
+     "word": 408638288
+    },
+    {
+     "addr": 2187640256,
+     "count": 4,
+     "key": "V,V,5",
+     "ops": "v4,v11,5",
+     "word": 411392528
+    },
+    {
+     "addr": 2187640308,
+     "count": 2,
+     "key": "V,V,97",
+     "ops": "v27,v10,97",
+     "word": 459363024
+    },
+    {
+     "addr": 2187640312,
+     "count": 2,
+     "key": "V,V,132",
+     "ops": "v26,v11,132",
+     "word": 457464592
+    },
+    {
+     "addr": 2187640400,
+     "count": 2,
+     "key": "V,V,198",
+     "ops": "v6,v7,198",
+     "word": 415644560
+    },
+    {
+     "addr": 2187640416,
+     "count": 2,
+     "key": "V,V,156",
+     "ops": "v12,v7,156",
+     "word": 429669136
+    },
+    {
+     "addr": 2187640472,
+     "count": 2,
+     "key": "V,V,182",
+     "ops": "v27,v10,182",
+     "word": 460739408
+    },
+    {
+     "addr": 2187640480,
+     "count": 2,
+     "key": "V,V,237",
+     "ops": "v26,v11,237",
+     "word": 458054608
+    },
+    {
+     "addr": 2187640516,
+     "count": 2,
+     "key": "V,V,78",
+     "ops": "v7,v7,78",
+     "word": 418265744
+    },
+    {
+     "addr": 2187640524,
+     "count": 2,
+     "key": "V,V,114",
+     "ops": "v9,v9,114",
+     "word": 422726352
+    },
+    {
+     "addr": 2187640532,
+     "count": 2,
+     "key": "V,V,204",
+     "ops": "v8,v8,204",
+     "word": 420234128
+    },
+    {
+     "addr": 2187664244,
+     "count": 2,
+     "key": "V,V,99",
+     "ops": "v11,v126,99",
+     "word": 425980627
+    },
+    {
+     "addr": 2187643084,
+     "count": 2,
+     "key": "V,V,7",
+     "ops": "v11,v0,7",
+     "word": 426181136
+    },
+    {
+     "addr": 2187642852,
+     "count": 1,
+     "key": "V,V,111",
+     "ops": "v12,v13,111",
+     "word": 428829392
+    },
+    {
+     "addr": 2187642856,
+     "count": 1,
+     "key": "V,V,143",
+     "ops": "v11,v13,143",
+     "word": 426732304
+    },
+    {
+     "addr": 2187642532,
+     "count": 1,
+     "key": "V,V,227",
+     "ops": "v12,v13,227",
+     "word": 428043216
+    },
+    {
+     "addr": 2187642536,
+     "count": 1,
+     "key": "V,V,219",
+     "ops": "v13,v13,219",
+     "word": 431713168
+    },
+    {
+     "addr": 2188939804,
+     "count": 1,
+     "key": "V,V,17",
+     "ops": "v0,v0,17",
+     "word": 403767824
+    },
+    {
+     "addr": 2187640556,
+     "count": 1,
+     "key": "V,V,56",
+     "ops": "v10,v22,56",
+     "word": 425243216
+    },
+    {
+     "addr": 2187640588,
+     "count": 1,
+     "key": "V,V,52",
+     "ops": "v6,v6,52",
+     "word": 416559696
+    },
+    {
+     "addr": 2187642684,
+     "count": 1,
+     "key": "V,V,59",
+     "ops": "v12,v13,59",
+     "word": 429615696
+    },
+    {
+     "addr": 2187642688,
+     "count": 1,
+     "key": "V,V,183",
+     "ops": "v11,v13,183",
+     "word": 427256656
+    },
+    {
+     "addr": 2187664252,
+     "count": 1,
+     "key": "V,V,135",
+     "ops": "v10,v126,135",
+     "word": 424145683
+    },
+    {
+     "addr": 2187643068,
+     "count": 1,
+     "key": "V,V,254",
+     "ops": "v10,v13,254",
+     "word": 425618384
+    },
+    {
+     "addr": 2187643096,
+     "count": 1,
+     "key": "V,V,155",
+     "ops": "v8,v12,155",
+     "word": 421225232
+    },
+    {
+     "addr": 2187643112,
+     "count": 1,
+     "key": "V,V,64",
+     "ops": "v9,v0,64",
+     "word": 421528208
+    },
+    {
+     "addr": 2187643116,
+     "count": 1,
+     "key": "V,V,164",
+     "ops": "v0,v0,164",
+     "word": 402916176
+    },
+    {
+     "addr": 2187643136,
+     "count": 1,
+     "key": "V,V,66",
+     "ops": "v0,v10,66",
+     "word": 402805392
+    },
+    {
+     "addr": 2187643148,
+     "count": 1,
+     "key": "V,V,136",
+     "ops": "v11,v10,136",
+     "word": 426267408
+    }
+   ],
+   "xenia": {
+    "vpermwi128": 87
+   }
+  },
+  "vpkd3d128": {
+   "count": 11,
+   "game": 3,
+   "id": 313,
+   "lib": 8,
+   "n_variants": 3,
+   "regclass": {
+    "0": {
+     "count": 11,
+     "ops": "v0,v0,5,2,2",
+     "word": 404096656
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187639132,
+     "count": 7,
+     "key": "V,V,5,2,2",
+     "ops": "v0,v0,5,2,2",
+     "word": 404096656
+    },
+    {
+     "addr": 2185005752,
+     "count": 3,
+     "key": "V,V,0,1,3",
+     "ops": "v0,v0,0,1,3",
+     "word": 402720464
+    },
+    {
+     "addr": 2188637276,
+     "count": 1,
+     "key": "V,V,3,1,3",
+     "ops": "v0,v1,3,1,3",
+     "word": 403508944
+    }
+   ],
+   "xenia": {
+    "vpkd3d128": 11
+   }
+  },
+  "vpkswss": {
+   "count": 2,
+   "game": 0,
+   "id": 203,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "v13,v13,v13",
+     "word": 296577486
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188724008,
+     "count": 2,
+     "key": "V,V,V",
+     "ops": "v13,v13,v13",
+     "word": 296577486
+    }
+   ],
+   "xenia": {
+    "vpkswss": 2
+   }
+  },
+  "vrefp": {
+   "count": 23,
+   "game": 2,
+   "id": 209,
+   "lib": 21,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 23,
+     "ops": "v9,v13",
+     "word": 287336714
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188852996,
+     "count": 23,
+     "key": "V,V",
+     "ops": "v9,v13",
+     "word": 287336714
+    }
+   ],
+   "xenia": {
+    "vrefp": 23
+   }
+  },
+  "vrfim": {
+   "count": 3,
+   "game": 0,
+   "id": 210,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 3,
+     "ops": "v1,v28",
+     "word": 270590666
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188676892,
+     "count": 3,
+     "key": "V,V",
+     "ops": "v1,v28",
+     "word": 270590666
+    }
+   ],
+   "xenia": {
+    "vrfim": 3
+   }
+  },
+  "vrfin": {
+   "count": 4,
+   "game": 0,
+   "id": 211,
+   "lib": 4,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 4,
+     "ops": "v13,v0",
+     "word": 295698954
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937544,
+     "count": 4,
+     "key": "V,V",
+     "ops": "v13,v0",
+     "word": 295698954
+    }
+   ],
+   "xenia": {
+    "vrfin": 4
+   }
+  },
+  "vrfiz": {
+   "count": 8,
+   "game": 0,
+   "id": 213,
+   "lib": 8,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 8,
+     "ops": "v30,v0",
+     "word": 331350602
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188677040,
+     "count": 8,
+     "key": "V,V",
+     "ops": "v30,v0",
+     "word": 331350602
+    }
+   ],
+   "xenia": {
+    "vrfiz": 8
+   }
+  },
+  "vrlimi128": {
+   "count": 169,
+   "game": 0,
+   "id": 318,
+   "lib": 169,
+   "n_variants": 24,
+   "regclass": {
+    "0": {
+     "count": 169,
+     "ops": "v10,v8,8,0",
+     "word": 424167184
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853184,
+     "count": 91,
+     "key": "V,V,8,0",
+     "ops": "v10,v8,8,0",
+     "word": 424167184
+    },
+    {
+     "addr": 2188676708,
+     "count": 20,
+     "key": "V,V,4,3",
+     "ops": "v0,v8,4,3",
+     "word": 402933712
+    },
+    {
+     "addr": 2188676784,
+     "count": 9,
+     "key": "V,V,3,2",
+     "ops": "v8,v12,3,2",
+     "word": 419653520
+    },
+    {
+     "addr": 2187646448,
+     "count": 7,
+     "key": "V,V,4,0",
+     "ops": "v12,v9,4,0",
+     "word": 428101392
+    },
+    {
+     "addr": 2187646452,
+     "count": 7,
+     "key": "V,V,2,0",
+     "ops": "v10,v9,2,0",
+     "word": 423776016
+    },
+    {
+     "addr": 2187662876,
+     "count": 7,
+     "key": "V,V,2,2",
+     "ops": "v11,v10,2,2",
+     "word": 425875344
+    },
+    {
+     "addr": 2187662868,
+     "count": 3,
+     "key": "V,V,7,0",
+     "ops": "v0,v11,7,0",
+     "word": 403136272
+    },
+    {
+     "addr": 2187640464,
+     "count": 3,
+     "key": "V,V,1,1",
+     "ops": "v6,v0,1,1",
+     "word": 415303504
+    },
+    {
+     "addr": 2187646456,
+     "count": 2,
+     "key": "V,V,2,1",
+     "ops": "v11,v9,2,1",
+     "word": 425873232
+    },
+    {
+     "addr": 2187640368,
+     "count": 2,
+     "key": "V,V,12,2",
+     "ops": "v5,v12,12,2",
+     "word": 413951888
+    },
+    {
+     "addr": 2187640444,
+     "count": 2,
+     "key": "V,V,8,1",
+     "ops": "v2,v0,8,1",
+     "word": 407373648
+    },
+    {
+     "addr": 2187640504,
+     "count": 2,
+     "key": "V,V,1,3",
+     "ops": "v4,v0,1,3",
+     "word": 411109328
+    },
+    {
+     "addr": 2188636160,
+     "count": 2,
+     "key": "V,V,1,0",
+     "ops": "v13,v1,1,0",
+     "word": 429985552
+    },
+    {
+     "addr": 2187643144,
+     "count": 2,
+     "key": "V,V,6,3",
+     "ops": "v0,v11,6,3",
+     "word": 403070928
+    },
+    {
+     "addr": 2187640452,
+     "count": 1,
+     "key": "V,V,8,3",
+     "ops": "v31,v0,8,3",
+     "word": 468191184
+    },
+    {
+     "addr": 2187640456,
+     "count": 1,
+     "key": "V,V,4,2",
+     "ops": "v30,v0,4,2",
+     "word": 465831824
+    },
+    {
+     "addr": 2187640536,
+     "count": 1,
+     "key": "V,V,9,1",
+     "ops": "v7,v0,9,1",
+     "word": 417924944
+    },
+    {
+     "addr": 2187640596,
+     "count": 1,
+     "key": "V,V,9,3",
+     "ops": "v13,v0,9,3",
+     "word": 430507984
+    },
+    {
+     "addr": 2187639964,
+     "count": 1,
+     "key": "V,V,14,0",
+     "ops": "v0,v1,14,0",
+     "word": 403574544
+    },
+    {
+     "addr": 2187664372,
+     "count": 1,
+     "key": "V,V,8,2",
+     "ops": "v9,v0,8,2",
+     "word": 422053776
+    },
+    {
+     "addr": 2187664376,
+     "count": 1,
+     "key": "V,V,4,1",
+     "ops": "v13,v7,4,1",
+     "word": 430194512
+    },
+    {
+     "addr": 2187664388,
+     "count": 1,
+     "key": "V,V,2,3",
+     "ops": "v13,v0,2,3",
+     "word": 430049232
+    },
+    {
+     "addr": 2187643004,
+     "count": 1,
+     "key": "V,V,9,0",
+     "ops": "v6,v5,9,0",
+     "word": 415837968
+    },
+    {
+     "addr": 2187643168,
+     "count": 1,
+     "key": "V,V,3,0",
+     "ops": "v11,v12,3,0",
+     "word": 425944848
+    }
+   ],
+   "xenia": {
+    "vrlimi128": 169
+   }
+  },
+  "vrsqrtefp": {
+   "count": 6,
+   "game": 2,
+   "id": 217,
+   "lib": 4,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "v0,v12",
+     "word": 268460362
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187641288,
+     "count": 6,
+     "key": "V,V",
+     "ops": "v0,v12",
+     "word": 268460362
+    }
+   ],
+   "xenia": {
+    "vrsqrtefp": 6
+   }
+  },
+  "vsel": {
+   "count": 26,
+   "game": 7,
+   "id": 218,
+   "lib": 19,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 26,
+     "ops": "v2,v0,v13,v2",
+     "word": 272656554
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937552,
+     "count": 26,
+     "key": "V,V,V,V",
+     "ops": "v2,v0,v13,v2",
+     "word": 272656554
+    }
+   ],
+   "xenia": {
+    "vsel": 26
+   }
+  },
+  "vsel128": {
+   "count": 6,
+   "game": 0,
+   "id": 299,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 6,
+     "ops": "v126,v13,v0,v126",
+     "word": 399311708
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187664224,
+     "count": 6,
+     "key": "V,V,V,V",
+     "ops": "v126,v13,v0,v126",
+     "word": 399311708
+    }
+   ],
+   "xenia": {
+    "vsel128": 6
+   }
+  },
+  "vslb": {
+   "count": 51,
+   "game": 0,
+   "id": 220,
+   "lib": 51,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 51,
+     "ops": "v7,v13,v13",
+     "word": 283994372
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188858336,
+     "count": 51,
+     "key": "V,V,V",
+     "ops": "v7,v13,v13",
+     "word": 283994372
+    }
+   ],
+   "xenia": {
+    "vslb": 51
+   }
+  },
+  "vsldoi": {
+   "count": 282,
+   "game": 0,
+   "id": 221,
+   "lib": 282,
+   "n_variants": 7,
+   "regclass": {
+    "0": {
+     "count": 282,
+     "ops": "v7,v0,v6,4",
+     "word": 283128108
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853176,
+     "count": 152,
+     "key": "V,V,V,4",
+     "ops": "v7,v0,v6,4",
+     "word": 283128108
+    },
+    {
+     "addr": 2188853200,
+     "count": 86,
+     "key": "V,V,V,8",
+     "ops": "v9,v9,v0,8",
+     "word": 287900204
+    },
+    {
+     "addr": 2188839076,
+     "count": 21,
+     "key": "V,V,V,1",
+     "ops": "v12,v18,v12,1",
+     "word": 294805612
+    },
+    {
+     "addr": 2188833312,
+     "count": 20,
+     "key": "V,V,V,2",
+     "ops": "v6,v18,v6,2",
+     "word": 282210476
+    },
+    {
+     "addr": 2188888628,
+     "count": 1,
+     "key": "V,V,V,14",
+     "ops": "v8,v6,v0,14",
+     "word": 285606828
+    },
+    {
+     "addr": 2188889480,
+     "count": 1,
+     "key": "V,V,V,15",
+     "ops": "v4,v4,v13,15",
+     "word": 277113836
+    },
+    {
+     "addr": 2188887988,
+     "count": 1,
+     "key": "V,V,V,12",
+     "ops": "v10,v11,v0,12",
+     "word": 290128684
+    }
+   ],
+   "xenia": {
+    "vsldoi": 282
+   }
+  },
+  "vsldoi128": {
+   "count": 12,
+   "game": 0,
+   "id": 262,
+   "lib": 12,
+   "n_variants": 3,
+   "regclass": {
+    "1": {
+     "count": 11,
+     "ops": "v24,v61,v11,1",
+     "word": 320690288
+    },
+    "3": {
+     "count": 1,
+     "ops": "v10,v127,v126,4",
+     "word": 291501363
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188834392,
+     "count": 6,
+     "key": "V,V,V,2",
+     "ops": "v2,v59,v2,2",
+     "word": 274403504
+    },
+    {
+     "addr": 2188842896,
+     "count": 5,
+     "key": "V,V,V,1",
+     "ops": "v24,v61,v11,1",
+     "word": 320690288
+    },
+    {
+     "addr": 2187646388,
+     "count": 1,
+     "key": "V,V,V,4",
+     "ops": "v10,v127,v126,4",
+     "word": 291501363
+    }
+   ],
+   "xenia": {
+    "vsldoi128": 12
+   }
+  },
+  "vslw": {
+   "count": 6,
+   "game": 0,
+   "id": 224,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "v6,v11,v11",
+     "word": 281762180
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188676748,
+     "count": 6,
+     "key": "V,V,V",
+     "ops": "v6,v11,v11",
+     "word": 281762180
+    }
+   ],
+   "xenia": {
+    "vslw": 6
+   }
+  },
+  "vspltb": {
+   "count": 2,
+   "game": 0,
+   "id": 225,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "v0,v0,0",
+     "word": 268435980
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187615468,
+     "count": 2,
+     "key": "V,V,0",
+     "ops": "v0,v0,0",
+     "word": 268435980
+    }
+   ],
+   "xenia": {
+    "vspltb": 2
+   }
+  },
+  "vsplth": {
+   "count": 6,
+   "game": 0,
+   "id": 226,
+   "lib": 6,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 6,
+     "ops": "v0,v0,0",
+     "word": 268436044
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187639136,
+     "count": 6,
+     "key": "V,V,0",
+     "ops": "v0,v0,0",
+     "word": 268436044
+    }
+   ],
+   "xenia": {
+    "vsplth": 6
+   }
+  },
+  "vspltisb": {
+   "count": 48,
+   "game": 0,
+   "id": 227,
+   "lib": 48,
+   "n_variants": 3,
+   "regclass": {
+    "0": {
+     "count": 48,
+     "ops": "v12,1",
+     "word": 293667596
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853096,
+     "count": 30,
+     "key": "V,1",
+     "ops": "v12,1",
+     "word": 293667596
+    },
+    {
+     "addr": 2188858304,
+     "count": 16,
+     "key": "V,7",
+     "ops": "v13,7",
+     "word": 296157964
+    },
+    {
+     "addr": 2187615432,
+     "count": 2,
+     "key": "V,4",
+     "ops": "v0,4",
+     "word": 268698380
+    }
+   ],
+   "xenia": {
+    "vspltisb": 48
+   }
+  },
+  "vspltisw": {
+   "count": 118,
+   "game": 7,
+   "id": 229,
+   "lib": 111,
+   "n_variants": 9,
+   "regclass": {
+    "0": {
+     "count": 118,
+     "ops": "v11,0",
+     "word": 291505036
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853104,
+     "count": 85,
+     "key": "V,0",
+     "ops": "v11,0",
+     "word": 291505036
+    },
+    {
+     "addr": 2187641284,
+     "count": 20,
+     "key": "V,1",
+     "ops": "v13,1",
+     "word": 295764876
+    },
+    {
+     "addr": 2188676652,
+     "count": 4,
+     "key": "V,-1",
+     "ops": "v11,-1",
+     "word": 293536652
+    },
+    {
+     "addr": 2185005556,
+     "count": 3,
+     "key": "V,3",
+     "ops": "v0,3",
+     "word": 268632972
+    },
+    {
+     "addr": 2188934808,
+     "count": 2,
+     "key": "V,4",
+     "ops": "v10,4",
+     "word": 289670028
+    },
+    {
+     "addr": 2188676660,
+     "count": 1,
+     "key": "V,-9",
+     "ops": "v5,-9",
+     "word": 280429452
+    },
+    {
+     "addr": 2188934804,
+     "count": 1,
+     "key": "V,2",
+     "ops": "v11,2",
+     "word": 291636108
+    },
+    {
+     "addr": 2188934820,
+     "count": 1,
+     "key": "V,8",
+     "ops": "v9,8",
+     "word": 287835020
+    },
+    {
+     "addr": 2188805372,
+     "count": 1,
+     "key": "V,15",
+     "ops": "v0,15",
+     "word": 269419404
+    }
+   ],
+   "xenia": {
+    "vspltisw": 118
+   }
+  },
+  "vspltisw128": {
+   "count": 5,
+   "game": 0,
+   "id": 320,
+   "lib": 5,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 5,
+     "ops": "v127,0",
+     "word": 467666812
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187646316,
+     "count": 5,
+     "key": "V,0",
+     "ops": "v127,0",
+     "word": 467666812
+    }
+   ],
+   "xenia": {
+    "vspltisw128": 5
+   }
+  },
+  "vspltw": {
+   "count": 406,
+   "game": 23,
+   "id": 230,
+   "lib": 383,
+   "n_variants": 4,
+   "regclass": {
+    "0": {
+     "count": 406,
+     "ops": "v13,v11,0",
+     "word": 295721612
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853052,
+     "count": 299,
+     "key": "V,V,0",
+     "ops": "v13,v11,0",
+     "word": 295721612
+    },
+    {
+     "addr": 2187641332,
+     "count": 41,
+     "key": "V,V,1",
+     "ops": "v12,v0,1",
+     "word": 293667468
+    },
+    {
+     "addr": 2188676816,
+     "count": 39,
+     "key": "V,V,3",
+     "ops": "v29,v10,3",
+     "word": 329470604
+    },
+    {
+     "addr": 2187641340,
+     "count": 27,
+     "key": "V,V,2",
+     "ops": "v0,v0,2",
+     "word": 268567180
+    }
+   ],
+   "xenia": {
+    "vspltw": 406
+   }
+  },
+  "vspltw128": {
+   "count": 5,
+   "game": 2,
+   "id": 319,
+   "lib": 3,
+   "n_variants": 1,
+   "regclass": {
+    "1": {
+     "count": 3,
+     "ops": "v60,v11,0",
+     "word": 461397812
+    },
+    "3": {
+     "count": 2,
+     "ops": "v125,v0,0",
+     "word": 463472444
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186322840,
+     "count": 5,
+     "key": "V,V,0",
+     "ops": "v125,v0,0",
+     "word": 463472444
+    }
+   ],
+   "xenia": {
+    "vspltw128": 5
+   }
+  },
+  "vsr": {
+   "count": 84,
+   "game": 0,
+   "id": 231,
+   "lib": 84,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 84,
+     "ops": "v7,v13,v12",
+     "word": 283992772
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853116,
+     "count": 84,
+     "key": "V,V,V",
+     "ops": "v7,v13,v12",
+     "word": 283992772
+    }
+   ],
+   "xenia": {
+    "vsr": 84
+   }
+  },
+  "vsraw": {
+   "count": 1,
+   "game": 0,
+   "id": 234,
+   "lib": 1,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1,
+     "ops": "v0,v0,v13",
+     "word": 268462980
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188805416,
+     "count": 1,
+     "key": "V,V,V",
+     "ops": "v0,v0,v13",
+     "word": 268462980
+    }
+   ],
+   "xenia": {
+    "vsraw": 1
+   }
+  },
+  "vsrw": {
+   "count": 29,
+   "game": 0,
+   "id": 238,
+   "lib": 29,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 29,
+     "ops": "v3,v29,v4",
+     "word": 276636292
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188677080,
+     "count": 29,
+     "key": "V,V,V",
+     "ops": "v3,v29,v4",
+     "word": 276636292
+    }
+   ],
+   "xenia": {
+    "vsrw": 29
+   }
+  },
+  "vsubfp": {
+   "count": 242,
+   "game": 31,
+   "id": 240,
+   "lib": 211,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 242,
+     "ops": "v12,v12,v0",
+     "word": 294387786
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188852972,
+     "count": 242,
+     "key": "V,V,V",
+     "ops": "v12,v12,v0",
+     "word": 294387786
+    }
+   ],
+   "xenia": {
+    "vsubfp": 242
+   }
+  },
+  "vupkd3d128": {
+   "count": 36,
+   "game": 3,
+   "id": 321,
+   "lib": 33,
+   "n_variants": 2,
+   "regclass": {
+    "0": {
+     "count": 32,
+     "ops": "v0,v0,4",
+     "word": 402917360
+    },
+    "3": {
+     "count": 4,
+     "ops": "v0,v127,4",
+     "word": 402980851
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187663852,
+     "count": 30,
+     "key": "V,V,4",
+     "ops": "v0,v0,4",
+     "word": 402917360
+    },
+    {
+     "addr": 2189735872,
+     "count": 6,
+     "key": "V,V,12",
+     "ops": "v0,v0,12",
+     "word": 403441648
+    }
+   ],
+   "xenia": {
+    "vupkd3d128": 36
+   }
+  },
+  "vupkhsb": {
+   "count": 72,
+   "game": 0,
+   "id": 256,
+   "lib": 72,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 72,
+     "ops": "v8,v8",
+     "word": 285229582
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188858400,
+     "count": 72,
+     "key": "V,V",
+     "ops": "v8,v8",
+     "word": 285229582
+    }
+   ],
+   "xenia": {
+    "vupkhsb": 72
+   }
+  },
+  "vupkhsh": {
+   "count": 182,
+   "game": 0,
+   "id": 257,
+   "lib": 182,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 182,
+     "ops": "v8,v10",
+     "word": 285233742
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188853136,
+     "count": 182,
+     "key": "V,V",
+     "ops": "v8,v10",
+     "word": 285233742
+    }
+   ],
+   "xenia": {
+    "vupkhsh": 182
+   }
+  },
+  "vupklsb": {
+   "count": 30,
+   "game": 0,
+   "id": 259,
+   "lib": 30,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 30,
+     "ops": "v12,v12",
+     "word": 293626510
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188839144,
+     "count": 30,
+     "key": "V,V",
+     "ops": "v12,v12",
+     "word": 293626510
+    }
+   ],
+   "xenia": {
+    "vupklsb": 30
+   }
+  },
+  "vupklsh": {
+   "count": 98,
+   "game": 0,
+   "id": 260,
+   "lib": 98,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 98,
+     "ops": "v10,v10",
+     "word": 289428174
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188839176,
+     "count": 98,
+     "key": "V,V",
+     "ops": "v10,v10",
+     "word": 289428174
+    }
+   ],
+   "xenia": {
+    "vupklsh": 98
+   }
+  },
+  "vxor": {
+   "count": 7,
+   "game": 0,
+   "id": 261,
+   "lib": 7,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 7,
+     "ops": "v9,v9,v28",
+     "word": 287958212
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187640560,
+     "count": 7,
+     "key": "V,V,V",
+     "ops": "v9,v9,v28",
+     "word": 287958212
+    }
+   ],
+   "xenia": {
+    "vxor": 7
+   }
+  },
+  "vxor128": {
+   "count": 2,
+   "game": 0,
+   "id": 297,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "3": {
+     "count": 2,
+     "ops": "v127,v2,v7",
+     "word": 400702236
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188937556,
+     "count": 2,
+     "key": "V,V,V",
+     "ops": "v127,v2,v7",
+     "word": 400702236
+    }
+   ],
+   "xenia": {
+    "vxor128": 2
+   }
+  },
+  "xor": {
+   "count": 526,
+   "game": 263,
+   "id": 1074,
+   "lib": 263,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 526,
+     "ops": "r7,r3,r5",
+     "word": 2087135864
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186500312,
+     "count": 526,
+     "key": "R,R,R",
+     "ops": "r7,r3,r5",
+     "word": 2087135864
+    }
+   ],
+   "xenia": {
+    "xorx": 526
+   }
+  },
+  "xor.": {
+   "count": 2,
+   "game": 0,
+   "id": 1074,
+   "lib": 2,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 2,
+     "ops": "r9,r8,r9",
+     "word": 2097760889
+    }
+   },
+   "variants": [
+    {
+     "addr": 2187958876,
+     "count": 2,
+     "key": "R,R,R",
+     "ops": "r9,r8,r9",
+     "word": 2097760889
+    }
+   ],
+   "xenia": {
+    "xorx": 2
+   }
+  },
+  "xori": {
+   "count": 1037,
+   "game": 266,
+   "id": 848,
+   "lib": 771,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 1037,
+     "ops": "r9,r11,1",
+     "word": 1768488961
+    }
+   },
+   "variants": [
+    {
+     "addr": 2186903088,
+     "count": 1037,
+     "key": "R,R,N",
+     "ops": "r9,r11,1",
+     "word": 1768488961
+    }
+   ],
+   "xenia": {
+    "xori": 1037
+   }
+  },
+  "xoris": {
+   "count": 19,
+   "game": 1,
+   "id": 850,
+   "lib": 18,
+   "n_variants": 1,
+   "regclass": {
+    "0": {
+     "count": 19,
+     "ops": "r11,r11,8",
+     "word": 1835728904
+    }
+   },
+   "variants": [
+    {
+     "addr": 2188038528,
+     "count": 19,
+     "key": "R,R,N",
+     "ops": "r11,r11,8",
+     "word": 1835728904
+    }
+   ],
+   "xenia": {
+    "xoris": 19
+   }
+  }
+ },
+ "instructions": 2019729,
+ "sdk_tested": [
+  "add",
+  "add.",
+  "addc",
+  "addc.",
+  "adde",
+  "adde.",
+  "addi",
+  "addic",
+  "addic.",
+  "addis",
+  "addme",
+  "addme.",
+  "addze",
+  "addze.",
+  "and",
+  "and.",
+  "andc",
+  "andc.",
+  "andi.",
+  "andis.",
+  "b",
+  "bctr",
+  "beq",
+  "beqlr",
+  "bgt",
+  "bl",
+  "blr",
+  "bne",
+  "clrldi",
+  "clrlwi",
+  "cmpd",
+  "cmpdi",
+  "cmpld",
+  "cmpldi",
+  "cmplw",
+  "cmplwi",
+  "cmpw",
+  "cmpwi",
+  "cntlzd",
+  "cntlzw",
+  "divd",
+  "divdu",
+  "divdu.",
+  "divw",
+  "divwu",
+  "divwu.",
+  "eieio",
+  "eqv",
+  "extsb",
+  "extsb.",
+  "extsh",
+  "extsh.",
+  "extsw",
+  "extsw.",
+  "fabs",
+  "fabs.",
+  "fadd",
+  "fctidz",
+  "fctiw",
+  "fctiwz",
+  "fmadd",
+  "fmadds",
+  "fmr",
+  "fmul",
+  "fnabs",
+  "frsqrte",
+  "fsel",
+  "fsqrt",
+  "lbz",
+  "ld",
+  "lfd",
+  "lfs",
+  "lhz",
+  "li",
+  "lis",
+  "lvebx",
+  "lvehx",
+  "lvewx",
+  "lvewx128",
+  "lvlx",
+  "lvrx",
+  "lvsl",
+  "lvsr",
+  "lvx",
+  "lwz",
+  "lwzx",
+  "mfcr",
+  "mflr",
+  "mfmsr",
+  "mfocrf",
+  "mfvscr",
+  "mr",
+  "mtcrf",
+  "mtctr",
+  "mtlr",
+  "mtmsrd",
+  "mtvscr",
+  "mulhd",
+  "mulhdu",
+  "mulhw",
+  "mulhwu",
+  "mulhwu.",
+  "mulld",
+  "mulli",
+  "mullw",
+  "neg",
+  "not",
+  "not.",
+  "or",
+  "ori",
+  "oris",
+  "rldicl",
+  "rldicr",
+  "rlwimi",
+  "rlwinm",
+  "rlwinm.",
+  "rlwnm",
+  "rlwnm.",
+  "rotldi",
+  "rotlw",
+  "rotlwi",
+  "sld",
+  "slw",
+  "srad",
+  "sradi",
+  "sraw",
+  "srawi",
+  "srd",
+  "srw",
+  "stb",
+  "std",
+  "stfd",
+  "stfs",
+  "sth",
+  "stvewx",
+  "stvlx",
+  "stvrx",
+  "stvx",
+  "stw",
+  "stwu",
+  "stwux",
+  "subf",
+  "subfc",
+  "subfe",
+  "subfe.",
+  "subfic",
+  "subfme",
+  "subfze",
+  "tdeq",
+  "tdeqi",
+  "tdge",
+  "tdgei",
+  "tdgt",
+  "tdgti",
+  "tdle",
+  "tdlei",
+  "tdlge",
+  "tdlgei",
+  "tdlgt",
+  "tdlgti",
+  "tdlle",
+  "tdllei",
+  "tdllt",
+  "tdllti",
+  "tdlt",
+  "tdlti",
+  "tdne",
+  "tdnei",
+  "tweq",
+  "tweqi",
+  "twge",
+  "twgei",
+  "twgt",
+  "twgti",
+  "twle",
+  "twlei",
+  "twlge",
+  "twlgei",
+  "twlgt",
+  "twlgti",
+  "twlle",
+  "twllei",
+  "twllt",
+  "twllti",
+  "twlt",
+  "twlti",
+  "twne",
+  "twnei",
+  "vaddfp",
+  "vaddfp128",
+  "vaddsbs",
+  "vaddshs",
+  "vaddsws",
+  "vaddubs",
+  "vadduhm",
+  "vadduhs",
+  "vadduws",
+  "vand",
+  "vand128",
+  "vandc",
+  "vandc128",
+  "vavgsh",
+  "vavguh",
+  "vcfsx",
+  "vcmpbfp.",
+  "vcmpbfp128.",
+  "vcmpeqfp.",
+  "vcmpeqfp128.",
+  "vctsxs",
+  "vctuxs",
+  "vexptefp",
+  "vmaddfp",
+  "vmaddfp128",
+  "vmaxfp",
+  "vmaxfp128",
+  "vmaxsh",
+  "vmaxuh",
+  "vminfp",
+  "vminfp128",
+  "vminsh",
+  "vminuh",
+  "vmrghb",
+  "vmrghh",
+  "vmrghw",
+  "vmrglb",
+  "vmrglh",
+  "vmrglw",
+  "vmsum3fp128",
+  "vmsum4fp128",
+  "vmulfp128",
+  "vnmsubfp",
+  "vor",
+  "vor128",
+  "vperm",
+  "vpermwi128",
+  "vpkd3d128",
+  "vpkpx",
+  "vpkshss",
+  "vpkshss128",
+  "vpkshus",
+  "vpkshus128",
+  "vpkswss",
+  "vpkswss128",
+  "vpkswus",
+  "vpkswus128",
+  "vpkuhum",
+  "vpkuhum128",
+  "vpkuhus",
+  "vpkuhus128",
+  "vpkuwum",
+  "vpkuwum128",
+  "vpkuwus",
+  "vpkuwus128",
+  "vrfin",
+  "vrlh",
+  "vrlimi128",
+  "vsel",
+  "vsl",
+  "vslb",
+  "vsldoi",
+  "vslh",
+  "vslo",
+  "vslw",
+  "vspltb",
+  "vsplth",
+  "vspltisb",
+  "vspltish",
+  "vspltisw",
+  "vspltw",
+  "vsr",
+  "vsrah",
+  "vsrh",
+  "vsro",
+  "vsubfp",
+  "vsubfp128",
+  "vsubsbs",
+  "vsubshs",
+  "vsubsws",
+  "vsububs",
+  "vsubuhm",
+  "vsubuhs",
+  "vsubuws",
+  "vupkd3d128",
+  "vupkhsb",
+  "vupkhsb128",
+  "vupkhsh",
+  "vupklsb",
+  "vupklsb128",
+  "vupklsh",
+  "vxor",
+  "vxor128",
+  "xor"
+ ]
+}

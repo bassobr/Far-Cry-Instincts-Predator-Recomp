@@ -1,0 +1,349 @@
+# Known, classified failures of predator_semtest.
+# A form listed here may fail up to max_failures cases without failing the build. Every entry names
+# the classification and the reason. compare.py reports entries without failures (fixed: remove them).
+# Generated from the measured counts of 2026-11-12 (seed 20261112, 40 cases per variant).
+
+[[known]]
+form = "frsqrte"
+max_failures = 310
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vmsum3fp128"
+max_failures = 278
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vmsum4fp128"
+max_failures = 267
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vrsqrtefp"
+max_failures = 160
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vrefp"
+max_failures = 137
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vexptefp"
+max_failures = 72
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vnmsubfp"
+max_failures = 68
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vnmsubfp128"
+max_failures = 68
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vmaddcfp128"
+max_failures = 56
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "vmaddfp"
+max_failures = 56
+class = "approximation"
+reason = "[vector_math] = fast in config/predator/default.toml: host SSE arithmetic instead of the hardware estimate/rounding; the SDK hardware vectors fail, the exact variant passes them all"
+
+[[known]]
+form = "fsqrt"
+max_failures = 34
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "fsqrts"
+max_failures = 33
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "fnmadds"
+max_failures = 14
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "fnmsubs"
+max_failures = 10
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "fnmsub"
+max_failures = 10
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "fmsub"
+max_failures = 8
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "fmsubs"
+max_failures = 8
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "vmulfp128"
+max_failures = 9
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "vaddfp"
+max_failures = 2
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "vsubfp"
+max_failures = 1
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules: the default NaN is negative (0xFFF8000000000000 / 0xFFC00000 instead of 0x7FF8.. / 0x7FC00000), the NaN operand picked depends on the host operand order, fnmadd/fnmsub/fmsub flip the sign of a propagated NaN; against the reference (ISA/PEM; VMX NaN priority also in the SDK hardware vectors)"
+
+[[known]]
+form = "leaf_820BEBB8"
+max_failures = 4
+class = "nan-x86"
+reason = "leaf function of the game; every difference is a NaN (default NaN sign, stored with stfs), see the nan-x86 forms; no difference with all NaNs counted as equal except stored NaN bytes"
+
+[[known]]
+form = "leaf_820BEC90"
+max_failures = 11
+class = "nan-x86"
+reason = "leaf function of the game; every difference is a NaN (default NaN sign, stored with stfs), see the nan-x86 forms; no difference with all NaNs counted as equal except stored NaN bytes"
+
+[[known]]
+form = "leaf_822B4820"
+max_failures = 17
+class = "nan-x86"
+reason = "leaf function of the game; every difference is a NaN (default NaN sign, stored with stfs), see the nan-x86 forms; no difference with all NaNs counted as equal except stored NaN bytes"
+
+[[known]]
+form = "leaf_82332CF0"
+max_failures = 17
+class = "nan-x86"
+reason = "leaf function of the game; every difference is a NaN (default NaN sign, stored with stfs), see the nan-x86 forms; no difference with all NaNs counted as equal except stored NaN bytes"
+
+[[known]]
+form = "leaf_82349AA0"
+max_failures = 2
+class = "nan-x86"
+reason = "leaf function of the game; every difference is a NaN (default NaN sign, stored with stfs), see the nan-x86 forms; no difference with all NaNs counted as equal except stored NaN bytes"
+
+[[known]]
+form = "leaf_8250D3D8"
+max_failures = 20
+class = "nan-x86"
+reason = "leaf function of the game; every difference is a NaN (default NaN sign, stored with stfs), see the nan-x86 forms; no difference with all NaNs counted as equal except stored NaN bytes"
+
+[[known]]
+form = "leaf_825279E8"
+max_failures = 6
+class = "nan-x86"
+reason = "leaf function of the game; every difference is a NaN (default NaN sign, stored with stfs), see the nan-x86 forms; no difference with all NaNs counted as equal except stored NaN bytes"
+
+[[known]]
+form = "vmaxfp"
+max_failures = 27
+class = "nan-x86"
+reason = "vmaxfp/vminfp map to maxps/minps: a NaN operand returns the other operand (PEM: QNaN), against the reference (PEM), no hardware vector"
+
+[[known]]
+form = "vmaxfp128"
+max_failures = 33
+class = "nan-x86"
+reason = "vmaxfp/vminfp map to maxps/minps: a NaN operand returns the other operand (PEM: QNaN), against the reference (PEM), no hardware vector"
+
+[[known]]
+form = "vminfp"
+max_failures = 32
+class = "nan-x86"
+reason = "vmaxfp/vminfp map to maxps/minps: a NaN operand returns the other operand (PEM: QNaN), against the reference (PEM), no hardware vector"
+
+[[known]]
+form = "fmadds:tie"
+max_failures = 36
+class = "double-rounding"
+reason = "fmadds/fmsubs/fnmadds/fnmsubs compute fma in double and round to single again; on a single precision tie of the exact result the second rounding goes the wrong way (constructed cases; 0 of the random cases); against the ISA (one rounding)"
+
+[[known]]
+form = "stfs"
+max_failures = 1
+class = "isa-undefined"
+reason = "stfs of a double in the single denormal range: the ISA denormalises by truncation, the corrected codegen still converts on the host (rounds) there"
+
+# NaN matrix of gen.py nan_cases: fail with the plain emission, pass with
+# [fp_rules] (tests/semantics/fp_rules.toml; the build fails if that variant gets worse).
+
+[[known]]
+form = "nan:fadd"
+max_failures = 2
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fadds"
+max_failures = 2
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fdiv"
+max_failures = 8
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fdivs"
+max_failures = 8
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fmadd"
+max_failures = 60
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fmadds"
+max_failures = 60
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fmsub"
+max_failures = 90
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fmsubs"
+max_failures = 90
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fmul"
+max_failures = 8
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fmuls"
+max_failures = 8
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fnmadd"
+max_failures = 189
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fnmadds"
+max_failures = 189
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fnmsub"
+max_failures = 162
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fnmsubs"
+max_failures = 162
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fsqrt"
+max_failures = 3
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fsqrts"
+max_failures = 3
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fsub"
+max_failures = 2
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:fsubs"
+max_failures = 2
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:vaddfp"
+max_failures = 16
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:vaddfp128"
+max_failures = 16
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:vmaxfp"
+max_failures = 41
+class = "nan-x86"
+reason = "maxps/minps instead of vmaxfp/vminfp: NaN operand gives the other operand, max(+0,-0)/min(+0,-0) and NJ denormal operands give the host value; against the reference (PEM); [fp_rules] vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:vmaxfp128"
+max_failures = 41
+class = "nan-x86"
+reason = "maxps/minps instead of vmaxfp/vminfp: NaN operand gives the other operand, max(+0,-0)/min(+0,-0) and NJ denormal operands give the host value; against the reference (PEM); [fp_rules] vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:vminfp"
+max_failures = 39
+class = "nan-x86"
+reason = "maxps/minps instead of vmaxfp/vminfp: NaN operand gives the other operand, max(+0,-0)/min(+0,-0) and NJ denormal operands give the host value; against the reference (PEM); [fp_rules] vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:vmulfp128"
+max_failures = 23
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"
+
+[[known]]
+form = "nan:vsubfp"
+max_failures = 4
+class = "nan-x86"
+reason = "NaN results follow x86 instead of the PowerPC rules (default NaN sign, NaN operand priority, sign of a propagated NaN under negation); against the reference (ISA Book I 4.3.2/4.6.6, AltiVec PEM); [fp_rules] nan/vmx_nan = \"ppc\" passes all"

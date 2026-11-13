@@ -1,0 +1,15 @@
+# Variant of the title configuration for predator_semtest: all [vector_math] keys exact instead of fast.
+# Only used to measure what the switch would change; the game uses
+# config/predator/default.toml.
+includes = ["../../config/predator/default.toml"]
+
+[vector_math]
+vmaddfp = "exact"
+vnmsubfp = "exact"
+vmsum3fp128 = "exact"
+vmsum4fp128 = "exact"
+vrefp = "exact"
+vrsqrtefp = "exact"
+vexptefp = "exact"
+fres = "exact"
+frsqrte = "exact"

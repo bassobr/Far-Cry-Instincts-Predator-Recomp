@@ -1,0 +1,4 @@
+; Names predator_code.dll may import from the Visual C++ runtime (x64 frame handler of C++ exceptions).
+LIBRARY vcruntime140_1.dll
+EXPORTS
+  __CxxFrameHandler4

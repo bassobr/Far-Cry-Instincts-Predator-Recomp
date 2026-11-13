@@ -1,0 +1,23 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+#pragma once
+#include <type_traits>
+namespace std {
+template <class T, class U>
+concept same_as = __is_same(T, U) && __is_same(U, T);
+template <class T>
+concept integral = __is_integral(T);
+template <class T>
+concept signed_integral = integral<T> && __is_signed(T);
+template <class T>
+concept unsigned_integral = integral<T> && !__is_signed(T);
+template <class T>
+concept floating_point = __is_floating_point(T);
+template <class F, class T>
+concept convertible_to = __is_convertible(F, T) && requires { static_cast<T>(declval<F>()); };
+template <class D, class B>
+concept derived_from = __is_base_of(B, D) && __is_convertible(const volatile D*, const volatile B*);
+template <class T, class... A>
+concept constructible_from = __is_destructible(T) && __is_constructible(T, A...);
+template <class T>
+concept trivially_copyable = __is_trivially_copyable(T);
+}  // namespace std

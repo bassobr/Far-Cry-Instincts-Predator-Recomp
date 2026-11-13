@@ -1,0 +1,21 @@
+# Game data and everything derived from it stay local
+*.iso
+*.xex
+*.xexp
+assets/
+work/
+generated/
+out/
+build/
+screenshots/
+*.bmp
+
+# Local toolchain and third-party sources (fetched by scripts)
+toolchain/
+third_party/
+
+
+__pycache__/
+
+# Synthetic 80 KB test image of the SDK unit tests (no game data)
+!/rexglue/tests/fixtures/filesystem/gdfx.iso

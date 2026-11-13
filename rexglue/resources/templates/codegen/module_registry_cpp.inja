@@ -1,0 +1,12 @@
+// ReXGlue Generated - {{ project }} Module Registry
+
+#include <rex/kernel/module.h>
+
+void RegisterRecompiledModules(rex::kernel::IModuleRegistry& modules) {
+{% for mod in dll_modules %}
+  modules.RegisterRecompiledModule(
+      "{{ mod.pe_name }}",
+      "{{ mod.guest_path }}",
+      "{{ mod.shared_lib_name }}");
+{% endfor %}
+}

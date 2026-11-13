@@ -1,0 +1,54 @@
+// FCP guest_std (rexglue/UPSTREAM.md, change 140): freestanding replacement, see README.md.
+#pragma once
+#include <cstddef>
+#include <initializer_list>
+#include <type_traits>
+namespace std {
+template <class T>
+constexpr remove_reference_t<T>&& move(T&& t) noexcept {
+  return static_cast<remove_reference_t<T>&&>(t);
+}
+template <class T>
+constexpr T&& forward(remove_reference_t<T>& t) noexcept {
+  return static_cast<T&&>(t);
+}
+template <class T>
+constexpr T&& forward(remove_reference_t<T>&& t) noexcept {
+  return static_cast<T&&>(t);
+}
+template <class T, class U = T>
+constexpr T exchange(T& obj, U&& v) {
+  T old = static_cast<T&&>(obj);
+  obj = static_cast<U&&>(v);
+  return old;
+}
+template <class T>
+constexpr void swap(T& a, T& b) noexcept {
+  T t = static_cast<T&&>(a);
+  a = static_cast<T&&>(b);
+  b = static_cast<T&&>(t);
+}
+template <class E>
+constexpr underlying_type_t<E> to_underlying(E e) noexcept {
+  return static_cast<underlying_type_t<E>>(e);
+}
+[[noreturn]] inline void unreachable() { __builtin_unreachable(); }
+template <class T, T... I>
+struct integer_sequence {
+  using value_type = T;
+  static constexpr size_t size() noexcept { return sizeof...(I); }
+};
+template <size_t... I>
+using index_sequence = integer_sequence<size_t, I...>;
+template <class T, T N>
+using make_integer_sequence = __make_integer_seq<integer_sequence, T, N>;
+template <size_t N>
+using make_index_sequence = make_integer_sequence<size_t, N>;
+template <class... T>
+using index_sequence_for = make_index_sequence<sizeof...(T)>;
+template <class T1, class T2>
+struct pair {
+  T1 first;
+  T2 second;
+};
+}  // namespace std

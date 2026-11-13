@@ -1,0 +1,2 @@
+# These scripts run with bash on the Deck: keep LF in every checkout.
+*.sh text eol=lf

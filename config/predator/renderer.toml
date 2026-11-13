@@ -1,0 +1,117 @@
+# What the native renderer reads in the D3D device structure and in the guest objects (src/renderer,
+# renderer/guest_device.h). No address and no offset is in the C++ code; everything comes from here.
+#
+# status per field (the values are parsed by src/renderer/core/guest_device.cpp and stay as they are):
+#   "gemessen"  (= measured) shown statically in default.xex (D3D mapping of the device structure)
+#   "kk"        taken from King Kong Recompiled (XDK 2005, its docs/d3d-structs.md), not checked for Predator
+#   "kk+16"     like "kk", but assumed shifted by 16 bytes (fields behind +12950, see the D3D mapping)
+# Fields marked "kk"/"kk+16" are checked against a device dump in the first run (FCP_DUMP_DEVICE, M1).
+# stride: distance between the elements of a field in bytes (0 = single value).
+
+# Graphics API of the in-game renderer (src/fcp/render_bridge.cpp): "vulkan" (default) or "d3d12".
+# FCP_RENDER_BACKEND takes precedence over this value.
+[render]
+backend = "vulkan"
+
+[device]
+size = 20608        # 0x5080, measured (allocation in Direct3D_CreateDevice)
+
+[device.fields]
+dirty_masks         = { offset = 16,    stride = 8,  status = "gemessen" }   # 5 x 64 bits
+fetch_constants     = { offset = 1152,  stride = 24, status = "gemessen" }   # 32 x 6 dwords
+vs_constants        = { offset = 1920,  stride = 16, status = "gemessen" }   # c0-c255
+ps_constants        = { offset = 6016,  stride = 16, status = "gemessen" }
+bool_constants      = { offset = 10112, stride = 4,  status = "gemessen" }   # 8 dwords
+loop_constants      = { offset = 10144, stride = 4,  status = "kk" }         # 32 dwords
+fence_writeback     = { offset = 10384, status = "gemessen" }                # address the GPU writes fences to
+current_fence       = { offset = 10396, status = "gemessen" }
+vertex_declaration  = { offset = 11408, status = "gemessen" }
+rb_surface_info     = { offset = 11456, status = "kk" }
+rb_color_info       = { offset = 11460, status = "kk" }
+rb_depth_info       = { offset = 11464, status = "kk" }
+rb_color1_info      = { offset = 11468, stride = 4, status = "kk" }          # 1-3
+pa_sc_window_offset = { offset = 11520, status = "kk" }
+pa_sc_window_scissor_tl = { offset = 11524, status = "kk" }
+pa_sc_window_scissor_br = { offset = 11528, status = "kk" }
+vgt_indx_offset     = { offset = 11540, status = "kk" }
+rb_color_mask       = { offset = 11548, status = "kk" }
+rb_blend_rgba       = { offset = 11552, stride = 4, status = "kk" }
+rb_stencil_ref_mask_bf = { offset = 11580, status = "kk" }
+rb_stencil_ref_mask = { offset = 11584, status = "kk" }
+rb_alpha_ref        = { offset = 11588, status = "kk" }
+pa_cl_vport         = { offset = 11592, stride = 4, status = "kk" }          # XSCALE XOFFSET YSCALE YOFFSET ZSCALE ZOFFSET
+rb_depth_control    = { offset = 11636, status = "gemessen" }
+rb_blend_control0   = { offset = 11640, status = "kk" }
+rb_color_control    = { offset = 11644, status = "kk" }
+pa_cl_clip_cntl     = { offset = 11652, status = "kk" }
+pa_su_sc_mode_cntl  = { offset = 11656, status = "kk" }
+pa_cl_vte_cntl      = { offset = 11660, status = "kk" }
+rb_blend_control1   = { offset = 11672, stride = 4, status = "kk" }          # 1-3
+pa_su_vtx_cntl      = { offset = 11776, status = "kk" }
+pa_su_poly_offset   = { offset = 11920, stride = 4, status = "kk" }          # front scale/offset, back scale/offset
+index_buffer        = { offset = 12532, status = "gemessen" }
+render_targets      = { offset = 12536, stride = 4, status = "gemessen" }    # 4 surfaces
+depth_stencil       = { offset = 12552, status = "gemessen" }
+stream_offset       = { offset = 12556, stride = 8, status = "gemessen" }    # 16 streams
+stream_buffer       = { offset = 12560, stride = 8, status = "gemessen" }
+stream_stride       = { offset = 12688, stride = 1, status = "gemessen" }    # one byte per stream: stride / 4
+textures            = { offset = 12704, stride = 4, status = "gemessen" }    # 26 samplers
+viewport            = { offset = 12808, status = "gemessen" }                # D3DVIEWPORT9: X Y W H (u32), MinZ MaxZ
+scissor_rect        = { offset = 12832, status = "gemessen" }
+clip_planes         = { offset = 12848, stride = 16, status = "kk" }
+pixel_shader        = { offset = 12944, status = "gemessen" }
+predication_mask    = { offset = 12960, status = "gemessen" }
+present_interval    = { offset = 13788, status = "gemessen" }
+front_buffer        = { offset = 13976, status = "kk+16" }
+back_buffer         = { offset = 13980, status = "kk+16" }
+gamma_ramp          = { offset = 14076, status = "gemessen" }                # D3DGAMMARAMP, 3 x 256 WORD
+vertex_shader       = { offset = 20476, status = "gemessen" }
+
+# Ranges that a render thread compares and copies as 64-byte blocks per call.
+# Must cover every field above that the renderer reads while executing.
+[device.snapshot]
+ranges = [[1152, 10272], [11408, 12000], [12532, 12976], [13788, 13792], [13976, 13984], [14076, 15612], [20476, 20480]]
+
+# Guest objects (headers that the renderer reads and a render thread copies). All "kk": from King Kong's
+# guest_layout.h / guest_device.h; the common identifiers measured in the D3D mapping match them.
+[objects.surface]
+size = 64
+status = "kk"
+fetch_size_word = 24     # fetch constant image from +16, word 2: width-1 bits 0-12, height-1 bits 13-25
+surface_info = 48        # RB_SURFACE_INFO: pitch bits 0-13, MSAA bits 16-17
+color_info = 52          # RB_COLOR_INFO / RB_DEPTH_INFO: EDRAM base bits 0-11, format bits 16-19
+
+[objects.vertex_buffer]
+size = 32
+status = "kk"
+fetch = 12               # 2 words of vertex fetch constant
+
+[objects.index_buffer]
+size = 32
+status = "kk"
+address = 12             # CPU address
+bytes = 16               # size in bytes; common bit 31 = 32-bit indices
+
+[objects.declaration]
+status = "kk"
+count = 8
+elements = 36
+element_size = 12
+max_elements = 64
+
+[objects.texture]
+size = 64
+status = "kk"
+fetch = 16               # 6 words of texture fetch constant
+
+# D3DQuery (CreateQuery type 9), measured in the code of D3DQuery_GetData (address in d3d_symbols.toml):
+# +0 device, +4 type (9 = occlusion).
+[objects.query]
+status = "gemessen"
+device = 0
+type = 4
+
+[objects.shader]
+status = "gemessen"
+vertex_header = 592      # header size of the shader objects (CreateVertexShader / CreatePixelShader)
+pixel_header = 52

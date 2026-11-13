@@ -1,0 +1,200 @@
+// From King Kong Recompiled (github.com/TekRantGaming/king-kong-recompiled, e3e5d3f, native-renderer/backend/pipeline_cache.h),
+// MIT, Copyright (c) 2026 TekRantGaming and contributors: src/renderer/kk/LICENSE-KingKongRecompiled.txt.
+// Changes: src/renderer/kk/CHANGES.md.
+// The game renderer's pipeline descriptions on disk.
+//
+// A pipeline is made the first time a draw needs it, and the driver's compile takes
+// milliseconds to seconds, so the first visit to a chapter stalls (or, with asynchronous
+// creation, loses draws). Every description is therefore recorded to a file under the cache
+// root the first time it is seen; the next run reads the file at start and creates them all on
+// the pipeline worker threads before the game asks for them.
+//
+// A record is the inputs the renderer builds a pipeline from, not the NVRHI description itself:
+// the shaders by the microcode hash the shader library keys them by (the pack, or the
+// container, give the shader again), the host attachment formats, and the register values the
+// blend, depth, stencil and raster state come from. The same record builds the same
+// description in Draw and in the prewarm, and its hash is the pipeline key.
+//
+// The file is the header below, then records of sizeof(PipelineRecord) bytes, appended as
+// they are first seen (nothing is rewritten). A file of another version, record size or
+// byte order is ignored and started afresh.
+//
+// The same format is the shipped pipeline list (docs/backend.md, "Pipeline lists"): the files of
+// several runs merged into one by the nr_pipelines tool, read beside the game at start and never
+// written there.
+#pragma once
+
+#include <cstdint>
+#include <atomic>
+#include <cstdio>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace fcp::nr {
+
+struct PipelineRecord {
+  uint64_t vs_hash = 0;        // microcode hash of the vertex shader (the shader library's key)
+  uint64_t ps_hash = 0;        // of the pixel shader; 0 = none (depth-only)
+  uint32_t topology = 0;       // nvrhi::PrimitiveType
+  uint32_t color_count = 0;    // attachments, 0-4
+  uint32_t color_format[4] = {};   // nvrhi::Format of each attachment, in attachment order
+  uint32_t color_control[4] = {};  // RB_BLENDCONTROLn of the attachment's guest target
+  uint32_t color_mask[4] = {};     // its write mask nibble, 0 when the pixel shader does not write it
+  uint32_t color_index[4] = {};    // the guest target index
+  uint32_t depth_format = 0;   // nvrhi::Format, 0 (UNKNOWN) = no depth attachment
+  uint32_t depth_control = 0;  // RB_DEPTHCONTROL
+  uint32_t ref_mask = 0;       // RB_STENCILREFMASK (the read and write masks)
+  uint32_t mode_control = 0;   // PA_SU_SC_MODE_CNTL
+  uint32_t clip_control = 0;   // PA_CL_CLIP_CNTL
+  uint32_t poly_scale = 0;     // PA_SU_POLY_OFFSET_FRONT_SCALE, float bits (0 unless poly offset is on)
+  uint32_t poly_offset = 0;    // PA_SU_POLY_OFFSET_FRONT_OFFSET, float bits
+  uint32_t flags = 0;          // kRecordFlipFrontFace, kRecordScaled
+  // reserved[0]: task 276, the level the pipeline was first drawn in (RecordLevel / SetRecordLevel; 0 =
+  // not known, every record before task 276). Not part of the key: a tagged and an untagged record are
+  // the same pipeline, and a build before task 276 reads a tagged file as it always did.
+  uint32_t reserved[2] = {};
+  // The translations' input hashes (fcshaders::translationInputHash): the same microcode has
+  // several translations in a pack (render scale aware or not, other interpolators), and the
+  // prewarm must make the one the draw uses. Version 1 named the microcode only, and its
+  // prewarm made whichever translation the pack gave first.
+  uint64_t vs_input = 0;
+  uint64_t ps_input = 0;
+  bool operator==(const PipelineRecord&) const = default;
+};
+static_assert(sizeof(PipelineRecord) == 144, "PipelineRecord layout changed: bump kPipelineCacheVersion");
+
+// PipelineRecord::flags.
+constexpr uint32_t kRecordFlipFrontFace = 1u << 0;  // a debugging aid (front faces flipped)
+// Drawn by a renderer at a render scale: the pipeline layout has the scale constants (b3) and the
+// pixel shader is the render scale aware translation. A run prewarms only the records of its own
+// kind; the other kind's pipelines would never be drawn there (and the aware shader does not fit
+// the 1:1 layout).
+constexpr uint32_t kRecordScaled = 1u << 1;
+// Task 276: the level tag in PipelineRecord::reserved[0]: the game's level number (the universe's requested
+// map, as the resource lists name it) with the top bit set, so level 0 is told apart from "not known".
+constexpr uint32_t kRecordLevelTagged = 0x80000000u;
+inline uint32_t LevelTag(uint32_t level) { return kRecordLevelTagged | (level & ~kRecordLevelTagged); }
+inline bool RecordLevel(const PipelineRecord& r, uint32_t* level = nullptr) {
+  if (!(r.reserved[0] & kRecordLevelTagged)) return false;
+  if (level) *level = r.reserved[0] & ~kRecordLevelTagged;
+  return true;
+}
+inline void SetRecordLevel(PipelineRecord& r, uint32_t level) { r.reserved[0] = LevelTag(level); }
+inline void ClearRecordLevel(PipelineRecord& r) { r.reserved[0] = 0; }
+
+constexpr uint32_t kPipelineCacheMagic = 0x43504346u;  // 'FCPC' (King Kong: 'KGPC'; the files are not interchangeable)
+// 1: the record of King Kong's version 3 (kRecordScaled, the translations' input hashes in the key).
+constexpr uint32_t kPipelineCacheVersion = 1;
+
+// The pipeline key: a hash of the record's contents (stable between runs and machines). Every
+// field takes part, the translations' input hashes too: the same microcode drawn with its 1:1
+// and its render scale aware translation are two pipelines.
+uint64_t PipelineKey(const PipelineRecord& record);
+// Task 279: the key without the render scale flag and the translations' input hashes (the same draw state
+// and microcode at another render scale or translation): only for matching level tags, never a pipeline.
+uint64_t SimilarPipelineKey(const PipelineRecord& record);
+
+// Reads the records of a pipeline file of this version without changing it (a shipped list, or
+// the user's file read by another process). Whole records only, in file order, duplicates kept.
+// False when the file is absent, unreadable or of another version; `note` says why (empty when
+// the file does not exist). `torn_bytes`: bytes of an incomplete last record that were left out.
+bool ReadPipelineList(const std::string& path, std::vector<PipelineRecord>& records, std::string* note = nullptr,
+                      size_t* torn_bytes = nullptr);
+// Writes a whole pipeline file (the header and the records) through a temporary file renamed over
+// `path`, so a reader never sees half of it. False on an I/O error (`error` says what).
+bool WritePipelineList(const std::string& path, const std::vector<PipelineRecord>& records,
+                       std::string* error = nullptr);
+
+// Merges pipeline files into one list: every record once, in the order first
+// seen, so the first input's pipelines are made first at start.
+// Task 276, level tags: each input naming a pipeline with a level is one vote for that level; the merged
+// record carries the level with the most votes (a tie: the one voted for first, the earliest input). An
+// untagged record takes the tag of a later input that has one. tags_only: inputs after the first add no
+// records, only their votes (tagging a list from a recorded play-through, nr_pipelines merge --tags-only).
+class PipelineListMerger {
+ public:
+  struct Input {
+    std::string path;
+    bool read = false;       // a pipeline file of this version
+    std::string note;        // why it was not read ("absent" when it does not exist)
+    size_t records = 0;      // whole records in it
+    size_t added = 0;        // new to the list
+    size_t duplicates = 0;   // already in the list
+    size_t debug = 0;        // drawn with --native_flip_front_face (a debugging aid): left out
+    size_t torn_bytes = 0;   // an incomplete last record, left out
+    size_t tagged = 0;       // records with a level tag
+  };
+  // keep_debug: also keep the records of runs with flipped faces.
+  explicit PipelineListMerger(bool keep_debug = false, bool tags_only = false)
+      : keep_debug_(keep_debug), tags_only_(tags_only) {}
+  Input Add(const std::string& path);
+  // Adds records that are not files (tests).
+  size_t AddRecords(const std::vector<PipelineRecord>& records);
+  const std::vector<PipelineRecord>& records() const { return records_; }
+  // Task 279: tags the records still without a level from tagged records of a similar pipeline: the same
+  // record at another render scale or with other shader translations (SimilarPipelineKey), most voted level
+  // first. A recording of today's game has only render scale records, while a list also holds 1:1 ones (the
+  // prewarm adapts those to the run's kind). Returns the records tagged.
+  size_t TagFromSimilar();
+
+ private:
+  enum class Added { kNew, kDuplicate, kDebug, kLeftOut };
+  Added AddOne(const PipelineRecord& record);
+  // SimilarPipelineKey -> level votes of every tagged record added (any input).
+  std::unordered_map<uint64_t, std::vector<std::pair<uint32_t, uint32_t>>> similar_votes_;
+  bool keep_debug_;
+  bool tags_only_;
+  bool first_input_done_ = false;
+  std::vector<PipelineRecord> records_;
+  std::unordered_map<uint64_t, size_t> keys_;  // key -> index in records_
+  // Level votes of records_[i] (level tag, votes), in the order first voted for.
+  std::vector<std::vector<std::pair<uint32_t, uint32_t>>> votes_;
+};
+
+class PipelineCacheFile {
+ public:
+  PipelineCacheFile() = default;
+  PipelineCacheFile(const PipelineCacheFile&) = delete;
+  PipelineCacheFile& operator=(const PipelineCacheFile&) = delete;
+  ~PipelineCacheFile() { Close(); }
+
+  // Reads `path` if it is a cache file of this version (records are available through loaded())
+  // and opens it for appending; creates the directory and file otherwise. False when it cannot
+  // be opened for writing (loaded() still holds what could be read).
+  bool Open(const std::string& path);
+  void Close();
+  bool is_open() const { return open_.load(std::memory_order_relaxed); }
+
+  const std::vector<PipelineRecord>& loaded() const { return loaded_; }
+  // Records seen so far (loaded or appended): Append ignores one that is already known.
+  bool Known(const PipelineRecord& record) const { return keys_.count(PipelineKey(record)) != 0; }
+  // Queues a record the first time it is seen (memory only). True when it was new.
+  bool Append(const PipelineRecord& record);
+  // Writes the queued records to the file now. Task 177: the game renderer calls it on its background
+  // file writer, never on the render thread; Append and has_pending stay safe meanwhile (the file and
+  // the queue have their own locks). Close() writes what is still queued.
+  void Flush();
+  bool has_pending() const { return pending_count_.load(std::memory_order_relaxed) != 0; }
+
+  // What was wrong with an existing file, for the log ("" = fine or absent).
+  const std::string& note() const { return note_; }
+  size_t appended() const { return appended_; }
+
+ private:
+  std::mutex file_mutex_;     // file_ (the writer thread writes while the render thread appends)
+  std::FILE* file_ = nullptr;
+  std::atomic<bool> open_{false};
+  std::mutex pending_mutex_;  // pending_
+  std::vector<PipelineRecord> pending_;
+  std::atomic<size_t> pending_count_{0};
+  std::vector<PipelineRecord> loaded_;
+  std::unordered_set<uint64_t> keys_;
+  std::string note_;
+  size_t appended_ = 0;
+};
+
+}  // namespace fcp::nr

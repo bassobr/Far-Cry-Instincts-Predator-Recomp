@@ -1,0 +1,9 @@
+; Names predator_code.dll may import from the Universal C Runtime, the same API set predator.exe uses (names only).
+LIBRARY api-ms-win-crt-heap-l1-1-0.dll
+EXPORTS
+  malloc
+  calloc
+  realloc
+  free
+  _aligned_malloc
+  _aligned_free

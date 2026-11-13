@@ -1,0 +1,3 @@
+﻿TLSF (Two-Level Segregated Fit memory allocator), part of rexkernel.dll
+Written by Matthew Conte (matt@baisoku.org). Released under the BSD license (README.md and tlsf.c of
+https://github.com/mattconte/tlsf, commit deff9ab5). The source states no further license text.

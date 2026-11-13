@@ -1,0 +1,14 @@
+; Names predator_code.dll may import from the Visual C++ runtime that predator.exe uses as well (no code, only
+; names; the build turns this into an import library with lld-link /lib /def). src/fcp/game_code/entry.cpp.
+LIBRARY vcruntime140.dll
+EXPORTS
+  memcpy
+  memmove
+  memset
+  memcmp
+  memchr
+  _setjmp == __intrinsic_setjmp
+  longjmp
+  __C_specific_handler
+; _setjmp: the MSVC import library maps it to __intrinsic_setjmp, which vcruntime140.dll exports (measured:
+; the former predator.exe imported __intrinsic_setjmp).
