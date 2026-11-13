@@ -1,29 +1,32 @@
 # PGO of the recompiled code: instrumented training build, training runs, merge, optimized build.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\pgo.ps1 [-Config release] [-BuildCmd build.cmd]
-#       [-Runs <spec;spec>] [-Seconds 55] [-SkipTrain] [-NoBuild] [-Off]
+#       [-Runs <spec;spec>] [-Seconds 55] [-Out <file>] [-SkipTrain] [-NoBuild] [-Off] [-Auto]
 # Steps:
 #  1. tools\pgo_train_build.cmd: out\build\pgo-train, the game code linked into predator.exe and instrumented
 #     (-DFCP_GAME_CODE_DLL=OFF -DFCP_PGO=generate; predator_code.dll has no CRT for the profile runtime);
 #  2. one run per training spec (developer start of a level with an input script; written to out\pgo\raw);
-#  3. llvm-profdata merge -> out\pgo\predator.profdata;
-#  4. FCP_PGO=use in the build folder of -Config (predator_code.dll with -fprofile-instr-use, same profile on the
-#     player's first start when the release ships it, tools\dist.ps1).
+#  3. llvm-profdata merge -> out\pgo\predator.profdata, copied to -Out (default config\predator\game_code.profdata,
+#     the profile in the repository that every build uses by default, FCP_PGO=auto);
+#  4. build of -Config with that profile (predator_code.dll with -fprofile-instr-use; the same profile on the
+#     player's first start: tools\dist.ps1 ships it as compiler\pgo\predator.profdata). The build runs
+#     tools\pgo_check.py and warns when the profile does not match the generated code.
 # A training spec is "level|seconds|env" (env as for tools\boot\run.ps1, "k=v,k=v" separated by commas); the default
 # set covers on-foot levels, boats, a vehicle and swimming. In a git worktree: -BuildCmd tools\boot\wt_build.cmd.
-# -Off turns PGO off again in the build folder (FCP_PGO empty) and builds. -SkipTrain only merges the existing raw
-# profiles; -NoBuild stops after the merge.
-# The profile holds counters per function (names sub_<address>, structure hashes), no code; it is derived from
-# runs of the game and stays under out\pgo unless the release ships it. A stale profile (after a codegen, hook or
-# compiler change) is only slower, never wrong; clang does not report missing/mismatching functions (warnings
-# off), so retrain after such changes.
+# -Off turns PGO off in the build folder (FCP_PGO=OFF) and builds; -Auto sets the default again (FCP_PGO=auto).
+# -SkipTrain only merges the existing raw profiles; -NoBuild stops after the merge (and the copy to -Out).
+# The profile holds counters per function (names sub_<address>, structure hashes), no code. Commit the new
+# config\predator\game_code.profdata after training. A stale profile (after a codegen, title configuration, hook or
+# compiler change) is only slower, never wrong; the build's tools\pgo_check.py reports it, then retrain.
 param(
   [string]$Config = "release",
   [string]$BuildCmd = "build.cmd",
   [string]$Runs = "",
   [int]$Seconds = 55,
+  [string]$Out = "",
   [switch]$SkipTrain,
   [switch]$NoBuild,
-  [switch]$Off
+  [switch]$Off,
+  [switch]$Auto
 )
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\shared_root.ps1"
@@ -31,6 +34,7 @@ $root = (Resolve-Path "$PSScriptRoot\..").Path
 $bdir = Join-Path $root "out\build\$Config"
 $pgo = Join-Path $root "out\pgo"
 $raw = Join-Path $pgo "raw"
+if (-not $Out) { $Out = Join-Path $root "config\predator\game_code.profdata" }
 $toolchain = Join-Path $root "toolchain"
 $tc = Select-String (Join-Path $bdir "CMakeCache.txt") -Pattern "^FCP_TOOLCHAIN_DIR:PATH=(.*)$" -ErrorAction SilentlyContinue
 if ($tc) { $toolchain = $tc.Matches[0].Groups[1].Value }
@@ -48,14 +52,14 @@ $defaultRuns = @(
   "13_black_forest|60|FCP_INPUT_SCRIPT=10-50:lup"
 )
 
-function SetPgo([string]$value) {
+function SetCache([string]$name, [string]$type, [string]$value) {
   # Only change the entry in the CMake cache; the build then reconfigures by itself (build.ninja depends on the cache)
   # with the environment of the build script. A separate cmake call without this environment would reset the FCP_* paths.
   $cache = Join-Path $bdir "CMakeCache.txt"
   $lines = Get-Content $cache
   $found = $false
-  $lines = $lines | ForEach-Object { if ($_ -match '^FCP_PGO:STRING=') { $found = $true; "FCP_PGO:STRING=$value" } else { $_ } }
-  if (-not $found) { $lines += "FCP_PGO:STRING=$value" }
+  $lines = $lines | ForEach-Object { if ($_ -match "^${name}:") { $found = $true; "${name}:${type}=$value" } else { $_ } }
+  if (-not $found) { $lines += "${name}:${type}=$value" }
   Set-Content -Encoding ascii $cache $lines
 }
 function Build() {
@@ -65,7 +69,8 @@ function Build() {
 }
 
 if (-not (Test-Path (Join-Path $bdir "CMakeCache.txt"))) { throw "build folder missing: $bdir (do a normal build first)" }
-if ($Off) { SetPgo ""; Build; Write-Output "pgo: off"; exit 0 }
+if ($Off) { SetCache "FCP_PGO" "STRING" "OFF"; Build; Write-Output "pgo: off"; exit 0 }
+if ($Auto) { SetCache "FCP_PGO" "STRING" "auto"; Build; Write-Output "pgo: auto"; exit 0 }
 
 $specs = if ($Runs) { $Runs -split ";" } else { $defaultRuns }
 if (-not $SkipTrain) {
@@ -96,7 +101,12 @@ $files = @(Get-ChildItem $raw -Filter *.profraw | ForEach-Object FullName)
 if ($files.Count -ne $specs.Count) { throw "pgo: $($files.Count) profiles for $($specs.Count) runs" }
 & (Join-Path $toolchain "llvm\bin\llvm-profdata.exe") merge -o (Join-Path $pgo "predator.profdata") $files
 if ($LASTEXITCODE -ne 0) { throw "llvm-profdata merge failed" }
-if ($NoBuild) { Write-Output "pgo: merged $(Join-Path $pgo 'predator.profdata')"; exit 0 }
-Write-Output "pgo: optimized build with $(Join-Path $pgo 'predator.profdata')"
-SetPgo "use"; Build
+$merged = Join-Path $pgo "predator.profdata"
+New-Item -ItemType Directory -Force (Split-Path $Out) | Out-Null
+Copy-Item $merged $Out -Force
+$sha = (Get-FileHash -Algorithm SHA256 $Out).Hash.ToLowerInvariant()
+Write-Output "pgo: merged $Out ($((Get-Item $Out).Length) bytes, SHA-256 $sha)"
+if ($NoBuild) { exit 0 }
+Write-Output "pgo: optimized build with $Out"
+SetCache "FCP_PGO" "STRING" "auto"; SetCache "FCP_PGO_PROFILE" "FILEPATH" ($Out -replace '\\', '/'); Build
 Write-Output "pgo: done"

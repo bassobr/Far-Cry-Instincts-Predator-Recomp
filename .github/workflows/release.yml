@@ -5,8 +5,10 @@
 # The steps are those of docs/en/BUILDING.md (one-time setup, then tools\dist.cmd), with no disc image: the
 # configure step only warns that FCP_GAME_ISO is missing, and the target dist builds only what needs no game data
 # (predator, fcshaders_tool, predator_code_libs). Never the codegen, predator_code.dll, the semantic test (it reads
-# functions of the game) or the shader pack. No PGO profile: the release game code is built without one.
-# tools/dist.ps1 refuses anything derived from the game, and the release job checks the zip again.
+# functions of the game) or the shader pack. The one derived file is the PGO profile of the repository
+# (config/predator/game_code.profdata: function names, structure hashes, execution counters, no code), shipped as
+# compiler/pgo/predator.profdata for the first start; the release job checks that it is exactly that file.
+# tools/dist.ps1 refuses anything else derived from the game, and the release job checks the zip again.
 # Derived from .github/workflows/release.yml of Far Cry Instincts Recomp (MIT, same author); action SHAs as there.
 name: Release
 on:
@@ -72,6 +74,13 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-zip
+      # only the PGO profile of the tagged commit, to compare it with the one in the zip
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: repo
+          sparse-checkout: config/predator/game_code.profdata
+          sparse-checkout-cone-mode: false
       - name: Check the package
         run: |
           sha256sum -c SHA256SUMS
@@ -83,9 +92,21 @@ jobs:
                    compiler/config/default.toml compiler/LICENSE-LLVM.txt README.md LICENSE THIRD_PARTY_NOTICES.md; do
             unzip -Z1 "$ZIP" | grep -qx "[^/]*/$f" || { echo "missing $f" >&2; exit 1; }
           done
-          # no game code, no generated sources, no game files, no caches, no user data, no PGO profile
-          if unzip -Z1 "$ZIP" | grep -iE 'predator_code|game_code/|generated/|work/|predator_(funcs|recomp|init|register|pch)|portable\.txt|predator\.toml|\.(xex|iso|xiso|obj|pdb|fcpack|profraw|profdata|log)$'; then
+          # no game code, no generated sources, no game files, no caches, no user data
+          if unzip -Z1 "$ZIP" | grep -iE 'predator_code|game_code/|generated/|work/|predator_(funcs|recomp|init|register|pch)|portable\.txt|predator\.toml|\.(xex|iso|xiso|obj|pdb|fcpack|profraw|log)$'; then
             echo "game code, game files or files derived from the game in the package" >&2; exit 1
+          fi
+          # the PGO profile: exactly one, at compiler/pgo/predator.profdata, byte for byte the repository's
+          # config/predator/game_code.profdata (SHA-256); without a profile in the repository, none
+          PROF=$(unzip -Z1 "$ZIP" | grep -iE '\.profdata$' || true)
+          if [ -f repo/config/predator/game_code.profdata ]; then
+            test "$PROF" = "$(unzip -Z1 "$ZIP" | grep -x '[^/]*/compiler/pgo/predator\.profdata')" -a -n "$PROF" \
+              || { echo "expected exactly one PGO profile at compiler/pgo/predator.profdata, found: $PROF" >&2; exit 1; }
+            WANT=$(sha256sum repo/config/predator/game_code.profdata | cut -d' ' -f1)
+            GOT=$(unzip -p "$ZIP" "$PROF" | sha256sum | cut -d' ' -f1)
+            test "$WANT" = "$GOT" || { echo "PGO profile in the zip ($GOT) is not the repository's ($WANT)" >&2; exit 1; }
+          elif [ -n "$PROF" ]; then
+            echo "PGO profile in the package, but none in the repository: $PROF" >&2; exit 1
           fi
           # an executable or DLL with recompiled code has the section "rexguest" (the name also occurs as a string in
           # predator.exe, so the section tables are read)

@@ -17,7 +17,8 @@ param(
     [string]$Name = "",
     [switch]$Zip,
     [switch]$Sources,     # source archive of the LGPL/GPL components (default: on with -Zip; -Sources:$false = off)
-    [switch]$NoVcRuntime  # without the VC++ runtime DLLs (the player then needs the VC++ Redistributable)
+    [switch]$NoVcRuntime, # without the VC++ runtime DLLs (the player then needs the VC++ Redistributable)
+    [switch]$AnyProfile   # allow a PGO profile other than config\predator\game_code.profdata (local tests)
 )
 $ErrorActionPreference = "Stop"
 $makeSources = if ($PSBoundParameters.ContainsKey("Sources")) { [bool]$Sources } else { [bool]$Zip }
@@ -61,16 +62,39 @@ $files["compiler\include\fcp\game_code_abi.h"] = Join-Path $root "src\fcp\game_c
 $files["compiler\config\default.toml"] = Join-Path $root "config\predator\default.toml"
 $files["compiler\config\disc.toml"] = Join-Path $root "config\predator\disc.toml"
 $files["compiler\config\d3d_names.toml"] = Join-Path $root "generated\d3d_names.toml"  # only from d3d_symbols.toml
-# PGO profile of the game code (only when the build uses one, FCP_PGO=use): predator.exe takes it on the first
-# start when its SHA-256 matches (src/fcp/game_code.cpp). An indexed LLVM profile holds function names
-# (sub_<address>), structure hashes and execution counters, no code; checked below by its header.
+# PGO profile of the game code: the profile in the repository (config\predator\game_code.profdata), which the
+# build uses by default (FCP_PGO=auto). predator.exe takes it on the first start when its SHA-256 matches
+# (src/fcp/game_code.cpp). An indexed LLVM profile holds function names (sub_<address>), structure hashes and
+# execution counters, no code; checked below by its header and by SHA-256 (the file, the build's
+# FCP_PGO_SHA256 = the hash in predator.exe, and the repository's profile must be the same). A build with
+# FCP_PGO=OFF ships no profile; -AnyProfile allows a profile other than the repository's (local tests only).
 $pgoProfile = ""
+$pgoSha = ""
+$repoProfile = Join-Path $root "config\predator\game_code.profdata"
 $cacheFile = Join-Path $Build "CMakeCache.txt"
-if ((Test-Path $cacheFile) -and (Select-String $cacheFile -Pattern '^FCP_PGO:STRING=use$' -Quiet)) {
-    $m = Select-String $cacheFile -Pattern '^FCP_PGO_PROFILE:FILEPATH=(.+)$'
-    if (-not $m) { throw "FCP_PGO=use without FCP_PGO_PROFILE in $cacheFile" }
-    $pgoProfile = $m.Matches[0].Groups[1].Value
+function CacheValue([string]$name) {
+    if (-not (Test-Path $cacheFile)) { return "" }
+    $m = Select-String $cacheFile -Pattern "^${name}:[A-Z]+=(.*)$"
+    if ($m) { return $m.Matches[0].Groups[1].Value } else { return "" }
+}
+if ((CacheValue "FCP_PGO_EFFECTIVE") -eq "use") {
+    $pgoProfile = CacheValue "FCP_PGO_PROFILE"
+    if (-not $pgoProfile -or -not (Test-Path $pgoProfile)) { throw "FCP_PGO_EFFECTIVE=use, profile missing: '$pgoProfile'" }
+    $pgoSha = (Get-FileHash -Algorithm SHA256 $pgoProfile).Hash.ToLowerInvariant()
+    $exeSha = (CacheValue "FCP_PGO_SHA256").ToLowerInvariant()
+    if ($pgoSha -ne $exeSha) {
+        throw "PGO profile $pgoProfile has SHA-256 $pgoSha, predator.exe was built with '$exeSha' (build again)"
+    }
+    if (-not $AnyProfile) {
+        if (-not (Test-Path $repoProfile)) { throw "the build uses $pgoProfile, the repository has no profile" }
+        $repoSha = (Get-FileHash -Algorithm SHA256 $repoProfile).Hash.ToLowerInvariant()
+        if ($pgoSha -ne $repoSha) {
+            throw "the build uses $pgoProfile ($pgoSha), not the repository's profile ($repoSha); -AnyProfile for a local test"
+        }
+    }
     $files["compiler\pgo\predator.profdata"] = $pgoProfile
+} elseif (Test-Path $repoProfile) {
+    Write-Host "dist: the build does not use the PGO profile (FCP_PGO=OFF?): the release ships none" -ForegroundColor Yellow
 }
 # Headers: SDK (BSD-3, with rex\guest_std), SIMDe (MIT), clang's own headers (Apache-2.0 WITH LLVM-exception)
 foreach ($h in Get-ChildItem (Join-Path $root "rexglue\include") -Recurse -File) {
@@ -165,6 +189,9 @@ foreach ($item in Get-ChildItem -LiteralPath $stage -Recurse -Force) {
         $fs = [IO.File]::OpenRead($item.FullName); [void]$fs.Read($head, 0, 8); $fs.Close()
         $magic = [byte[]](0xFF, 0x6C, 0x70, 0x72, 0x6F, 0x66, 0x69, 0x81)  # u64 0x8169666F72706CFF, little-endian
         if ((Compare-Object $head $magic -SyncWindow 0)) { $problems += "$rel (not an indexed LLVM profile)" }
+        if ((Get-FileHash -Algorithm SHA256 $item.FullName).Hash.ToLowerInvariant() -ne $pgoSha) {
+            $problems += "$rel (SHA-256 differs from the build's profile)"
+        }
         continue
     }
     if ($n -match '\.(xex|iso|xiso|bin|fat|dat|pdb|obj|o|ilk|exp|profraw|profdata|fcpack|spv|dxil|pipeline|log|prev|tmp)$') { $problems += $rel }

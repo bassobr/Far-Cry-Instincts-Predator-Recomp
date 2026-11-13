@@ -1,6 +1,6 @@
 // Device detection and device defaults (fcp/device_preset.h). Own code of this project; the detection order
-// (registry, DMI files through Z:, SteamDeck=1, a forcing switch) follows FCI's src/app/settings.cpp (MIT, same
-// author).
+// (registry, DMI files through Z:, SteamDeck=1, a forcing switch) and the ROG Ally X model numbers follow FCI's
+// src/app/settings.cpp (MIT, same author).
 #include "fcp/device_preset.h"
 
 #include <windows.h>
@@ -60,6 +60,33 @@ const std::vector<std::pair<std::string, std::string>> kDeckDefaults = {
     {"FCP_FPS", "30"},
 };
 
+// ROG Xbox Ally X defaults, measured on a ROG Xbox Ally X (RC73XA, Ryzen AI Z2 Extreme, Radeon 890M, Windows 11,
+// 1920x1080 at 120 Hz, mains power), borderless at the native resolution, both backends:
+// FCP_FPS 120 holds in 21_dunea, 06_cliffs and 00_training (119.3-120.0 fps from the second run of a level on,
+// p99 9-15 ms, main thread 5-7 ms per frame; one D3D12 run at 105.5 did not repeat in four more); uncapped Vulkan reaches 147-169. The display runs at 120 Hz, so 120 is the
+// smooth cap. Borderless is the measured mode (the built-in default is a window). scale stays 1: scale=auto (1080
+// lines) costs about 2 fps in 21_dunea (117.7) and is left to the player.
+const std::vector<std::pair<std::string, std::string>> kAllyXDefaults = {
+    {"FCP_FPS", "120"},
+    {"FCP_DISPLAY_MODE", "borderless"},
+};
+
+// ASUS's model number in the SMBIOS product name ("ROG Xbox Ally X RC73XA_RC73XA" on the Windows firmware). Only the
+// measured model gets defaults: the ROG Xbox Ally X (RC73XA, Ryzen AI Z2 Extreme). The ROG Ally X (RC72LA, Z1 Extreme,
+// Radeon 780M), the ROG Xbox Ally (RC73YA) and the ROG Ally (RC71L) have slower GPUs and were not measured: they are
+// named in the log and keep the PC defaults. FCP_DEVICE=ally forces the RC73XA defaults.
+struct Ally {
+  const char* model;
+  const char* name;
+  bool defaults;
+};
+constexpr Ally kAllies[] = {
+    {"rc73xa", "ROG Xbox Ally X", true},
+    {"rc72la", "ROG Ally X", false},
+    {"rc73ya", "ROG Xbox Ally", false},
+    {"rc71l", "ROG Ally", false},
+};
+
 const Preset& Get() {
   static const Preset preset = [] {
     Preset p;
@@ -74,24 +101,38 @@ const Preset& Get() {
     const bool steam_deck_env = fcp::env::Get("SteamDeck") == "1";
     const std::string model = Lower(product);
     bool deck = (Lower(vendor) == "valve" && (model == "jupiter" || model == "galileo")) || steam_deck_env;
-    if (forced == "deck") deck = true;
-    if (forced == "pc") deck = false;
-    if (!forced.empty() && forced != "deck" && forced != "pc") {
-      FCPLOG("device: FCP_DEVICE={} unknown (deck, pc), detection decides", forced);
+    // the vendor string differs between firmwares ("ASUSTeK COMPUTER INC." on the board): the model number decides
+    const Ally* ally = nullptr;
+    if (!deck) {
+      for (const Ally& a : kAllies) {
+        if (model.find(a.model) != std::string::npos) {
+          ally = &a;
+          break;
+        }
+      }
+    }
+    if (forced == "deck") deck = true, ally = nullptr;
+    if (forced == "ally" && (!ally || !ally->defaults)) ally = &kAllies[0], deck = false;
+    if (forced == "pc") deck = false, ally = nullptr;
+    if (!forced.empty() && forced != "deck" && forced != "ally" && forced != "pc") {
+      FCPLOG("device: FCP_DEVICE={} unknown (deck, ally, pc), detection decides", forced);
     }
     if (deck) {
       p.name = model == "galileo" ? "Steam Deck OLED" : model == "jupiter" ? "Steam Deck LCD" : "Steam Deck";
       p.defaults = kDeckDefaults;
+    } else if (ally) {
+      p.name = ally->name;
+      if (ally->defaults) p.defaults = kAllyXDefaults;
     }
-    FCPLOG("device: {} ({}: vendor '{}', product '{}', SteamDeck={}{}{})",
-           deck ? p.name : std::string("PC (not a Steam Deck)"), how, vendor, product, steam_deck_env ? "1" : "-",
-           forced.empty() ? "" : ", FCP_DEVICE=", forced);
+    FCPLOG("device: {} ({}: vendor '{}', product '{}', SteamDeck={}{}{}){}",
+           p.name.empty() ? std::string("PC (not a Steam Deck or ROG Ally X)") : p.name, how, vendor, product,
+           steam_deck_env ? "1" : "-", forced.empty() ? "" : ", FCP_DEVICE=", forced,
+           ally && !ally->defaults ? ", not measured: PC defaults" : "");
     for (const auto& [k, v] : p.defaults) FCPLOG("device: {} default {} = {}", p.name, k, v);
     return p;
   }();
   return preset;
 }
-
 }  // namespace
 
 const std::string& Name() { return Get().name; }

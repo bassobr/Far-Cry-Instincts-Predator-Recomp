@@ -30,9 +30,12 @@ endforeach ()
 # --- ABI of the game code ------------------------------------------------------------------------------
 set(FCP_GAME_CODE_ABI_H "${FCP_BOOT_GEN_DIR}/fcp_game_code_abi.h")
 set(_fcp_pgo_hash "none")
-if (FCP_PGO STREQUAL "use" AND EXISTS "${FCP_PGO_PROFILE}")
+if (FCP_PGO_MODE STREQUAL "use" AND EXISTS "${FCP_PGO_PROFILE}")
   file(SHA256 "${FCP_PGO_PROFILE}" _fcp_pgo_hash)
+  # a new profile (tools\pgo.ps1) reconfigures: predator.exe carries its SHA-256
+  set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${FCP_PGO_PROFILE}")
 endif ()
+set(FCP_PGO_SHA256 "${_fcp_pgo_hash}" CACHE INTERNAL "SHA-256 of the PGO profile predator.exe was built with")
 add_custom_target(
   predator_game_code_abi
   COMMAND
@@ -55,7 +58,7 @@ target_compile_definitions(
 )
 # FCP_PGO=use: the first start compiles with the same profile, shipped as compiler\pgo\predator.profdata
 # (tools\dist.ps1); predator.exe only takes a file with this SHA-256 (src/fcp/game_code.cpp).
-if (FCP_PGO STREQUAL "use" AND EXISTS "${FCP_PGO_PROFILE}")
+if (FCP_PGO_MODE STREQUAL "use" AND EXISTS "${FCP_PGO_PROFILE}")
   target_compile_definitions(predator PRIVATE FCP_GAME_CODE_PGO_SHA256="${_fcp_pgo_hash}")
 endif ()
 # ThinLTO of predator_code.dll (development build and first start; FCP_GAME_CODE_LTO=0/1 overrides at run time).
@@ -91,7 +94,7 @@ if (NOT FCP_GAME_CODE_DLL)
   target_compile_definitions(predator PRIVATE FCP_STATIC_GAME_CODE=1)
   return()
 endif ()
-if (FCP_PGO STREQUAL "generate")
+if (FCP_PGO_MODE STREQUAL "generate")
   message(FATAL_ERROR "FCP_PGO=generate needs the profile runtime in the game code; with predator_code.dll it "
                       "is not wired up. Configure with -DFCP_GAME_CODE_DLL=OFF for the training build."
   )
@@ -151,7 +154,7 @@ foreach (_lib IN LISTS _fcp_crt_libs)
   string(APPEND _fcp_settings "lib=${_lib}\n")
 endforeach ()
 string(APPEND _fcp_settings "entry=${CMAKE_SOURCE_DIR}/src/fcp/game_code/entry.cpp\nruntime=${CMAKE_SOURCE_DIR}/src/fcp/game_code/runtime.cpp\n")
-if (FCP_PGO STREQUAL "use")
+if (FCP_PGO_MODE STREQUAL "use")
   string(APPEND _fcp_settings "pgo_profile=${FCP_PGO_PROFILE}\n")
 endif ()
 if (FCP_GAME_CODE_LTO)
@@ -175,3 +178,33 @@ add_custom_command(
 )
 add_custom_target(predator_code ALL DEPENDS "${FCP_GAME_CODE_DLL_PATH}")
 add_dependencies(predator_code predator_coverage predator_code_libs)
+
+# --- staleness check of the PGO profile ------------------------------------------------------------------
+# tools/pgo_check.py runs clang's front end on the generated sources with the profile and clang's profile warnings
+# on; above FCP_PGO_CHECK_THRESHOLD percent functions without a matching profile it warns (the build goes on: a
+# stale profile is only slower). Again after a codegen or profile change. Retrain: tools\pgo.ps1.
+option(FCP_PGO_CHECK "Warn when the PGO profile does not match the generated code (tools/pgo_check.py)" ON)
+set(FCP_PGO_CHECK_THRESHOLD
+    "2"
+    CACHE STRING "Share of functions without a matching profile (percent) above which tools/pgo_check.py warns"
+)
+if (FCP_PGO_MODE STREQUAL "use" AND FCP_PGO_CHECK)
+  if (DEFINED REX_PHYSICAL_OFFSET_IN_CODE_VALUE)
+    set(_fcp_phys "${REX_PHYSICAL_OFFSET_IN_CODE_VALUE}")
+  else ()
+    set(_fcp_phys 0)
+  endif ()
+  set(_fcp_pgo_stamp "${CMAKE_BINARY_DIR}/pgo_check.txt")
+  add_custom_command(
+    OUTPUT "${_fcp_pgo_stamp}"
+    COMMAND "${FCP_PYTHON}" -I "${CMAKE_SOURCE_DIR}/tools/pgo_check.py" "${_fcp_settings_file}" --profile
+            "${FCP_PGO_PROFILE}" --march "${_fcp_code_march}" --physical-offset "${_fcp_phys}" --threshold
+            "${FCP_PGO_CHECK_THRESHOLD}" --stamp "${_fcp_pgo_stamp}"
+    DEPENDS "${_fcp_settings_file}" "${_fcp_code_gate}" "${FCP_PGO_PROFILE}" "${CMAKE_SOURCE_DIR}/tools/pgo_check.py"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "PGO profile check (tools/pgo_check.py)"
+    VERBATIM
+  )
+  add_custom_target(predator_pgo_check ALL DEPENDS "${_fcp_pgo_stamp}")
+  add_dependencies(predator_pgo_check predator_coverage)
+endif ()

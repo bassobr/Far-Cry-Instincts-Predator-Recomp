@@ -43,6 +43,11 @@ code is translated from the player's own disc image on the first start.
 - **Release package:** the Visual C++ runtime is included; every release comes with
   `Far-Cry-Instincts-Predator-Recomp-v<version>-sources.zip`, the exact sources of the LGPL/GPL components (FFmpeg,
   libmspack, the GNU binutils PowerPC disassembler), and `SHA256SUMS`.
+- **Optimised game code:** the first start compiles the game code with ThinLTO and the bundled PGO profile
+  (`compiler\pgo\predator.profdata`, the repository's `config/predator/game_code.profdata`: function names and
+  execution counters, no code or data of the game). Measured on a desktop CPU limited to 4 cores / 8 threads at
+  90 frames/s: main thread 12-14 % less time per frame, process CPU per frame 8 % less, than the same build
+  without the profile.
 
 ### Known limitations
 

@@ -141,11 +141,12 @@ function (fcp_setup_title_target target_name)
     target_link_libraries(${target_name} PRIVATE predator_recompiled)
     # PGO of the recompiled code (main-thread performance): FCP_PGO=generate writes
     # %LLVM_PROFILE_FILE% (default: default.profraw in the working folder) at exit, FCP_PGO=use reads
-    # FCP_PGO_PROFILE (llvm-profdata merge). The profile is derived from the game: out/ only, never committed.
-    if (FCP_PGO STREQUAL "generate")
+    # FCP_PGO_PROFILE (llvm-profdata merge; default config/predator/game_code.profdata, the profile in the
+    # repository: function names, structure hashes and counters, no code). FCP_PGO_MODE: CMakeLists.txt.
+    if (FCP_PGO_MODE STREQUAL "generate")
       target_compile_options(predator_recompiled PRIVATE -fprofile-instr-generate)
       target_link_options(${target_name} PRIVATE -fprofile-instr-generate)
-    elseif (FCP_PGO STREQUAL "use")
+    elseif (FCP_PGO_MODE STREQUAL "use")
       if (NOT EXISTS "${FCP_PGO_PROFILE}")
         message(FATAL_ERROR "FCP_PGO=use: FCP_PGO_PROFILE '${FCP_PGO_PROFILE}' not found")
       endif ()

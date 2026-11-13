@@ -12,7 +12,10 @@ The project is a beta candidate (version 0.1.0). It has not been released yet.
 
 - **You need your own, legally obtained copy of the game.** This project contains no part of the game: no game code,
   no game data, no shaders, no videos, no sounds, no textures. Neither this repository nor a release built from it
-  includes anything derived from the game.
+  includes anything derived from the game, with one exception: the PGO profile `config/predator/game_code.profdata`
+  (shipped as `compiler\pgo\predator.profdata`). It holds only function names of the form `sub_<address>`,
+  structure hashes and execution counts recorded in test runs: no code, no text and no other data of the game
+  ([BUILDING.md](docs/en/BUILDING.md#pgo-profile)).
 - The game code is translated from *your* disc image on *your* PC the first time you start the game, and it stays in
   your user folder. Do not share the files the first start creates (`predator_code.dll`, shader packs, caches).
 - Please do not ask for, or post, game files or links to them in this project.
@@ -145,7 +148,9 @@ cmd /c build.cmd release
 
 `build.cmd` configures the `release` preset (also `relwithdebinfo`, `debug`), translates `default.xex` from the
 image to `generated\default`, builds `predator.exe` (without game code) and then `predator_code.dll` the same way the
-first start does. Output: `out\build\release\bin\`. The development build puts a `portable.txt` next to the EXE, so
+first start does, optimised with the PGO profile `config/predator/game_code.profdata` (retrain it with
+`tools\pgo.ps1` when the build warns that it is out of date; [BUILDING.md](docs/en/BUILDING.md#pgo-profile)).
+Output: `out\build\release\bin\`. The development build puts a `portable.txt` next to the EXE, so
 settings, saves and caches stay under `bin\`.
 
 Shader pack for the development build (the release builds it on the first start):
@@ -333,6 +338,17 @@ scripts (adding it to Steam as a non-Steam game has not been tried yet):
 - The first visit of a level can stutter once (130-450 ms) while the graphics pipelines are created.
 
 Higher frame rates on the Deck are work in progress.
+
+## ROG Xbox Ally X
+
+Tested on a ROG Xbox Ally X (Ryzen AI Z2 Extreme, Windows 11, 1920x1080 at 120 Hz, on mains power):
+
+- The first start takes about 2.5 minutes; later starts load a level in about 4 seconds.
+- The device is detected and defaults to 120 frames/s in a borderless fullscreen window.
+- At a 120 frames/s target all tested levels run at 118-120 frames/s (Vulkan and Direct3D 12); at 60 they hold 60.
+  Uncapped, Vulkan reaches 147-169 frames/s; Direct3D 12 stays at 120 in borderless mode.
+- Battery operation and the handheld's power profiles have not been measured yet. The older ROG Ally / Ally X
+  (Z1 Extreme) is recognised by name but keeps the desktop defaults until it has been measured.
 
 ## Architecture
 

@@ -76,17 +76,49 @@ set(FCP_MARCH
 if (FCP_MARCH)
   add_compile_options(-march=${FCP_MARCH} -ffp-contract=off)
 endif ()
+# PGO of the recompiled code. The profile is part of the repository (config/predator/game_code.profdata, trained by
+# tools\pgo.ps1: function names, structure hashes and execution counters, no code) and is used by default:
+#   auto (or empty)  use FCP_PGO_PROFILE when the file exists, else no PGO
+#   use              FCP_PGO_PROFILE must exist
+#   generate         instrumented training build (tools\pgo_train_build.cmd, needs -DFCP_GAME_CODE_DLL=OFF)
+#   OFF              no PGO (the way back)
 set(FCP_PGO
-    ""
-    CACHE STRING "PGO of the recompiled code: empty, generate or use (cmake/fcp_codegen.cmake)"
+    "auto"
+    CACHE STRING "PGO of the recompiled code: auto (default), use, generate or OFF"
 )
 # ThinLTO of predator_code.dll: measured with the PGO profile -11 to -14 % main thread per frame (21_dunea, 00_training,
 # 8 threads), first start on 8 threads 78 -> 94 s. OFF = the former build.
 option(FCP_GAME_CODE_LTO "ThinLTO of predator_code.dll (development build and the player's first start)" ON)
+set(FCP_PGO_REPO_PROFILE "${CMAKE_SOURCE_DIR}/config/predator/game_code.profdata")
 set(FCP_PGO_PROFILE
-    "${CMAKE_SOURCE_DIR}/out/pgo/predator.profdata"
-    CACHE FILEPATH "Merged profile for FCP_PGO=use"
+    "${FCP_PGO_REPO_PROFILE}"
+    CACHE FILEPATH "Merged profile for FCP_PGO=auto/use (default: the profile in the repository)"
 )
+# Build folders configured before the profile was in the repository have the former default under out/pgo.
+if (FCP_PGO_PROFILE STREQUAL "${CMAKE_SOURCE_DIR}/out/pgo/predator.profdata")
+  set_property(CACHE FCP_PGO_PROFILE PROPERTY VALUE "${FCP_PGO_REPO_PROFILE}")
+endif ()
+string(TOLOWER "${FCP_PGO}" _fcp_pgo)
+if (_fcp_pgo STREQUAL "" OR _fcp_pgo STREQUAL "auto")
+  if (EXISTS "${FCP_PGO_PROFILE}")
+    set(FCP_PGO_MODE "use")
+  else ()
+    set(FCP_PGO_MODE "")
+  endif ()
+elseif (_fcp_pgo STREQUAL "use" OR _fcp_pgo STREQUAL "generate")
+  set(FCP_PGO_MODE "${_fcp_pgo}")
+elseif (_fcp_pgo MATCHES "^(off|no|false|0|none)$")
+  set(FCP_PGO_MODE "")
+else ()
+  message(FATAL_ERROR "FCP_PGO='${FCP_PGO}': use auto, use, generate or OFF")
+endif ()
+# for tools\dist.ps1 (which profile the release ships)
+set(FCP_PGO_EFFECTIVE "${FCP_PGO_MODE}" CACHE INTERNAL "FCP_PGO after auto: use, generate or empty")
+if (FCP_PGO_MODE STREQUAL "use")
+  message(STATUS "fcp: PGO profile ${FCP_PGO_PROFILE}")
+else ()
+  message(STATUS "fcp: PGO mode '${FCP_PGO_MODE}' (no profile used)")
+endif ()
 
 if (NOT EXISTS "${FCP_DEPS_DIR}/sdl3/CMakeLists.txt")
   message(FATAL_ERROR "SDK dependencies missing in ${FCP_DEPS_DIR}. Run "

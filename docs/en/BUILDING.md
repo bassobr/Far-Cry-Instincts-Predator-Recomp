@@ -67,7 +67,11 @@ CMake options (`-D<name>=<value>` on a configure):
 |---|---|---|
 | `FCP_GAME_CODE_DLL` | `ON` | `OFF` links the game code into `predator.exe` (the earlier layout, no first-start build) |
 | `FCP_MARCH` | `x86-64-v3` | host ISA level of all code (AVX2); `x86-64-v2` or empty goes back to the preset's level |
-| `FCP_PGO` | empty | profile-guided optimisation of the game code: `generate` or `use` (`tools\pgo.ps1`; the profile stays under `out\pgo`) |
+| `FCP_PGO` | `auto` | profile-guided optimisation of the game code: `auto` uses `FCP_PGO_PROFILE` when it exists, `use` requires it, `OFF` builds without, `generate` is the instrumented training build (see [PGO profile](#pgo-profile)) |
+| `FCP_PGO_PROFILE` | `config/predator/game_code.profdata` | the profile for `auto`/`use` |
+| `FCP_PGO_CHECK` | `ON` | warn when the profile does not match the generated code (`tools/pgo_check.py`) |
+| `FCP_PGO_CHECK_THRESHOLD` | `2` | percentage of functions without a matching profile above which the check warns |
+| `FCP_GAME_CODE_LTO` | `ON` | ThinLTO of `predator_code.dll` (development build and the first start) |
 | `FCP_SEMTEST` | `ON` | build and run the semantic test as part of the default build |
 | `FCP_COVERAGE_CHECK` | `ON` | entry point check after the codegen |
 | `FCP_RENDERER` | `ON` | build the native renderer |
@@ -102,8 +106,38 @@ libraries, never on the codegen) and runs `tools\dist.ps1`. Result in `out\dist\
 
 `dist.ps1` refuses anything that comes from the game: `predator_code.*`, generated code, objects, PDBs, `.xex`/
 `.iso`, shader packs, caches, saves, logs, `portable.txt`, settings files and any EXE/DLL with a `rexguest`
-section. `-NoVcRuntime` leaves out the Visual C++ runtime DLLs. The release workflow `.github/workflows/release.yml`
+section. The one derived file it ships is the PGO profile, and only when its SHA-256 matches the one `predator.exe`
+was built with and the repository's (`-AnyProfile` allows another profile for local tests; a build with
+`FCP_PGO=OFF` ships none). `-NoVcRuntime` leaves out the Visual C++ runtime DLLs. The release workflow `.github/workflows/release.yml`
 runs the same steps on a tag, without a disc image; the checklist is [RELEASING.md](RELEASING.md).
+
+## PGO profile
+
+The game code (`predator_code.dll`) is optimised with a profile (clang PGO) together with ThinLTO. The profile is
+part of the repository: `config/predator/game_code.profdata`. Every build uses it by default (`FCP_PGO=auto`), and
+the release ships it as `compiler\pgo\predator.profdata` for the first start; `predator.exe` only takes a profile
+with the SHA-256 it was built with (otherwise the first start builds without one and says so in the log).
+
+What it contains: an indexed LLVM profile with the names of the instrumented functions (`__imp__sub_<address>`,
+the names of the title configuration such as `D3DDevice_*`, and a few registration functions), a structure hash
+per function and execution counters. No code, no text and no other data of the game, and no value profiles
+(`llvm-profdata show --all-functions` lists it all).
+
+When to retrain: after a change to the code generator, the title configuration (`config/predator/*.toml`), the
+hooks, the compile flags of the game code or the LLVM version. A stale profile is never wrong: functions whose
+structure changed are compiled as without a profile, only slower. The build checks this (`tools/pgo_check.py`, CMake
+target `predator_pgo_check`, about 10 s): it runs clang's front end on the generated sources and counts the guest
+functions without profile data; above `FCP_PGO_CHECK_THRESHOLD` (2 %) it prints
+`pgo_check: WARNING: the PGO profile is out of date ...`. The result is also in `out\build\<config>\pgo_check.txt`.
+
+```bat
+powershell -File tools\pgo.ps1          rem in a worktree: -BuildCmd tools\boot\wt_build.cmd
+```
+
+`tools\pgo.ps1` builds an instrumented training build (`out\build\pgo-train`, the game code linked into the EXE),
+plays 8 scripted runs (on foot, boats, a vehicle, swimming; about 8 minutes, needs the disc image), merges the
+counters into `config/predator/game_code.profdata` and builds again with it. Commit the new profile. Without a
+profile: `-DFCP_PGO=OFF` (or `tools\pgo.ps1 -Off`); on the first start `FCP_GAME_CODE_PGO=0`.
 
 ## Tests
 
