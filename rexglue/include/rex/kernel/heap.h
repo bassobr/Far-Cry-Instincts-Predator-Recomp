@@ -578,6 +578,18 @@ class REX_KERNEL_API PhysicalHeap : public BaseHeap {
   std::vector<SystemPageFlagsBlock> system_page_flags_;
 };
 
+/** FCP: change 250 (UPSTREAM.md). Write-watch faults the address space resolved on one host thread. */
+struct WatchFaultCount {
+  u32 thread_id;  /**< OS thread ID */
+  u64 faults;     /**< resolved write-watch faults since the start */
+};
+
+/**
+ * Copies the write-watch fault counts of up to capacity host threads (diagnostics; counts are read
+ * without synchronization and may lag). Returns the number of entries written.
+ */
+REX_KERNEL_API u32 CopyWatchFaultCounts(WatchFaultCount* out, u32 capacity);
+
 enum class AccessViolationResult : u8 {
   /** The write watch resolved the fault, so the access runs again. */
   kResumed,

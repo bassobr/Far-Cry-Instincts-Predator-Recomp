@@ -16,6 +16,7 @@
 #include <tlhelp32.h>
 
 #include <rex/app/app.h>
+#include <rex/kernel/heap.h>
 #include <rex/kernel/object/kernel_thread.h>
 #include <rex/kernel/thread_registry.h>
 #include <rex/kernel/title_runtime.h>
@@ -72,6 +73,21 @@ ProcessTimes g_p0, g_level_p0;
 uint64_t g_frame0 = 0, g_level_frame0 = 0;
 bool g_level_seen = false;
 
+// Write-watch faults of the SDK per thread in the window (rexglue change 250): each is an access violation and
+// a protection change (under Wine a signal). Own line, so the per-thread CPU lines keep their format.
+void WatchFaults(uint64_t frames, std::unordered_map<uint32_t, uint64_t>& prev) {
+  rex::kernel::WatchFaultCount counts[64];
+  const uint32_t n = rex::kernel::CopyWatchFaultCounts(counts, 64);
+  std::string line;
+  for (uint32_t i = 0; i < n; ++i) {
+    uint64_t& last = prev[counts[i].thread_id];
+    const uint64_t d = counts[i].faults - last;
+    last = counts[i].faults;
+    if (d && frames) line += std::format(" [{}] {} ({:.1f}/frame)", counts[i].thread_id, d, double(d) / double(frames));
+  }
+  if (!line.empty()) FCPLOG("cpu: write-watch faults{}", line);
+}
+
 void Loop(double window_s) {
   SetThreadDescription(GetCurrentThread(), L"fcp cpu stats");
   const DWORD pid = GetCurrentProcessId();
@@ -80,6 +96,8 @@ void Loop(double window_s) {
   Clock::time_point window_start = Clock::now();
   ProcessTimes p_start = ReadProcess();
   uint64_t frame_start = fcp::gametime::Frame();
+  std::unordered_map<uint32_t, uint64_t> ww_prev;
+  WatchFaults(0, ww_prev);
 
   auto scan = [&](bool report, double wall) {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -165,6 +183,7 @@ void Loop(double window_s) {
            wall, 100.0 * (du + dk) / wall, 100.0 * du / wall, 100.0 * dk / wall, frames, frames / wall,
            fcp::gametime::InLevel() ? fcp::gametime::LevelName() : std::string("-"), fcp::gametime::LevelSeconds());
     scan(true, wall);
+    WatchFaults(frames, ww_prev);
     window_start = now;
     p_start = p;
     frame_start = fcp::gametime::Frame();

@@ -206,6 +206,36 @@ void Message(const std::wstring& text) {
   if (!fcp::env::Flag("FCP_NO_DIALOGS")) MessageBoxW(nullptr, text.c_str(), kTitle, MB_ICONERROR);
 }
 
+// PGO profile for the first start: compiler\pgo\predator.profdata, shipped when the release was built with
+// FCP_PGO=use, and only with the SHA-256 this executable was built with (a profile only changes optimization
+// decisions; without it the DLL is the same code, just not profile-guided). FCP_GAME_CODE_PGO=0 builds without.
+fs::path PgoProfile(const fs::path& compiler) {
+#ifdef FCP_GAME_CODE_PGO_SHA256
+  if (!fcp::env::Flag("FCP_GAME_CODE_PGO", true)) {
+    FCPLOG("game code: PGO profile off (FCP_GAME_CODE_PGO=0)");
+    return {};
+  }
+  const fs::path profile = compiler / "pgo" / "predator.profdata";
+  std::ifstream in(profile, std::ios::binary);
+  if (!in) {
+    FCPLOG("game code: no PGO profile {} (built without)", U8(profile));
+    return {};
+  }
+  const std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  if (const std::string sha = fcp::hash::Sha256(data.data(), data.size());
+      _stricmp(sha.c_str(), FCP_GAME_CODE_PGO_SHA256) != 0) {
+    FCPLOG("game code: PGO profile {} has SHA-256 {}, expected {} (built without)", U8(profile), sha,
+           FCP_GAME_CODE_PGO_SHA256);
+    return {};
+  }
+  FCPLOG("game code: PGO profile {} ({} KB)", U8(profile), data.size() / 1024);
+  return profile;
+#else
+  (void)compiler;
+  return {};
+#endif
+}
+
 // The whole first start: default.xex from the disc image, codegen, compile, link. True when the DLL was built.
 bool BuildFromDisc(const fs::path& image, const fs::path& dll) {
   const fs::path compiler = ExeFolder() / "compiler";
@@ -262,7 +292,9 @@ bool BuildFromDisc(const fs::path& image, const fs::path& dll) {
         job.log = log;
         job.origin = "first-start";
         job.image_sha256 = FCP_DISC_XEX_SHA256;
-        ok = game_code_build::CompileAndLink(tools, job, run, stats, why);
+        job.pgo_profile = PgoProfile(compiler);
+        job.lto = fcp::env::Flag("FCP_GAME_CODE_LTO", FCP_GAME_CODE_LTO_DEFAULT != 0);
+        ok =game_code_build::CompileAndLink(tools, job, run, stats, why);
       }
     }
   }

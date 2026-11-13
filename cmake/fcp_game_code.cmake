@@ -53,6 +53,17 @@ endif ()
 target_compile_definitions(
   predator PRIVATE REX_TITLE_HOOK_EXPORTS FCP_GAME_CODE_MARCH="${_fcp_code_march}"
 )
+# FCP_PGO=use: the first start compiles with the same profile, shipped as compiler\pgo\predator.profdata
+# (tools\dist.ps1); predator.exe only takes a file with this SHA-256 (src/fcp/game_code.cpp).
+if (FCP_PGO STREQUAL "use" AND EXISTS "${FCP_PGO_PROFILE}")
+  target_compile_definitions(predator PRIVATE FCP_GAME_CODE_PGO_SHA256="${_fcp_pgo_hash}")
+endif ()
+# ThinLTO of predator_code.dll (development build and first start; FCP_GAME_CODE_LTO=0/1 overrides at run time).
+if (FCP_GAME_CODE_LTO)
+  target_compile_definitions(predator PRIVATE FCP_GAME_CODE_LTO_DEFAULT=1)
+else ()
+  target_compile_definitions(predator PRIVATE FCP_GAME_CODE_LTO_DEFAULT=0)
+endif ()
 set(FCP_LZMA_DIR
     "${CMAKE_SOURCE_DIR}/third_party/lzma-sdk"
     CACHE PATH "LZMA SDK decoder (tools/get_lzma.ps1), for the shader pack of the first start"
@@ -142,6 +153,9 @@ endforeach ()
 string(APPEND _fcp_settings "entry=${CMAKE_SOURCE_DIR}/src/fcp/game_code/entry.cpp\nruntime=${CMAKE_SOURCE_DIR}/src/fcp/game_code/runtime.cpp\n")
 if (FCP_PGO STREQUAL "use")
   string(APPEND _fcp_settings "pgo_profile=${FCP_PGO_PROFILE}\n")
+endif ()
+if (FCP_GAME_CODE_LTO)
+  string(APPEND _fcp_settings "lto=thin\n")
 endif ()
 set(_fcp_settings_file "${CMAKE_BINARY_DIR}/game_code_build.txt")
 file(GENERATE OUTPUT "${_fcp_settings_file}" CONTENT "${_fcp_settings}")

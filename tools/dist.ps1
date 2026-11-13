@@ -61,6 +61,17 @@ $files["compiler\include\fcp\game_code_abi.h"] = Join-Path $root "src\fcp\game_c
 $files["compiler\config\default.toml"] = Join-Path $root "config\predator\default.toml"
 $files["compiler\config\disc.toml"] = Join-Path $root "config\predator\disc.toml"
 $files["compiler\config\d3d_names.toml"] = Join-Path $root "generated\d3d_names.toml"  # only from d3d_symbols.toml
+# PGO profile of the game code (only when the build uses one, FCP_PGO=use): predator.exe takes it on the first
+# start when its SHA-256 matches (src/fcp/game_code.cpp). An indexed LLVM profile holds function names
+# (sub_<address>), structure hashes and execution counters, no code; checked below by its header.
+$pgoProfile = ""
+$cacheFile = Join-Path $Build "CMakeCache.txt"
+if ((Test-Path $cacheFile) -and (Select-String $cacheFile -Pattern '^FCP_PGO:STRING=use$' -Quiet)) {
+    $m = Select-String $cacheFile -Pattern '^FCP_PGO_PROFILE:FILEPATH=(.+)$'
+    if (-not $m) { throw "FCP_PGO=use without FCP_PGO_PROFILE in $cacheFile" }
+    $pgoProfile = $m.Matches[0].Groups[1].Value
+    $files["compiler\pgo\predator.profdata"] = $pgoProfile
+}
 # Headers: SDK (BSD-3, with rex\guest_std), SIMDe (MIT), clang's own headers (Apache-2.0 WITH LLVM-exception)
 foreach ($h in Get-ChildItem (Join-Path $root "rexglue\include") -Recurse -File) {
     $rel = $h.FullName.Substring((Join-Path $root "rexglue\include").Length + 1)
@@ -146,6 +157,14 @@ foreach ($item in Get-ChildItem -LiteralPath $stage -Recurse -Force) {
     if ($item.PSIsContainer) {
         if ($n -match '^(game_code|generated|gen|work|obj|cache|user|logs|shaders|pack|default)$' -and
             $rel -notmatch '^compiler\\(include|lib)\\') { $problems += "$rel (folder)" }
+        continue
+    }
+    if ($rel -eq "compiler\pgo\predator.profdata" -and $pgoProfile) {
+        # the one allowed profile: indexed LLVM profile (magic 0xFF 'lprofi' 0x81), nothing else under this name
+        $head = [byte[]]::new(8)
+        $fs = [IO.File]::OpenRead($item.FullName); [void]$fs.Read($head, 0, 8); $fs.Close()
+        $magic = [byte[]](0xFF, 0x6C, 0x70, 0x72, 0x6F, 0x66, 0x69, 0x81)  # u64 0x8169666F72706CFF, little-endian
+        if ((Compare-Object $head $magic -SyncWindow 0)) { $problems += "$rel (not an indexed LLVM profile)" }
         continue
     }
     if ($n -match '\.(xex|iso|xiso|bin|fat|dat|pdb|obj|o|ilk|exp|profraw|profdata|fcpack|spv|dxil|pipeline|log|prev|tmp)$') { $problems += $rel }

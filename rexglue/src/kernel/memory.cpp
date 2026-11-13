@@ -98,6 +98,32 @@ class PendingScribble : public NonCopyable {
   std::array<std::pair<u8*, u32>, 2> ranges_{};
 };
 std::atomic<u32> g_recovered_protect_count{0};
+
+// FCP: change 250 (UPSTREAM.md). Write-watch faults resolved per host thread, for the diagnostics of the
+// title (CopyWatchFaultCounts). Each such fault is an access violation plus a protection change; under
+// Wine that is a signal, so their rate per frame tells how much of a thread's time goes there.
+constexpr u32 kWatchFaultSlots = 64;
+struct WatchFaultSlot {
+  std::atomic<u32> thread_id{0};
+  std::atomic<u64> faults{0};
+};
+WatchFaultSlot g_watch_fault_slots[kWatchFaultSlots];
+std::atomic<u32> g_watch_fault_slots_used{0};
+thread_local WatchFaultSlot* t_watch_fault_slot = nullptr;
+
+void CountWatchFault() {
+  WatchFaultSlot* slot = t_watch_fault_slot;
+  if (!slot) {
+    const u32 index = g_watch_fault_slots_used.fetch_add(1, std::memory_order_relaxed);
+    if (index >= kWatchFaultSlots) {
+      return;  // more faulting threads than slots: the rest is not counted
+    }
+    slot = &g_watch_fault_slots[index];
+    slot->thread_id.store(rex::platform::GetCallerSystemThreadID(), std::memory_order_relaxed);
+    t_watch_fault_slot = slot;
+  }
+  slot->faults.store(slot->faults.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+}
 std::atomic<u32> g_recovered_protect_address{0};
 
 u32 DescribeCrashAddress(u64 host_address, std::span<char> out) {
@@ -179,6 +205,18 @@ void StorePageEntry(PageEntry& slot, PageEntry entry) {
 }
 
 }  // namespace
+
+u32 CopyWatchFaultCounts(WatchFaultCount* out, u32 capacity) {
+  const u32 used = std::min(g_watch_fault_slots_used.load(std::memory_order_relaxed), kWatchFaultSlots);
+  u32 n = 0;
+  for (u32 i = 0; i < used && n < capacity; ++i) {
+    const u32 id = g_watch_fault_slots[i].thread_id.load(std::memory_order_relaxed);
+    if (id != 0) {
+      out[n++] = {id, g_watch_fault_slots[i].faults.load(std::memory_order_relaxed)};
+    }
+  }
+  return n;
+}
 
 GuestAddressSpace::GuestAddressSpace() {
   system_page_size_ = static_cast<u32>(rex::memory::GetPageSize());
@@ -597,6 +635,7 @@ bool GuestAddressSpace::AccessViolationCallback(void* host_address, bool is_writ
   // A length of 1 never crosses a page boundary.
   auto physical_heap = static_cast<PhysicalHeap*>(heap);
   if (physical_heap->TriggerCallbacksLocked(virtual_address, 1, is_write, false)) {
+    CountWatchFault();  // FCP: change 250
     return true;
   }
   lock.unlock();

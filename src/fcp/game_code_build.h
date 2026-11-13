@@ -58,6 +58,7 @@ struct Job {
   std::string origin;    // "build" or "first-start"
   std::string image_sha256;
   fs::path pgo_profile;  // FCP_PGO=use: merged profile (empty = none)
+  bool lto = false;      // ThinLTO across the generated files (FCP_GAME_CODE_LTO): code generation in the link
   // "semtest": the test functions of predator_semtest (every .cpp in gen) into a DLL that exports the table
   // fcp_sem_funcs, with the flags of the game code; no predator.exe, no entry table (cmake/fcp_semtest.cmake).
   std::string kind = "game";

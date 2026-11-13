@@ -264,6 +264,22 @@ Every local change carries a comment starting with `FCP` at the changed place.
     become exports that predator_code.dll links from the executable's import library. Without the define nothing
     changes.
 
+250. **Write-watch fault counter per host thread** (`src/kernel/memory.cpp`, `include/rex/kernel/heap.h`
+    `CopyWatchFaultCounts`): every write-watch fault the address space resolves (`AccessViolationCallback`, the
+    physical heap's callbacks fired) counts on its host thread (64 slots, single writer per slot, relaxed). The
+    title reads the counts for its diagnostics (`FCP_CPU_STATS`: line `cpu: write-watch faults`). Under Wine each
+    such fault is a signal plus a protection change, so the rate tells whether a thread loses time there.
+    Measured on the PC (`21_dunea`, 120 frames/s): only the render thread faults, 0.6-0.7 per frame; the main
+    thread none. Counting only, no behaviour change.
+
+251. **`select` on a closed socket sleeps the requested timeout** (`src/xam/xam_net.cpp` `NetDll_select_entry`,
+    extends change 81): after the idle polls a `select` with a positive timeout on a closed socket now sleeps the
+    requested timeout (like a `select` that found nothing), at most `FCP_NET_CLOSED_WAIT_MS` (default 16), before
+    it returns `WSAENOTSOCK`; before it slept at most `FCP_NET_IDLE_WAIT_MS` (1 ms). Under Wine/Proton `bind` on
+    UDP 1000 fails (ports below 1024), so Predator's network thread (0x8239AF78) selects with a timeout (image 0x823A1158: object +0xC ms x 1000; ~10 ms, PC 93 calls/s) on
+    its closed system-link socket for the whole session: measured on the Steam Deck 885 `select` calls/s and
+    13.6 % of a core. Measured on the PC with UDP 1000 held by another process (`21_dunea`, 40 s): 38,822 -> 4,026 `select` calls. Zero or missing timeouts keep change 81. `FCP_NET_CLOSED_WAIT_MS=0` restores change 81.
+
 260. **Developer overlays only on request** (`src/ui/ui_system.cpp`): the SDK's standard overlays (debug F3, console
     backtick, settings F4, achievements F7) are registered only with `FCP_DEV_OVERLAYS=1`; otherwise the log says
     they are off. Player builds can no longer open them by accident (decision of the maintainer, 2026-11-13). The

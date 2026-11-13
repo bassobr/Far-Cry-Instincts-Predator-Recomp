@@ -80,6 +80,9 @@ set(FCP_PGO
     ""
     CACHE STRING "PGO of the recompiled code: empty, generate or use (cmake/fcp_codegen.cmake)"
 )
+# ThinLTO of predator_code.dll: measured with the PGO profile -11 to -14 % main thread per frame (21_dunea, 00_training,
+# 8 threads), first start on 8 threads 78 -> 94 s. OFF = the former build.
+option(FCP_GAME_CODE_LTO "ThinLTO of predator_code.dll (development build and the player's first start)" ON)
 set(FCP_PGO_PROFILE
     "${CMAKE_SOURCE_DIR}/out/pgo/predator.profdata"
     CACHE FILEPATH "Merged profile for FCP_PGO=use"

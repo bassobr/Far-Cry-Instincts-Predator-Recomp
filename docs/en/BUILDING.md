@@ -26,7 +26,7 @@ toolchain\venv\Scripts\python.exe -m pip install pycryptodome capstone
 Every dependency is pinned to a commit or a release archive with a checksum; nothing is installed system wide and
 no Git configuration is changed. The renderer dependencies are King Kong Recompiled (for its renderer parts and
 NVRHI), Vulkan-Headers, fmt, xxHash and a DXC release; no Vulkan SDK is needed. `tools\get_deps.ps1 -Optional` also fetches glslang and Catch2 (only for the SDK's
-Xenos drivers and unit tests). The LZMA SDK decoder is fetched by `build.cmd` on first use (`tools\get_lzma.ps1`).
+Xenos drivers and unit tests). The LZMA SDK decoder is fetched by `build.cmd` and `tools\dist.cmd` on first use (`tools\get_lzma.ps1`).
 
 ## Build
 
@@ -91,7 +91,8 @@ The pack lands in `out\build\<config>\bin\shaders\predator.<spirv|dxil>.fcpack`;
 cmd /c tools\dist.cmd release
 ```
 
-This builds the CMake target `dist` (it depends only on `predator`, the shader tool, `rexglue.exe` and the import
+This needs no disc image and no game code build: in a fresh clone, the one-time setup above followed by this
+command is enough (the configure step only warns that `FCP_GAME_ISO` is missing). It builds the CMake target `dist` (it depends only on `predator`, the shader tool, `rexglue.exe` and the import
 libraries, never on the codegen) and runs `tools\dist.ps1`. Result in `out\dist\`:
 
 - `Far-Cry-Instincts-Predator-Recomp-v<version>-win64\` and its zip,
@@ -101,8 +102,8 @@ libraries, never on the codegen) and runs `tools\dist.ps1`. Result in `out\dist\
 
 `dist.ps1` refuses anything that comes from the game: `predator_code.*`, generated code, objects, PDBs, `.xex`/
 `.iso`, shader packs, caches, saves, logs, `portable.txt`, settings files and any EXE/DLL with a `rexguest`
-section. `-NoVcRuntime` leaves out the Visual C++ runtime DLLs. A CI workflow draft is in
-`.github/workflows/release.yml`; it builds only `dist`, without a disc image.
+section. `-NoVcRuntime` leaves out the Visual C++ runtime DLLs. The release workflow `.github/workflows/release.yml`
+runs the same steps on a tag, without a disc image; the checklist is [RELEASING.md](RELEASING.md).
 
 ## Tests
 

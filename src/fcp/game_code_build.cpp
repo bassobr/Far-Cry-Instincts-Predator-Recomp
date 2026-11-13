@@ -87,6 +87,9 @@ std::wstring CompileCommand(const Toolset& t, const Job& job, const fs::path& sr
     c += L" \"-fprofile-instr-use=" + job.pgo_profile.wstring() +
          L"\" -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date -Wno-profile-instr-missing";
   }
+  // ThinLTO: the objects are bitcode, the link optimizes across files (calls between guest functions of
+  // different files can be inlined) and generates the code in parallel.
+  if (job.lto) c += L" -flto=thin";
   for (const fs::path& inc : t.system_includes) c += L" -isystem " + Quote(inc);
   c += L" -I" + Quote(job.gen) + L" -I" + Quote(job.work);
   for (const fs::path& inc : t.includes) c += L" -I" + Quote(inc);
@@ -399,6 +402,12 @@ bool CompileAndLink(const Toolset& t, const Job& job, build::Processes& run, Sta
   // /opt:ref,icf as the former static build (lld's default without /debug); /debug for the profiler and crash
   // stacks (the PDB stays in the user folder like the DLL).
   rsp += L"/debug /opt:ref /opt:icf\n";
+  if (job.lto) {
+    // Code generation runs here, as many jobs as the compile used (CPU and memory bound, FCP_GAME_CODE_CPUS).
+    // _fltused (runtime.cpp) is only referenced by the code generation itself, after LTO dropped unused symbols.
+    rsp += std::format(L"/opt:lldltojobs={}\n/include:_fltused\n", Slots(sources.size()));
+    rsp += L"/lldltocache:" + Quote(job.work / "lto-cache") + L"\n";
+  }
   rsp += L"/pdb:" + Quote(fs::path(job.dll).replace_extension(".pdb")) + L"\n";
   rsp += L"/out:" + Quote(job.dll) + L"\n/def:" + Quote(dll_def_path) + L"\n/implib:" +
          Quote(job.work / (job.dll.stem().wstring() + L".lib")) + L"\n";
@@ -482,6 +491,7 @@ bool RunCommand(int& exit_code) {
     else if (key == "origin") job.origin = line.substr(eq + 1);
     else if (key == "image_sha256") job.image_sha256 = line.substr(eq + 1);
     else if (key == "pgo_profile") job.pgo_profile = value;
+    else if (key == "lto") job.lto = line.substr(eq + 1) == "thin";
     else if (key == "clang") t.clang = value;
     else if (key == "lld_link") t.lld_link = value;
     else if (key == "include") t.includes.push_back(value);

@@ -1031,6 +1031,16 @@ std::chrono::milliseconds FcpSelectIdleWait() {
   return value;
 }
 
+// FCP: change 251 (UPSTREAM.md). A select with a timeout on a closed socket sleeps, after the idle polls, the
+// requested timeout like a select that found nothing, at most FCP_NET_CLOSED_WAIT_MS (default 16; 0 = at most
+// the idle wait, as change 81). Under Wine a bind below port 1024 fails (Steam Deck), so Predator's network
+// thread selects (10 ms timeout) on its closed system-link socket for the whole session.
+std::chrono::milliseconds FcpSelectClosedWait() {
+  static const std::chrono::milliseconds value{std::strtoul(
+      rex::platform::GetEnvironmentValue("FCP_NET_CLOSED_WAIT_MS").value_or("16").c_str(), nullptr, 10)};
+  return value.count() > 0 ? value : FcpSelectIdleWait();
+}
+
 u32 FcpSelectIdlePolls() {
   static const u32 value = static_cast<u32>(
       std::strtoul(rex::platform::GetEnvironmentValue("FCP_NET_IDLE_POLLS").value_or("64").c_str(), nullptr, 10));
@@ -1055,8 +1065,9 @@ i32 NetDll_select_entry([[maybe_unused]] i32 caller, [[maybe_unused]] i32 nfds,
         i32 sec = static_cast<i32>(timeout_ptr.AsArray<i32>()[0]);
         i32 usec = static_cast<i32>(timeout_ptr.AsArray<i32>()[1]);
         const auto requested = std::chrono::seconds(sec) + std::chrono::microseconds(usec);
-        if (requested.count() > 0 && requested < sleep) {
-          sleep = std::chrono::ceil<std::chrono::milliseconds>(requested);
+        if (requested.count() > 0) {
+          // FCP: change 251. The requested timeout, at most FcpSelectClosedWait().
+          sleep = std::min(std::chrono::ceil<std::chrono::milliseconds>(requested), FcpSelectClosedWait());
         }
       }
       ++fcp_select_idle_waits;

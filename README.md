@@ -134,7 +134,7 @@ toolchain\venv\Scripts\python.exe -m pip install pycryptodome capstone
 ```
 
 All dependencies are pinned to fixed commits or release archives; nothing is installed system-wide. The LZMA SDK
-decoder is fetched by `build.cmd` on first use (`tools\get_lzma.ps1`).
+decoder is fetched by `build.cmd` and `tools\dist.cmd` on first use (`tools\get_lzma.ps1`).
 
 Build:
 
@@ -154,7 +154,7 @@ Shader pack for the development build (the release builds it on the first start)
 cmd /c tools\renderer_pack.cmd release spirv       rem or dxil for Direct3D 12
 ```
 
-Release folder and zip (no game data; refuses anything that comes from the game):
+Release folder and zip (no game data; refuses anything that comes from the game). This needs no disc image: after the\none-time setup, it works in a fresh clone without `FCP_GAME_ISO`.
 
 ```bat
 cmd /c tools\dist.cmd release
@@ -163,9 +163,9 @@ cmd /c tools\dist.cmd release
 The result is `out\dist\Far-Cry-Instincts-Predator-Recomp-v<version>-win64\` with a zip, the source archive
 `Far-Cry-Instincts-Predator-Recomp-v<version>-sources.zip` (exact sources of the LGPL/GPL components FFmpeg, libmspack
 and the binutils disassembler, with license texts and build notes) and `SHA256SUMS` next to it.
-`tools\dist.ps1 -NoVcRuntime` leaves out the Visual C++ runtime DLLs. A CI workflow draft is in
-`.github/workflows/release.yml`; it builds only the `dist` target. A build in a fresh folder without a disc image has
-not been tested yet.
+`tools\dist.ps1 -NoVcRuntime` leaves out the Visual C++ runtime DLLs. The release workflow
+`.github/workflows/release.yml` runs the same steps on a tag (only the `dist` target, no disc image); the release
+checklist is [docs/en/RELEASING.md](docs/en/RELEASING.md), the changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Running
 
@@ -307,8 +307,8 @@ correction can be switched off for comparison (column "Original"). Causes, more 
 Measured without a dependency on the frame rate: walking speed, jump height, breath under water, the mounted machine
 gun's fire rate, video playback, menu key repeat, game time against wall time.
 
-**At most 120 frames/s.** The frame rate setting accepts only 30, 60 and 120; the game logic is not checked above
-120.
+**At most 120 frames/s.** The frame rate setting accepts 30, 60, 90 and 120; the game logic was measured at 30, 60
+and 120 and is not checked above 120. The corrections above apply to every rate above 30.
 
 **Still open** (measured, not corrected):
 - Computer-controlled characters think every fourth frame (7.5 times per second at 30, 30 times at 120). In
@@ -321,9 +321,18 @@ gun's fire rate, video playback, menu key repeat, game time against wall time.
 
 ## Steam Deck
 
-**Not yet tested.** The port is meant to run under Proton, and the user folder should then be in the Proton prefix's
-`AppData\Local`, but neither has been checked on a Steam Deck or another handheld. A test on a simulated 4-core /
-8-thread CPU reached 84-90 frames/s at a 90 frames/s target on the PC; this says nothing about the Steam Deck's GPU.
+Tested on a Steam Deck OLED (SteamOS 3.9, Proton 10.0), started with Proton from a folder in Game Mode by test
+scripts (adding it to Steam as a non-Steam game has not been tried yet):
+
+- The first start (building the game code and the shader packs on the Deck) takes about 7-8 minutes; later starts
+  load a level in about 10 seconds. The user folder is in the Proton prefix's `AppData\Local`.
+- The built-in controls are detected through SDL3. The Deck is detected and defaults to 30 frames/s.
+- Measured frame rates (build without the profile-guided optimisation described in BUILDING): at a 30 frames/s target
+  30.0 in all tested levels; at 60, 56-60 depending on the level; at 90, 58-75. The limit is the CPU (main thread)
+  together with the handheld's ~15 W power limit. Vulkan and Direct3D 12 perform the same within about 2 frames/s.
+- The first visit of a level can stutter once (130-450 ms) while the graphics pipelines are created.
+
+Higher frame rates on the Deck are work in progress.
 
 ## Architecture
 
