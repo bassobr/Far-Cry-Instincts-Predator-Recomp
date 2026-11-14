@@ -15,8 +15,12 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <condition_variable>
+#include <cstdlib>
 #include <mutex>
+#include <thread>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -140,6 +144,37 @@ PadType ToPadType(SDL_GamepadType type) {
   }
 }
 
+// FCP: change 301 (UPSTREAM.md). The guest threads (XamInputGetState/GetCapabilities/SetState) no longer call
+// SDL: SDL takes its joystick lock in nearly every gamepad call, and the UI thread holds that lock while
+// SDL_PumpEvents updates the pads, and SDL_RumbleGamepad writes to the device synchronously (under Proton on a
+// Steam Deck 2-18 ms per call in a few percent of the frames, rarely 60-200 ms). The joystick instance and the
+// capabilities are cached per pad, a vibration is stored and sent from the UI thread after its event pump.
+// REX_HID_SDL_SYNC=1 restores the former synchronous calls.
+bool AsyncPads() {
+  static const bool async = [] {
+#if defined(_WIN32)
+    char* value = nullptr;
+    size_t length = 0;
+    bool sync = false;
+    if (_dupenv_s(&value, &length, "REX_HID_SDL_SYNC") == 0 && value) {
+      sync = value[0] == '1';
+      free(value);
+    }
+    return !sync;
+#else
+    const char* value = std::getenv("REX_HID_SDL_SYNC");
+    return !(value && value[0] == '1');
+#endif
+  }();
+  return async;
+}
+
+// A vibration value that did not change is sent again after this long, so SDL's duration (kRumbleDurationMs) never
+// runs out while the game holds a value.
+constexpr u64 kRumbleRefreshMs = 20000;
+// Capabilities (wireless/battery flag) are read again on the UI thread at most this often.
+constexpr u64 kCapsRefreshMs = 2000;
+
 i32 GetXInputSlot([[maybe_unused]] SDL_Gamepad* gamepad) {
 #if REX_PLATFORM_WIN32
   constexpr i32 kXInputSlotCount = 4;
@@ -162,6 +197,15 @@ struct SDL3InputDriver::State {
     PadDeviceID id = kInvalidPadDeviceID;
     PadState state;
     i32 xinput_slot = -1;
+    // change 301: cached joystick instance and capabilities, vibration sent from the UI thread
+    SDL_JoystickID instance = 0;
+    PadCapabilities caps;
+    u64 caps_ms = 0;
+    bool rumble_wanted = false;
+    u16 rumble_low = 0, rumble_high = 0;
+    bool rumble_sent = false;
+    u16 sent_low = 0, sent_high = 0;
+    u64 sent_ms = 0;
   };
 
   IDriverContext* context = nullptr;
@@ -180,6 +224,15 @@ struct SDL3InputDriver::State {
   std::atomic<bool> events_up{false};
   std::atomic<bool> gamepad_up{false};
 
+  // change 301: posting to the UI thread wakes it with SDL_PushEvent, which waits for SDL's event locks while the
+  // UI thread pumps; a small thread of the driver posts instead of the guest thread.
+  std::thread waker;
+  std::mutex wake_mutex;
+  std::condition_variable wake_cv;
+  bool wake_wanted = false;
+  bool wake_stop = false;
+  void WakerLoop(const std::shared_ptr<State>& self);
+
   static bool EventWatch(void* userdata, SDL_Event* event);
   void HandleEvent(const SDL_Event& event);
   std::unique_lock<std::mutex> DrainAndLock();
@@ -192,7 +245,50 @@ struct SDL3InputDriver::State {
   Controller* FindByInstance(SDL_JoystickID instance);
   Controller* FindByID(PadDeviceID id);
   void QueuePump(const std::shared_ptr<State>& self);
+  void PostPump(const std::shared_ptr<State>& self);
+  void AfterPump();  // UI thread, change 301: send stored vibrations, refresh capabilities
 };
+
+namespace {
+
+PadCapabilities ReadCapabilities(SDL_Gamepad* sdl) {
+  SDL_Joystick* joystick = SDL_GetGamepadJoystick(sdl);
+  u16 flags = 0;
+  if (SDL_GetJoystickConnectionState(joystick) == SDL_JOYSTICK_CONNECTION_WIRELESS) {
+    flags |= kCapsWireless;
+  } else {
+    const SDL_PowerState power = SDL_GetJoystickPowerInfo(joystick, nullptr);
+    if (power == SDL_POWERSTATE_ON_BATTERY || power == SDL_POWERSTATE_CHARGING ||
+        power == SDL_POWERSTATE_CHARGED) {
+      flags |= kCapsWireless;
+    }
+  }
+  static constexpr std::array<SDL_GamepadButton, 6> kNavButtons = {
+      SDL_GAMEPAD_BUTTON_START,     SDL_GAMEPAD_BUTTON_BACK,      SDL_GAMEPAD_BUTTON_DPAD_UP,
+      SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+  };
+  for (SDL_GamepadButton button : kNavButtons) {
+    if (!SDL_GamepadHasButton(sdl, button)) {
+      flags |= kCapsNoNavigation;
+      break;
+    }
+  }
+  PadCapabilities caps;
+  caps.subtype = GamepadSubtype(sdl);
+  caps.flags = flags;
+  caps.supported.buttons = kSupportedButtons;
+  caps.supported.left_trigger = 0xFF;
+  caps.supported.right_trigger = 0xFF;
+  caps.supported.thumb_lx = static_cast<i16>(0xFFFFu);
+  caps.supported.thumb_ly = static_cast<i16>(0xFFFFu);
+  caps.supported.thumb_rx = static_cast<i16>(0xFFFFu);
+  caps.supported.thumb_ry = static_cast<i16>(0xFFFFu);
+  caps.motors.left_motor = 0xFFFF;
+  caps.motors.right_motor = 0xFFFF;
+  return caps;
+}
+
+}  // namespace
 
 bool SDL3InputDriver::State::EventWatch(void* userdata, SDL_Event* event) {
   if (!userdata || !event) {
@@ -280,6 +376,9 @@ void SDL3InputDriver::State::OnGamepadAddedLocked(const SDL_Event& event) {
   controller.sdl = gamepad;
   controller.id = PadDeviceID{next_id++};
   controller.xinput_slot = GetXInputSlot(gamepad);
+  controller.instance = event.gdevice.which;
+  controller.caps = ReadCapabilities(gamepad);
+  controller.caps_ms = SDL_GetTicks();
   REXHID_DEBUG("SDL GamepadAdded: \"{}\", VendorID(0x{:04X}), ProductID(0x{:04X}), slot {}",
                SDL_GetGamepadName(gamepad), SDL_GetGamepadVendor(gamepad),
                SDL_GetGamepadProduct(gamepad), controller.xinput_slot);
@@ -376,8 +475,10 @@ void SDL3InputDriver::State::OnButtonLocked(const SDL_Event& event) {
 
 SDL3InputDriver::State::Controller* SDL3InputDriver::State::FindByInstance(
     SDL_JoystickID instance) {
+  const bool async = AsyncPads();
   for (Controller& controller : controllers) {
-    if (SDL_GetJoystickID(SDL_GetGamepadJoystick(controller.sdl)) == instance) {
+    if (async ? controller.instance == instance
+              : SDL_GetJoystickID(SDL_GetGamepadJoystick(controller.sdl)) == instance) {
       return &controller;
     }
   }
@@ -397,10 +498,81 @@ void SDL3InputDriver::State::QueuePump(const std::shared_ptr<State>& self) {
   if (!running || !events_up || pump_queued.exchange(true)) {
     return;
   }
+  if (AsyncPads() && waker.joinable()) {
+    {
+      std::lock_guard<std::mutex> guard(wake_mutex);
+      wake_wanted = true;
+    }
+    wake_cv.notify_one();
+    return;
+  }
+  PostPump(self);
+}
+
+void SDL3InputDriver::State::PostPump(const std::shared_ptr<State>& self) {
   context->PostToUIThread([self]() {
     SDL_PumpEvents();
     self->pump_queued = false;
+    if (AsyncPads() && self->running) {
+      self->AfterPump();
+    }
   });
+}
+
+void SDL3InputDriver::State::WakerLoop(const std::shared_ptr<State>& self) {
+  for (;;) {
+    {
+      std::unique_lock<std::mutex> guard(wake_mutex);
+      wake_cv.wait(guard, [this] { return wake_wanted || wake_stop; });
+      if (wake_stop) {
+        return;
+      }
+      wake_wanted = false;
+    }
+    PostPump(self);
+  }
+}
+
+void SDL3InputDriver::State::AfterPump() {
+  struct Send {
+    SDL_Gamepad* sdl;
+    u16 low, high;
+  };
+  std::vector<Send> sends;
+  const u64 now = SDL_GetTicks();
+  {
+    // UI thread: the SDL calls here do not wait for the pump (this thread runs it); a guest thread waits for
+    // `mutex` only as long as the capability refresh takes, never for a vibration write.
+    auto guard = DrainAndLock();
+    for (Controller& controller : controllers) {
+      if (now - controller.caps_ms >= kCapsRefreshMs) {
+        controller.caps = ReadCapabilities(controller.sdl);
+        controller.caps_ms = now;
+      }
+      const bool changed = !controller.rumble_sent || controller.rumble_low != controller.sent_low ||
+                           controller.rumble_high != controller.sent_high;
+      const bool refresh = controller.rumble_sent && (controller.sent_low || controller.sent_high) &&
+                           now - controller.sent_ms >= kRumbleRefreshMs;
+      if ((controller.rumble_wanted && changed) || refresh) {
+        sends.push_back({controller.sdl, controller.rumble_low, controller.rumble_high});
+        controller.rumble_sent = true;
+        controller.sent_low = controller.rumble_low;
+        controller.sent_high = controller.rumble_high;
+        controller.sent_ms = now;
+      }
+      controller.rumble_wanted = false;
+    }
+  }
+  // Outside `mutex`: the write to the device can take long. SDL checks the gamepad object itself, so a pad that a
+  // guest thread closed in between only makes the call fail.
+  for (const Send& send : sends) {
+    if (!SDL_RumbleGamepad(send.sdl, send.low, send.high, kRumbleDurationMs)) {
+      static std::atomic<int> warned{0};
+      if (warned.fetch_add(1) < 3) {
+        REXHID_WARN("SDL: the pad refused the vibration: {}", SDL_GetError());
+      }
+    }
+  }
 }
 
 SDL3InputDriver::SDL3InputDriver() : SettingOwner("hid.sdl") {}
@@ -461,6 +633,9 @@ Result<void> SDL3InputDriver::Initialize(IDriverContext& context) {
     context.GetSettingsRegistry().Unregister(*this);
     return ran;
   }
+  if (AsyncPads()) {
+    state_->waker = std::thread([state = state_] { state->WakerLoop(state); });
+  }
   return {};
 }
 
@@ -469,6 +644,14 @@ void SDL3InputDriver::Shutdown() {
     return;
   }
   state_->running = false;
+  if (state_->waker.joinable()) {
+    {
+      std::lock_guard<std::mutex> guard(state_->wake_mutex);
+      state_->wake_stop = true;
+    }
+    state_->wake_cv.notify_one();
+    state_->waker.join();
+  }
   state_->context->GetSettingsRegistry().Unregister(*this);
   std::shared_ptr<State> state = std::move(state_);
   const Result<void> ran = state->context->RunOnUIThread([state]() {
@@ -550,48 +733,29 @@ Result<PadCapabilities> SDL3InputDriver::GetDeviceCapabilities(PadDeviceID id) {
   if (!controller) {
     return std::unexpected(NotConnected());
   }
-
-  SDL_Gamepad* sdl = controller->sdl;
-  SDL_Joystick* joystick = SDL_GetGamepadJoystick(sdl);
-  u16 flags = 0;
-  if (SDL_GetJoystickConnectionState(joystick) == SDL_JOYSTICK_CONNECTION_WIRELESS) {
-    flags |= kCapsWireless;
-  } else {
-    const SDL_PowerState power = SDL_GetJoystickPowerInfo(joystick, nullptr);
-    if (power == SDL_POWERSTATE_ON_BATTERY || power == SDL_POWERSTATE_CHARGING ||
-        power == SDL_POWERSTATE_CHARGED) {
-      flags |= kCapsWireless;
-    }
+  if (AsyncPads()) {
+    return controller->caps;
   }
-  static constexpr std::array<SDL_GamepadButton, 6> kNavButtons = {
-      SDL_GAMEPAD_BUTTON_START,     SDL_GAMEPAD_BUTTON_BACK,      SDL_GAMEPAD_BUTTON_DPAD_UP,
-      SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
-  };
-  for (SDL_GamepadButton button : kNavButtons) {
-    if (!SDL_GamepadHasButton(sdl, button)) {
-      flags |= kCapsNoNavigation;
-      break;
-    }
-  }
-
-  PadCapabilities caps;
-  caps.subtype = GamepadSubtype(sdl);
-  caps.flags = flags;
-  caps.supported.buttons = kSupportedButtons;
-  caps.supported.left_trigger = 0xFF;
-  caps.supported.right_trigger = 0xFF;
-  caps.supported.thumb_lx = static_cast<i16>(0xFFFFu);
-  caps.supported.thumb_ly = static_cast<i16>(0xFFFFu);
-  caps.supported.thumb_rx = static_cast<i16>(0xFFFFu);
-  caps.supported.thumb_ry = static_cast<i16>(0xFFFFu);
-  caps.motors.left_motor = 0xFFFF;
-  caps.motors.right_motor = 0xFFFF;
-  return caps;
+  return ReadCapabilities(controller->sdl);
 }
 
 Result<void> SDL3InputDriver::SetDeviceVibration(PadDeviceID id, const PadVibration& vibration) {
   if (!state_ || !state_->gamepad_up) {
     return std::unexpected(NotConnected());
+  }
+  if (AsyncPads()) {
+    {
+      auto guard = state_->DrainAndLock();
+      State::Controller* controller = state_->FindByID(id);
+      if (!controller) {
+        return std::unexpected(NotConnected());
+      }
+      controller->rumble_wanted = true;
+      controller->rumble_low = vibration.left_motor;
+      controller->rumble_high = vibration.right_motor;
+    }
+    state_->QueuePump(state_);  // the UI thread sends it after its next pump
+    return {};
   }
   state_->QueuePump(state_);
   auto guard = state_->DrainAndLock();

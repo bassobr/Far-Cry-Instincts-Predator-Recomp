@@ -8,7 +8,9 @@
 // Switches (all off by default, read once):
 //   FCP_FPS, FCP_FPS_LIMIT, FCP_PRESENT_INTERVAL, FCP_FPS_STATS: see fcp/framerate.h
 //   FCP_TRACE_COMMANDS=1       command queue as CSV (logs/commands[.gen<n>].csv): push and dispatch
-//   FCP_TRACE_HITCHES=<ms>     frames longer than ms (1 = 50 ms) with what happened in them
+//   FCP_TRACE_HITCHES=<ms>     frames longer than ms (1 = 50 ms) with what happened in them (with the main
+//                              thread's CPU time and time inside imports, fcp/imports.h)
+//   FCP_TRACE_FRAMES=1         every frame as CSV (logs/frames[.gen<n>].csv): duration, main thread CPU, imports
 //   FCP_GAMETIME_STATS=0       no "clock" line every 5 s (frame rate, game time against wall time)
 #pragma once
 

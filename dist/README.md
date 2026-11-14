@@ -54,6 +54,7 @@ has to be done.
 | `vcruntime140*.dll`, `msvcp140*.dll` | Microsoft Visual C++ runtime |
 | `compiler\` | clang, lld-link and rexglue for the first start, with the headers and libraries they need |
 | `compiler\pgo\predator.profdata` | profile for the optimisation of the game code (PGO): function names of the form `sub_<address>` and execution counts from test runs, no code or data of the game |
+| `pipelines.fcpl` | list of the graphics pipelines the game uses, created in the background at start so a level does not stutter on its first visit: hashes of the game's shader containers and render state values (formats, blend, depth, stencil, cull mode) from test runs, no shader code or other data of the game |
 | user folder | `%LOCALAPPDATA%\Far-Cry-Instincts-Predator-Recomp`: settings, saves, logs, caches, the game code |
 
 To keep everything next to `predator.exe` instead (portable), create an empty file `portable.txt` beside it.

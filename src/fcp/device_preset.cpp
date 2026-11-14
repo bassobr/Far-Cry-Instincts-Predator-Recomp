@@ -56,8 +56,22 @@ struct Preset {
 // about 56 fps with 1% lows below 20 fps in the heaviest one, at the 15 W limit, and 90 is out of reach (60-75 fps
 // uncapped). Listed although it equals the built-in value, so predator.toml names it as the device's choice.
 // The display mode is not set here: only the built-in windowed mode was measured (gamescope shows it at 1280x800).
+// FCP_FPS_PACING display (docs/phase1/deck-ruckeln.md): the display runs at 89.6 Hz; with the game's own pacing
+// (60 Hz vblank clock of the null driver, or a host limiter) 30 fps leaves 10-31 % of the frames 2 or 4 refreshes
+// instead of 3 and 45 fps 9-21 % 1 or 3 instead of 2, as the two clocks drift. Paced on the display 30 and 45 keep
+// 97-100 % of the frames at 3 or 2 refreshes in 21_dunea, 00_training, 06_cliffs and 01_beach, 45 at 8-10 W.
+// Resolution: a 1280x800 window (the display's size) with the native render resolution, so the picture fills the
+// 16:10 display (Vert+) instead of 1280x720 with bars; [display] width/height = 0 in an older file takes these too.
+// FCP_GAME_CODE_LTO 0 (docs/phase1/deck-erststart-rumble.md): on the Deck ThinLTO brought nothing measurable in the
+// game (21_dunea 74.1 against 73.8 frames/s at a 90 cap) and the first-start build without it took 29-56 s less in
+// three of three pairs measured in the same time window; FCP_GAME_CODE_LTO=1 builds with ThinLTO.
 const std::vector<std::pair<std::string, std::string>> kDeckDefaults = {
     {"FCP_FPS", "30"},
+    {"FCP_FPS_PACING", "display"},
+    {"FCP_WINDOW_WIDTH", "1280"},
+    {"FCP_WINDOW_HEIGHT", "800"},
+    {"FCP_RENDER_RESOLUTION", "native"},
+    {"FCP_GAME_CODE_LTO", "0"},
 };
 
 // ROG Xbox Ally X defaults, measured on a ROG Xbox Ally X (RC73XA, Ryzen AI Z2 Extreme, Radeon 890M, Windows 11,
@@ -120,6 +134,16 @@ const Preset& Get() {
     if (deck) {
       p.name = model == "galileo" ? "Steam Deck OLED" : model == "jupiter" ? "Steam Deck LCD" : "Steam Deck";
       p.defaults = kDeckDefaults;
+      // Steam Deck OLED (90 Hz): 45 fps paced on the display, measured in docs/phase1/deck-v0.1.2.md (96-100 % of
+      // the frames exactly 2 refreshes at 7.8-8.6 W, 1280x800) after the 45 fps corrections of
+      // docs/phase1/bildraten-45.md. The LCD model (60 Hz) and an unknown model keep 30: 45 cannot be paced on 60 Hz.
+      // FCP_DECK_FPS45=0 keeps 30 on the OLED too.
+      const bool oled = model == "galileo" || (forced == "deck" && model != "jupiter");
+      if (oled && fcp::env::Get("FCP_DECK_FPS45") != "0") {
+        for (auto& [k, v] : p.defaults) {
+          if (k == "FCP_FPS") v = "45";
+        }
+      }
     } else if (ally) {
       p.name = ally->name;
       if (ally->defaults) p.defaults = kAllyXDefaults;

@@ -15,13 +15,23 @@
 // kernel/runtime, system = ntdll/kernel32/win32u, i.e. waits and system calls, driver = GPU driver), the most
 // frequent guest return addresses (ctx.lr) and host functions (module+offset of the unwind entry). The sampler
 // suspends a thread only to read its context; nothing is allocated while a thread is suspended.
+//
+// Spike view (FCP_PROFILE together with FCP_TRACE_HITCHES; FCP_PROFILE_SPIKES=0 turns it off): the samples of the
+// last seconds are kept per thread; for every frame over the hitch threshold one "spike:" line per thread that ran
+// in that frame (the main thread always) with its samples inside the frame: where, guest self, guest incl.
 #pragma once
+
+#include <chrono>
+#include <cstdint>
 
 namespace rex::kernel {
 class TitleRuntime;
 }
 
 namespace fcp::profile {
+
+/** A frame from start to end took longer than the hitch threshold (main thread, fcp::gametime). */
+void OnHitch(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end, uint64_t frame);
 
 /** Starts the sampler thread when FCP_PROFILE is set. */
 void Start(rex::kernel::TitleRuntime& runtime);

@@ -15,6 +15,7 @@
 #include <rex/ppc/recompiled_code.h>
 
 #include "fcp/build_process.h"
+#include "fcp/device_preset.h"
 #include "fcp/env.h"
 #include "fcp/first_start.h"
 #include "fcp/game_code_build.h"
@@ -293,7 +294,13 @@ bool BuildFromDisc(const fs::path& image, const fs::path& dll) {
         job.origin = "first-start";
         job.image_sha256 = FCP_DISC_XEX_SHA256;
         job.pgo_profile = PgoProfile(compiler);
-        job.lto = fcp::env::Flag("FCP_GAME_CODE_LTO", FCP_GAME_CODE_LTO_DEFAULT != 0);
+        // A device default (fcp/device_preset.cpp: Steam Deck without ThinLTO) replaces the build's default;
+        // FCP_GAME_CODE_LTO=0/1 overrides both.
+        const std::string device_lto = fcp::device::Default("FCP_GAME_CODE_LTO");
+        const bool lto_default = device_lto.empty() ? FCP_GAME_CODE_LTO_DEFAULT != 0 : device_lto == "1";
+        job.lto = fcp::env::Flag("FCP_GAME_CODE_LTO", lto_default);
+        FCPLOG("game code: ThinLTO {}{}", job.lto ? "on" : "off",
+               fcp::env::Get("FCP_GAME_CODE_LTO").empty() && !device_lto.empty() ? " (device default)" : "");
         ok =game_code_build::CompileAndLink(tools, job, run, stats, why);
       }
     }

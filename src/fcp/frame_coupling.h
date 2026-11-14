@@ -4,7 +4,11 @@
 //
 // Switches (read once at title launch):
 //   FCP_TRACE_LAND=1   one log line per landing event of a player or AI (Player_Land): the vertical speed the
-//                      event sends (fEntitySpeed = -[player +0xB24]), the frame time, the level time
+//                      event sends (fEntitySpeed = -[player +0xB24]), the frame time, the level time, and each
+//                      landing step of a living entity with the console's step model; FCP_TRACE_LAND=2 also logs
+//                      the local player's +0xB24 every frame while it is not 0
+//   FCP_FALL_MODEL=linear  fall correction only with the fixed sample age (FCP_FALL_SAMPLE_FRAMES)
+//   FCP_TURN_MODEL=floor   stick turn ramp without mixing the rates of two console frames
 //   FCP_TRACE_AI=1     counts the per-AI updates of the AI system (AI_UpdateEntity) by their flag; framestat
 //                      shows them per window
 #pragma once

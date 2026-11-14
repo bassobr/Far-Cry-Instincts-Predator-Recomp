@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <format>
@@ -201,9 +202,26 @@ void BuildRows() {
   }
   {
     Row r{0, "Window size", Kind::kChoice, When::kLive, {}, 0, 1, 0.01f, "%.2f",
-          "Client size of the window (not fullscreen). The game itself renders at 1280x720 times the render scale."};
-    r.choices = {{"0x0", "Default (1280x720)"}, {"1280x720", "1280 x 720"},   {"1600x900", "1600 x 900"},
-                 {"1920x1080", "1920 x 1080"},  {"2560x1440", "2560 x 1440"}, {"3840x2160", "3840 x 2160"}};
+          "Client size of the window (not fullscreen; fullscreen uses the monitor's). Narrower or wider than 16:9 "
+          "fills the window (see Picture shape); the render resolution is under Graphics."};
+    r.choices = {{"0x0", "Default (1280x720, Steam Deck 1280x800)"}};
+    if (g_ui) {
+      // the monitor's own size (native) first; the monitor of [display] monitor, else the first one
+      const auto displays = g_ui->GetDisplays();
+      size_t m = size_t(std::max(1, std::atoi(fcp::settings::Value("display", "monitor").c_str()))) - 1;
+      if (m >= displays.size()) m = 0;
+      if (!displays.empty() && displays[m].width > 0 && displays[m].height > 0)
+        r.choices.push_back({std::format("{}x{}", displays[m].width, displays[m].height),
+                             std::format("Native ({} x {})", displays[m].width, displays[m].height)});
+    }
+    for (const char* s : {"1024x768", "1280x720", "1280x800", "1600x900", "1680x1050", "1920x1080", "1920x1200", "2560x1080",
+                          "2560x1440", "2560x1600", "3440x1440", "3840x2160"}) {
+      std::string v = s, label = v;
+      label.replace(label.find('x'), 1, " x ");
+      bool dup = false;
+      for (const Choice& c : r.choices) dup = dup || c.value == v;
+      if (!dup) r.choices.push_back({v, label});
+    }
     r.get = [] {
       return fcp::settings::Value("display", "width") + "x" + fcp::settings::Value("display", "height");
     };
@@ -224,14 +242,22 @@ void BuildRows() {
   }
   {
     Row r = SettingsRow(0, "Frame rate", Kind::kChoice, When::kRestart, "display", "fps",
-                        "30 as the console, or 60 / 90 / 120 frames per second (90: Steam Deck OLED display).");
-    r.choices = {{"30", "30 (console)"}, {"60", "60"}, {"90", "90"}, {"120", "120"}};
+                        "30 as the console, or 45 / 60 / 90 / 120 frames per second. Smooth when the display's refresh "
+                        "rate is a multiple (90 Hz: 30, 45, 90; 60 Hz: 30, 60).");
+    r.choices = {{"30", "30 (console)"}, {"45", "45"}, {"60", "60"}, {"90", "90"}, {"120", "120"}};
     g_rows.push_back(std::move(r));
   }
   {
     Row r = SettingsRow(0, "VSync", Kind::kChoice, When::kRestart, "display", "vsync",
                         "Wait for the monitor when presenting. Auto: on up to 60 frames per second, off above.");
     r.choices = {{"auto", "Auto"}, {"on", "On"}, {"off", "Off"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(0, "Frame pacing", Kind::kChoice, When::kRestart, "display", "pacing",
+                        "Display: every frame stays equally long on the display, timed by the display's refresh "
+                        "(needs a frame rate the refresh rate is a multiple of). Game: the game's own timing.");
+    r.choices = {{"display", "Display"}, {"game", "Game"}};
     g_rows.push_back(std::move(r));
   }
   // ---- Graphics ----
@@ -248,6 +274,21 @@ void BuildRows() {
                         [](const std::string& v) { fcp::render::SetScale(v); });
     r.choices = {{"0.5", "0.5x"}, {"0.75", "0.75x"}, {"1", "1x (console)"}, {"1.5", "1.5x"},
                  {"2", "2x"},     {"3", "3x"},       {"4", "4x"},           {"auto", "Auto (window height)"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(1, "Render resolution", Kind::kChoice, When::kLive, "graphics", "resolution",
+                        "Pixels of the game picture. Scale: from the render scale above. Native: the picture's size in "
+                        "the window or on the monitor. A fixed size smaller than that is faster and scaled up. Switches "
+                        "with the next frame.",
+                        [](const std::string& v) { fcp::render::SetResolution(v); });
+    r.choices = {{"scale", "From the render scale"}, {"native", "Native (output size)"}};
+    for (const char* s : {"960x540", "1280x720", "1280x800", "1600x900", "1920x1080", "1920x1200", "2560x1080", "2560x1440",
+                          "3440x1440", "3840x2160"}) {
+      std::string label = s;
+      label.replace(label.find('x'), 1, " x ");
+      r.choices.push_back({s, label});
+    }
     g_rows.push_back(std::move(r));
   }
   {
@@ -269,10 +310,12 @@ void BuildRows() {
     g_rows.push_back(std::move(r));
   }
   {
-    Row r = SettingsRow(1, "Widescreen (Hor+)", Kind::kChoice, When::kRestart, "graphics", "aspect",
-                        "Wider than 16:9 (21:9, 32:9): the same height, more to the sides; HUD, menus and videos stay "
-                        "16:9 in the middle. 16:9 = as the console (bars at the sides).");
-    r.choices = {{"auto", "Auto (the window's shape)"}, {"16:9", "16:9 (console)"}, {"21:9", "21:9"}, {"32:9", "32:9"}};
+    Row r = SettingsRow(1, "Picture shape (Hor+/Vert+)", Kind::kChoice, When::kRestart, "graphics", "aspect",
+                        "Wider than 16:9 (21:9, 32:9): the same height, more to the sides. Narrower (16:10, 4:3): the "
+                        "same width, more above and below. HUD, menus and videos stay 16:9 in the middle. 16:9 = as "
+                        "the console (bars).");
+    r.choices = {{"auto", "Auto (the window's shape)"}, {"16:9", "16:9 (console)"}, {"16:10", "16:10"}, {"4:3", "4:3"},
+                 {"21:9", "21:9"}, {"32:9", "32:9"}};
     g_rows.push_back(std::move(r));
   }
   {

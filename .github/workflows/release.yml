@@ -7,7 +7,9 @@
 # (predator, fcshaders_tool, predator_code_libs). Never the codegen, predator_code.dll, the semantic test (it reads
 # functions of the game) or the shader pack. The one derived file is the PGO profile of the repository
 # (config/predator/game_code.profdata: function names, structure hashes, execution counters, no code), shipped as
-# compiler/pgo/predator.profdata for the first start; the release job checks that it is exactly that file.
+# compiler/pgo/predator.profdata for the first start; the release job checks that it is exactly that file. The same
+# holds for the shipped pipeline list config/predator/pipelines.fcpl (shader container hashes and render state values,
+# no shader code), shipped as pipelines.fcpl next to predator.exe.
 # tools/dist.ps1 refuses anything else derived from the game, and the release job checks the zip again.
 # Derived from .github/workflows/release.yml of Far Cry Instincts Recomp (MIT, same author); action SHAs as there.
 name: Release
@@ -79,7 +81,9 @@ jobs:
         with:
           persist-credentials: false
           path: repo
-          sparse-checkout: config/predator/game_code.profdata
+          sparse-checkout: |
+            config/predator/game_code.profdata
+            config/predator/pipelines.fcpl
           sparse-checkout-cone-mode: false
       - name: Check the package
         run: |
@@ -107,6 +111,19 @@ jobs:
             test "$WANT" = "$GOT" || { echo "PGO profile in the zip ($GOT) is not the repository's ($WANT)" >&2; exit 1; }
           elif [ -n "$PROF" ]; then
             echo "PGO profile in the package, but none in the repository: $PROF" >&2; exit 1
+          fi
+          # the shipped pipeline list (shader container hashes and render state only): exactly one, next to
+          # predator.exe, byte for byte the repository's config/predator/pipelines.fcpl; without one there, none
+          PL=$(unzip -Z1 "$ZIP" | grep -iE '\.fcpl$' || true)
+          if [ -f repo/config/predator/pipelines.fcpl ]; then
+            test "$PL" = "$(unzip -Z1 "$ZIP" | grep -x '[^/]*/pipelines\.fcpl')" -a -n "$PL" \
+              || { echo "expected exactly one pipeline list at pipelines.fcpl, found: $PL" >&2; exit 1; }
+            WANT=$(sha256sum repo/config/predator/pipelines.fcpl | cut -d' ' -f1)
+            GOT=$(unzip -p "$ZIP" "$PL" | sha256sum | cut -d' ' -f1)
+            test "$WANT" = "$GOT" || { echo "pipeline list in the zip ($GOT) is not the repository's ($WANT)" >&2; exit 1; }
+            test "$(unzip -p "$ZIP" "$PL" | head -c 4)" = "FCPL" || { echo "pipeline list without FCPL header" >&2; exit 1; }
+          elif [ -n "$PL" ]; then
+            echo "pipeline list in the package, but none in the repository: $PL" >&2; exit 1
           fi
           # an executable or DLL with recompiled code has the section "rexguest" (the name also occurs as a string in
           # predator.exe, so the section tables are read)

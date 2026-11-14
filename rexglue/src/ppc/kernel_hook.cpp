@@ -17,7 +17,7 @@ const KernelHooks* GetHooks() {
   return g_hooks.load(std::memory_order_acquire);
 }
 
-void InvalidFunctionTrap(PPCContext& ctx, u8* /*base*/) {
+REX_GUEST_CC void InvalidFunctionTrap(REX_CTX_NOESCAPE PPCContext& ctx, u8* /*base*/) {
   REXCPU_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}",
                ctx.last_indirect_target);
 }

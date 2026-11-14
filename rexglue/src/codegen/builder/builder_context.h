@@ -359,4 +359,12 @@ void EmitRecordFormCompare(BuilderContext& ctx);
  */
 bool FcpOriginal(std::string_view fix);
 
+/**
+ * FCP (rexglue/UPSTREAM.md, change 291): plain guest memory accesses with loop barriers, when the
+ * config enables `plain_memory` and FCP_CODEGEN_ORIGINAL does not name `plain_memory`.
+ */
+inline bool UsePlainMemory(const RecompilerConfig& cfg) {
+  return cfg.plain_memory && !FcpOriginal("plain_memory");
+}
+
 }  // namespace rex::codegen

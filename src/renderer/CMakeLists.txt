@@ -159,8 +159,10 @@ add_library(
   core/overlay_pass.cpp
   core/smaa_pass.cpp
   core/game_renderer.cpp
+  core/deferred_list.cpp
   core/host_vulkan.cpp
   core/host_d3d12.cpp
+  core/present_pacer.cpp
   kk/backend/pipeline_cache.cpp
   kk/backend/render_thread.cpp
   kk/backend/vk_pipeline_cache.cpp

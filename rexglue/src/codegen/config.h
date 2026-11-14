@@ -204,6 +204,15 @@ struct RecompilerConfig {
    */
   bool forward_stack_stores = false;
   bool generate_exception_handlers = false;
+  /**
+   * FCP (rexglue/UPSTREAM.md, change 291): TOML key `plain_memory`, default false. When true, guest
+   * loads and stores are plain C++ accesses instead of volatile ones, and a compiler barrier
+   * (`REX_GUEST_BARRIER`) stands at every label a backward branch or a jump table reaches, and at
+   * sync, lwsync and eieio. Between two barriers the optimizer may combine, forward and reorder
+   * accesses as the PowerPC storage model allows without a barrier instruction; every loop still
+   * reads guest memory again in each iteration. FCP_CODEGEN_ORIGINAL=plain_memory switches back.
+   */
+  bool plain_memory = false;
 
   VectorMathConfig vector_math; /**< TOML table `[vector_math]`. */
   FpRulesConfig fp_rules;       /**< FCP: TOML table `[fp_rules]`. */

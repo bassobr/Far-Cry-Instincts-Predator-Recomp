@@ -61,7 +61,16 @@ class TranslatedLayout {
                         nvrhi::TextureDimension dimension = nvrhi::TextureDimension::Unknown);
   uint32_t AddSampler(nvrhi::ISampler* sampler);
   uint32_t AddBuffer(nvrhi::IBuffer* buffer);
-  uint32_t used(Table table) const { return next_[size_t(table)]; }
+  // Returns a slot for reuse by a later Add* (the caller guarantees that no command list still pending on the GPU
+  // or still being recorded references it). The descriptor keeps pointing at the old resource until reused.
+  void FreeSlot(Table table, uint32_t slot) {
+    if (slot && slot < next_[size_t(table)]) free_[size_t(table)].push_back(slot);
+  }
+  // Slots handed out and not freed.
+  uint32_t used(Table table) const { return next_[size_t(table)] - uint32_t(free_[size_t(table)].size()); }
+  uint32_t capacity(Table table) const { return capacities_.slots[size_t(table)]; }
+  // Requests refused because the table was full (diagnostics).
+  uint64_t refused(Table table) const { return refused_[size_t(table)]; }
   uint32_t constant_versions() const { return capacities_.constant_versions; }
 
   // Write constants into the volatile buffers and set the bindings.
@@ -88,6 +97,19 @@ class TranslatedLayout {
   nvrhi::BufferHandle vs_constants_, ps_constants_, draw_constants_, scale_constants_;
   std::array<nvrhi::DescriptorTableHandle, size_t(Table::kCount)> tables_;
   std::array<uint32_t, size_t(Table::kCount)> next_{};
+  std::array<uint64_t, size_t(Table::kCount)> refused_{};
+  std::array<std::vector<uint32_t>, size_t(Table::kCount)> free_;
+  static constexpr uint32_t kFull = ~0u;
+  // Next slot: a freed one first, else a new one; kFull = table full (slot 0 is the fallback, taken at Init).
+  uint32_t Take(size_t t) {
+    if (!free_[t].empty()) {
+      const uint32_t s = free_[t].back();
+      free_[t].pop_back();
+      return s;
+    }
+    if (next_[t] >= capacities_.slots[t]) return ++refused_[t], kFull;
+    return next_[t]++;
+  }
   TableCapacities capacities_;
   nvrhi::TextureHandle dummy_2d_, dummy_3d_, dummy_cube_, dummy_array_;
   nvrhi::SamplerHandle dummy_sampler_;

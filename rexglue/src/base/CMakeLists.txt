@@ -69,6 +69,21 @@ target_compile_definitions(rexbase PRIVATE REX_BUILDING_BASE)
 target_compile_definitions(
   rexbase PUBLIC REX_PHYSICAL_OFFSET_IN_CODE=${REX_PHYSICAL_OFFSET_IN_CODE_VALUE}
 )
+# FCP (rexglue/UPSTREAM.md, change 292): recompiled functions with the preserve_none calling convention
+# (clang on x86-64). Every user of PPCFunc and REX_FUNC sees the same value through rexbase; a separately
+# built guest library has to pass the same REX_GUEST_PRESERVE_NONE.
+set(_rex_preserve_none_default OFF)
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
+  set(_rex_preserve_none_default ON)
+endif ()
+option(REX_GUEST_PRESERVE_NONE "Recompiled functions use the preserve_none calling convention"
+       ${_rex_preserve_none_default}
+)
+if (REX_GUEST_PRESERVE_NONE)
+  target_compile_definitions(rexbase PUBLIC REX_GUEST_PRESERVE_NONE=1)
+else ()
+  target_compile_definitions(rexbase PUBLIC REX_GUEST_PRESERVE_NONE=0)
+endif ()
 rex_target_pch(rexbase)
 
 rexglue_add_version_resource(rexbase DESCRIPTION "ReXGlue base")

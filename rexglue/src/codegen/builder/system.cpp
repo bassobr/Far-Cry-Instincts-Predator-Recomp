@@ -69,20 +69,31 @@ bool Build<PPC_INST_ATTN>(BuilderContext& ctx) {
   return true;
 }
 
+// FCP (rexglue/UPSTREAM.md, change 291): with plain_memory a fence alone does not order plain guest
+// accesses for the compiler, so the barrier instructions also emit the guest memory barrier.
+static void EmitGuestBarrier(BuilderContext& ctx) {
+  if (UsePlainMemory(ctx.GetConfig())) {
+    ctx.Println("\tREX_GUEST_BARRIER();");
+  }
+}
+
 template <>
 bool Build<PPC_INST_SYNC>(BuilderContext& ctx) {
+  EmitGuestBarrier(ctx);
   ctx.Println("\tstd::atomic_thread_fence(std::memory_order_seq_cst);");
   return true;
 }
 
 template <>
 bool Build<PPC_INST_LWSYNC>(BuilderContext& ctx) {
+  EmitGuestBarrier(ctx);
   ctx.Println("\tstd::atomic_thread_fence(std::memory_order_acq_rel);");
   return true;
 }
 
 template <>
 bool Build<PPC_INST_EIEIO>(BuilderContext& ctx) {
+  EmitGuestBarrier(ctx);
   ctx.Println("\tstd::atomic_thread_fence(std::memory_order_seq_cst);");
   return true;
 }

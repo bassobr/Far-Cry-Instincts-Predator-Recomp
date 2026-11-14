@@ -46,6 +46,14 @@ $files["dxcompiler.dll"] = Join-Path $bin "dxcompiler.dll"
 if (Test-Path (Join-Path $bin "dxil.dll")) { $files["dxil.dll"] = Join-Path $bin "dxil.dll" }
 $files["fcshaders.exe"] = Join-Path $bin "fcshaders.exe"
 $files["renderer.toml"] = Join-Path $root "config\predator\renderer.toml"
+# Shipped pipeline list (config\predator\pipelines.fcpl, tools\pipelines_build.ps1): shader container hashes and
+# render state values only, no shader code or other game data; checked below by header, checksum and SHA-256.
+$repoPipelines = Join-Path $root "config\predator\pipelines.fcpl"
+$pipelinesSha = ""
+if (Test-Path $repoPipelines) {
+    $files["pipelines.fcpl"] = $repoPipelines
+    $pipelinesSha = (Get-FileHash -Algorithm SHA256 $repoPipelines).Hash.ToLowerInvariant()
+}
 # Compiler folder: clang, lld-link, codegen, headers, import libraries, configuration, DLL entry point
 $files["compiler\bin\clang.exe"] = Join-Path $Llvm "bin\clang.exe"
 $files["compiler\bin\lld-link.exe"] = Join-Path $Llvm "bin\lld-link.exe"
@@ -194,6 +202,16 @@ foreach ($item in Get-ChildItem -LiteralPath $stage -Recurse -Force) {
         }
         continue
     }
+    if ($rel -eq "pipelines.fcpl" -and $pipelinesSha) {
+        # the one allowed pipeline list: version 1 with valid checksum (tools\pipelines_build.ps1 -Info), the repository's file
+        $infoOut = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "tools\pipelines_build.ps1") -Info $item.FullName 2>&1
+        if ($LASTEXITCODE -ne 0) { $problems += "$rel (not a valid pipeline list: $infoOut)" }
+        if ((Get-FileHash -Algorithm SHA256 $item.FullName).Hash.ToLowerInvariant() -ne $pipelinesSha) {
+            $problems += "$rel (SHA-256 differs from config\predator\pipelines.fcpl)"
+        }
+        continue
+    }
+    if ($n -match '\.(fcpl)$') { $problems += "$rel (pipeline list not at its place)" }
     if ($n -match '\.(xex|iso|xiso|bin|fat|dat|pdb|obj|o|ilk|exp|profraw|profdata|fcpack|spv|dxil|pipeline|log|prev|tmp)$') { $problems += $rel }
     if ($n -match '^(portable\.txt|predator\.toml|predator_input\.toml|rexglue\.toml|predator_code\.(dll|lib|def)|sources\.cmake|codegen\..*)$') { $problems += $rel }
     if ($n -match '^predator_(funcs|recomp|init|register|pch)') { $problems += $rel }

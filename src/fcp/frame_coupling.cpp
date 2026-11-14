@@ -10,6 +10,7 @@
 #include <random>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -65,6 +66,38 @@ struct FallState {
 };
 std::unordered_map<uint32_t, FallState> g_fall;  // player object -> samples (main thread)
 
+// Fall speed from the console's steps (default; FCP_FALL_MODEL=linear: only the k formula above). Measured
+// (FCP_TRACE_LAND=2 with FCP_TRACE_LIVING=player, m01 jump): +0xB24 at the landing event is the mean vertical speed
+// (v at the start + v at the end) / 2 of the living entity's last step in the air, the step before the one whose
+// sweep reaches the ground. The living step integrates v -= g dt, z += (v - g dt / 2) dt, and a step in which the
+// rising speed would cross 0 ends with v = 0 (apex). From such a state (z_a, v_a) at a step end the n-th step ends at
+// z_a + n v_a dt - g dt^2 n (n + 2) / 2, so the step index of the landing, and with it the sample, depends on where
+// the frames fall: k is not a constant (raw 4.08 / 4.47 / 4.50 / 4.63 / 4.70 m/s at 30 / 45 / 60 / 90 / 120 for one
+// jump; the k formula gave 4.21 at 45, +3 %). Here the living step keeps, per entity in the air, the last such state
+// (take-off, apex or any step that was not a free-fall step) and g of the last free-fall step; at the landing step
+// (flying -> not flying, z_g = the end position) it runs the same steps at 1/30 s from that state to the console's
+// landing step m + 1 and gives Player_Land the console's sample v_a - g / 30 (m - 1/2), when the model reproduces this
+// entity's own last steps (position within 1 cm, speed within 0.05 m/s) and the event's +0xB24 is that entity's last
+// step mean. Otherwise the k formula. Only above the console rate and for frames shorter than 30 ms.
+bool g_fall_linear = false;
+struct FallTrack {
+  bool valid = false;
+  double z_a = 0.0, v_a = 0.0, t_a = 0.0;  // state at the anchor step end and its game time
+  uint32_t steps = 0;                        // free-fall steps since the anchor
+  double g = 0.0;                            // of the last free-fall step
+  float mean_last = 0.0f;                    // (v0 + v1) / 2 of the last step in the air
+  double z_last = 0.0, v_last = 0.0, t_last = 0.0;
+};
+std::unordered_map<uint32_t, FallTrack> g_fall_track;  // living entity -> flight (main thread)
+struct FallLanding {
+  uint32_t frame = 0;
+  float mean_last = 0.0f;  // what +0xB24 holds at the event
+  float console = 0.0f;    // the console's sample
+  int m = 0;               // the console's last step in the air (from the anchor)
+  uint32_t living = 0;
+};
+std::vector<FallLanding> g_fall_landings;  // landings of this frame
+
 // Water bob at any frame rate (FCP_FRAME_BOB=1: the original). Player_WaterBob (0x8226F5E8, virtual, under water
 // only: +0x39C) advances two phases by p_waterbob_pitchspeed/rollspeed x frame time (time based), but then adds
 // p_waterbob_pitch x depth factor x sin(phase) to the view angles every frame, on top of the angles of the frames
@@ -101,6 +134,7 @@ double g_lua_frametime = 0.0;                       // what Game_ScriptGlobals s
 std::unordered_map<uint32_t, double> g_timer_last;  // entity -> game time of its last timer call (main thread)
 
 bool g_trace_land = false;
+bool g_trace_land_frames = false;  // FCP_TRACE_LAND=2: also the local player's +0xB24 each frame while it is not 0
 bool g_trace_ai = false;
 std::atomic<uint64_t> g_ai_turns{0};
 std::atomic<uint64_t> g_ai_updates{0};
@@ -146,6 +180,7 @@ bool g_trace_living = false;      // FCP_TRACE_LIVING=<x>,<y>
 // AI path pursuit (OnAiPathPursuit): originals FCP_FRAME_PATH=1, FCP_FRAME_PATH_RELEASE=1; FCP_TRACE_PATH=1
 bool g_frame_path = false, g_frame_path_release = false, g_trace_path = false;
 bool g_frame_turn = false;  // stick turn ramp (OnLookStickRamp): original FCP_FRAME_TURN=1
+bool g_turn_floor = false;  // stick turn ramp across two console frames: original split off with FCP_TURN_MODEL=floor
 bool g_frame_dive = false;  // water entry at the console's frame (OnLivingStep/Move): original FCP_FRAME_DIVE=1
 bool g_frame_fire = false, g_trace_fire = false;  // fire interval (OnWeaponTryFire): original FCP_FRAME_FIRE=1
 double g_trace_events_from = 0.0, g_trace_events_to = 0.0;  // FCP_TRACE_EVENTS=<from>-<to> (level s): script events
@@ -193,6 +228,8 @@ double F64(uint8_t* base, uint32_t address) {
 
 void Configure() {
   g_trace_land = fcp::env::Flag("FCP_TRACE_LAND");
+  g_trace_land_frames = fcp::env::Get("FCP_TRACE_LAND") == "2";
+  g_fall_linear = fcp::env::Get("FCP_FALL_MODEL") == "linear";
   g_trace_ai = fcp::env::Flag("FCP_TRACE_AI");
   g_frame_fall = fcp::env::Flag("FCP_FRAME_FALL");
   if (const std::string k = fcp::env::Get("FCP_FALL_SAMPLE_FRAMES"); !k.empty()) {
@@ -231,8 +268,9 @@ void Configure() {
   g_frame_dive = fcp::env::Flag("FCP_FRAME_DIVE");
   FCPLOG("frame coupling: water entry at the console's frame {} (original: FCP_FRAME_DIVE=1)", g_frame_dive ? "off" : "on");
   g_frame_turn = fcp::env::Flag("FCP_FRAME_TURN");
-  FCPLOG("frame coupling: stick turn ramp at the console's sampling {} (original: FCP_FRAME_TURN=1)",
-         g_frame_turn ? "off" : "on");
+  g_turn_floor = fcp::env::Get("FCP_TURN_MODEL") == "floor";
+  FCPLOG("frame coupling: stick turn ramp at the console's sampling {}, frames across two console frames mixed {} (original: FCP_FRAME_TURN=1, FCP_TURN_MODEL=floor)",
+         g_frame_turn ? "off" : "on", (g_frame_turn || g_turn_floor) ? "off" : "on");
   g_frame_fire = fcp::env::Flag("FCP_FRAME_FIRE");
   g_trace_fire = fcp::env::Flag("FCP_TRACE_FIRE");
   if (const std::string ev = fcp::env::Get("FCP_TRACE_EVENTS"); !ev.empty()) {
@@ -249,6 +287,8 @@ void Configure() {
     FCPLOG("FCP_AI_CONSOLE_TICK: AI decisions at the console's 7.5 per second (experiment)");
   }
   const bool above = fcp::framerate::TargetFps() != 30;
+  FCPLOG("frame coupling: fall speed from the console's steps {} (FCP_FALL_MODEL=linear: only the k formula)",
+         (g_frame_fall || g_fall_linear) ? "off" : "on");
   FCPLOG("frame coupling ({}): fall speed at the console's sampling {} (k {:.2f} frames), water bob scaled {}, timer "
          "_frametime {}, boat water model at 50 Hz {} (originals: FCP_FRAME_FALL=1, FCP_FRAME_BOB=1, "
          "FCP_FRAME_TIMERS=1, FCP_FRAME_WATER=1)",
@@ -277,6 +317,10 @@ void OnPlayerUpdateMovement(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   s.b24_prev = s.b24;
   s.b24 = F32(base, player + kPlayerFallSpeed);
   s.dt = F64(base, fcp::addr::frame_timer + kTimerFrameTime);
+  if (g_trace_land_frames && player == fcp::state::PlayerObject() && s.b24 != 0.0f) {
+    FCPLOG("land: frame {} level {:.4f} s game {:.4f} s dt {:.1f} ms: B24 {:.4f}", fcp::gametime::Frame(),
+           fcp::gametime::LevelSeconds(), fcp::gametime::GameSeconds(), s.dt * 1000.0, s.b24);
+  }
 }
 
 void OnPlayerLand(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
@@ -290,22 +334,39 @@ void OnPlayerLand(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   const double dt = F64(base, fcp::addr::frame_timer + kTimerFrameTime);
   float sent = keep;
   double g = 0.0;
+  const char* how = "none";
+  int console_m = -1;
   // Only above the console rate: at FCP_FPS=30 the frame time jitters around 33 ms and stays untouched.
   if (!g_frame_fall && fcp::framerate::TargetFps() != 30 && dt > 0.0 && dt < kShortFrame) {
-    if (const auto it = g_fall.find(player); it != g_fall.end() && it->second.dt > 0.0) {
-      g = (it->second.b24_prev - it->second.b24) / it->second.dt;  // free fall: B24 falls by g x dt per frame
+    // the console's steps (FallTrack): the landing of this frame whose last step mean is this +0xB24
+    const uint32_t frame = fcp::guest::U32(base, fcp::addr::frame_timer);
+    for (const FallLanding& l : g_fall_landings) {
+      if (!g_fall_linear && l.frame == frame && std::fabs(l.mean_last - keep) < 0.01f) {
+        sent = std::min(0.0f, l.console);
+        console_m = l.m;
+        how = "console steps";
+        break;
+      }
     }
-    // only a plausible fall rate, only after a real fall (longer than k console frames), towards 0, never past it
-    if (g > 4.0 && g < 40.0 && keep < -g_fall_frames * kConsoleStep * g) {
-      sent = std::min(0.0f, float(keep + g_fall_frames * (kConsoleStep - dt) * g));
+    if (console_m < 0) {
+      if (const auto it = g_fall.find(player); it != g_fall.end() && it->second.dt > 0.0) {
+        g = (it->second.b24_prev - it->second.b24) / it->second.dt;  // free fall: B24 falls by g x dt per frame
+      }
+      // only a plausible fall rate, only after a real fall (longer than k console frames), towards 0, never past it
+      if (g > 4.0 && g < 40.0 && keep < -g_fall_frames * kConsoleStep * g) {
+        sent = std::min(0.0f, float(keep + g_fall_frames * (kConsoleStep - dt) * g));
+        how = "k formula";
+      }
+    }
+    if (sent != keep) {
       const uint32_t be = __builtin_bswap32(std::bit_cast<uint32_t>(sent));
       std::memcpy(fcp::guest::Ptr(base, at), &be, 4);
     }
   }
   if (g_trace_land) {
-    FCPLOG("land: {:08X}{} at level {:.3f} s (frame time {:.1f} ms): fEntitySpeed {:.3f}, sent {:.3f} (g {:.2f})",
+    FCPLOG("land: {:08X}{} at level {:.3f} s (frame time {:.1f} ms): fEntitySpeed {:.3f}, sent {:.3f} (g {:.2f}) by {}{}",
            player, player == fcp::state::PlayerObject() ? " (local player)" : "", fcp::gametime::LevelSeconds(),
-           dt * 1000.0, -keep, -sent, g);
+           dt * 1000.0, -keep, -sent, g, how, console_m >= 0 ? std::format(", console step {}", console_m) : "");
   }
   original(ctx, base);
   if (sent != keep) {
@@ -616,6 +677,79 @@ uint32_t FrameNumber(uint8_t* base) {
   return fcp::guest::U32(base, fcp::addr::frame_timer);
 }
 
+// The flight of a living entity for the fall speed at the console's steps (FallTrack, OnPlayerLand); after its step.
+void TrackFall(uint8_t* base, uint32_t living, float dt, bool fly0, float z0, float v0) {
+  const bool fly1 = fcp::guest::U32(base, living + kLivFlying) != 0;
+  const bool swim = fcp::guest::U32(base, living + kLivSwimming) != 0;
+  const float z1 = F32(base, living + kLivPos + 8), v1 = F32(base, living + kLivVel + 8);
+  FallTrack& f = g_fall_track[living];
+  auto anchor = [&] {
+    f.valid = true;
+    f.z_a = z1, f.v_a = v1, f.t_a = 0.0;
+    f.steps = 0;
+    f.z_last = z1, f.v_last = v1, f.t_last = 0.0;
+  };
+  if (swim || !(dt > 0.0f) || (!fly0 && !fly1)) {
+    f.valid = false;
+    return;
+  }
+  if (fly1) {
+    f.mean_last = 0.5f * (v0 + v1);
+    const double gs = (double(v0) - v1) / dt;
+    const bool free_fall = gs > 5.0 && gs < 20.0 && std::fabs((double(z1) - z0) - (v1 - gs * dt / 2.0) * dt) < 0.002;
+    if ((!fly0 || !f.valid) && free_fall) {
+      // a fall that starts with a free-fall step (off an edge, from rest): from the state before that step, which
+      // lies on a frame on the console as well (after the step it depends on the step length)
+      f.valid = true;
+      f.z_a = z0, f.v_a = v0, f.t_a = 0.0;
+      f.g = gs, f.steps = 1, f.t_last = dt;
+      f.z_last = z1, f.v_last = v1;
+    } else if (!fly0 || !f.valid || (v1 == 0.0f && v0 > 0.0f)) {
+      anchor();  // take-off, or the apex (the rising speed ends at 0)
+      if (!fly0) f.g = 0.0;
+    } else if (free_fall) {
+      f.g = gs, ++f.steps, f.t_last += dt;  // a free-fall step
+      f.z_last = z1, f.v_last = v1;
+    } else {
+      anchor();  // not a free-fall step (a push, a ceiling): the flight goes on from here
+    }
+    return;
+  }
+  // the landing step: the sweep ended on the ground at z1
+  const uint32_t frame = FrameNumber(base);
+  std::erase_if(g_fall_landings, [&](const FallLanding& l) { return l.frame != frame; });
+  bool ok = f.valid && f.g > 0.0 && f.steps >= 1;
+  double z_pred = 0.0, v_pred = 0.0;
+  if (ok) {
+    const double h = f.t_last / f.steps, n = f.steps;
+    z_pred = f.z_a + n * f.v_a * h - f.g * h * h * n * (n + 2.0) / 2.0;
+    v_pred = f.v_a - f.g * f.t_last;
+    ok = std::fabs(z_pred - f.z_last) < 0.01 && std::fabs(v_pred - f.v_last) < 0.05;
+  }
+  int m = -1;
+  float console = 0.0f;
+  if (ok) {
+    const double c = kConsoleStep;
+    for (int n = 1; n <= 900; ++n) {
+      if (f.z_a + n * f.v_a * c - f.g * c * c * n * (n + 2.0) / 2.0 <= z1) {
+        m = n - 1;
+        break;
+      }
+    }
+    if (m >= 1) {
+      console = float(f.v_a - f.g * c * (m - 0.5));
+      g_fall_landings.push_back({frame, f.mean_last, console, m, living});
+    }
+  }
+  if (g_trace_land) {
+    FCPLOG("land: living {:08X} landed at level {:.4f} s on z {:.3f}: from z {:.3f} v {:.3f} ({} steps, g {:.2f}; model z "
+           "{:.4f} / {:.4f}, v {:.3f} / {:.3f}{}): last step mean {:.3f}, console step {} mean {:.3f}",
+           living, fcp::gametime::LevelSeconds(), z1, f.z_a, f.v_a, f.steps, f.g, z_pred, f.z_last, v_pred, f.v_last,
+           ok ? "" : ", no model", f.mean_last, m, console);
+  }
+  f.valid = false;
+}
+
 void OnLivingAction(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   const uint32_t living = ctx.r3.u32, act = ctx.r4.u32;
   float keep[3];
@@ -709,10 +843,17 @@ void OnLivingStep(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
       }
     }
   }
+  const bool track_fall = living_ok && !g_frame_fall && !g_fall_linear && Above30();
+  const uint32_t fly0 = track_fall ? fcp::guest::U32(base, living + kLivFlying) : 0;
+  const float fz0 = track_fall ? F32(base, living + kLivPos + 8) : 0.0f;
+  const float fv0 = track_fall ? F32(base, living + kLivVel + 8) : 0.0f;
   const double outer_dt = g_living_step_dt;
   g_living_step_dt = dt;
   original(ctx, base);
   g_living_step_dt = outer_dt;
+  if (track_fall) {
+    TrackFall(base, living, dt, fly0 != 0, fz0, fv0);
+  }
   g_dive_living = 0;
   if (living_ok && Above30()) {
     DiveState& d = g_dive[living];
@@ -945,15 +1086,20 @@ void OnAiPathPursuit(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
 // times the stick. The look input turns by rate x frame time: a left Riemann sum over the frames, so the turn of the
 // ramp's first second grows with the frame rate (audit 1, m01: 241.8 / 249.3 / 254.5 degrees at 30 / 60 / 120).
 // For frames shorter than 30 ms the start is moved for the call so that t is cut to whole 1/30 s (the rate of the
-// console frame this frame lies in), then put back: the sum is the console's.
+// console frame this frame lies in), then put back: the sum is the console's. A frame that runs past the next console
+// frame (rates that are no multiple of 30) gets the mix of both console frames' rates by its time in each (below).
 constexpr uint32_t kRampStart[2] = {0xBC, 0xC0};
+constexpr uint32_t kAimRate[2] = {0xAC, 0xB0};
+constexpr uint32_t kAimTableIndex = 0x108;
 constexpr uint32_t kTimerGameTime = 0x28;
 
 void OnLookStickRamp(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   const uint32_t aim = ctx.r3.u32;
   const double dt = F64(base, fcp::addr::frame_timer + kTimerGameFrameTime);
-  float keep[2] = {}, moved[2] = {};
+  float keep[2] = {}, moved[2] = {}, moved_b[2] = {};
   bool shift[2] = {false, false};
+  double w[2] = {1.0, 1.0};  // share of this frame in the console frame of `moved` (the rest: in the next one)
+  bool split = false;
   if (!g_frame_turn && Above30() && dt > 0.0 && dt < kShortFrame && fcp::guest::Plausible(aim)) {
     const double now = float(F64(base, fcp::addr::frame_timer + kTimerGameTime));  // the game reads it as float
     for (int i = 0; i < 2; ++i) {
@@ -964,6 +1110,17 @@ void OnLookStickRamp(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
         // of its own time before a 1/30 s boundary counts as on it
         const double q = std::floor((t + 0.25 * dt) * 30.0) / 30.0;
         moved[i] = float(keep[i] + (t - q));
+        moved_b[i] = moved[i];
+        // A frame that runs past the next console frame (frame rates that are no multiple of 30, e.g. 45: frames of
+        // 22.2 ms against 33.3) turns at the console's rate of each console frame for its share of the time: the
+        // game's rate is taken at both and mixed. Measured before (m01, 1 s full stick): 248.7-248.9 degrees at 45
+        // against 249.6-250.1 at 30. FCP_TURN_MODEL=floor: only the console frame the frame starts in.
+        const double from = std::max(t, q), next = q + kConsoleStep;
+        if (!g_turn_floor && t + dt > next + 0.25 * dt) {
+          w[i] = std::clamp((next - from) / (t + dt - from), 0.0, 1.0);
+          moved_b[i] = float(keep[i] + (t - next));
+          split = true;
+        }
         shift[i] = moved[i] != keep[i];
         if (shift[i]) {
           SetF32(base, aim + kRampStart[i], moved[i]);
@@ -971,7 +1128,35 @@ void OnLookStickRamp(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
       }
     }
   }
-  original(ctx, base);
+  if (!split) {
+    original(ctx, base);
+  } else {
+    // Look_StickRamp writes only +0xAC/+0xB0 (rates), +0xBC/+0xC0 (starts) and +0x108 (a table index) from the
+    // stick and the time: it is called a second time for the next console frame and the rates mixed.
+    const uint32_t index = fcp::guest::U32(base, aim + kAimTableIndex);
+    const PPCContext entry = ctx;
+    original(ctx, base);
+    const float rate_a[2] = {F32(base, aim + kAimRate[0]), F32(base, aim + kAimRate[1])};
+    bool same = true;
+    for (int i = 0; i < 2; ++i) same = same && (!shift[i] || F32(base, aim + kRampStart[i]) == moved[i]);
+    if (same) {
+      const uint32_t be = __builtin_bswap32(index);
+      std::memcpy(fcp::guest::Ptr(base, aim + kAimTableIndex), &be, 4);
+      for (int i = 0; i < 2; ++i) {
+        if (shift[i] || moved_b[i] != keep[i]) {
+          SetF32(base, aim + kRampStart[i], moved_b[i]);
+          moved[i] = moved_b[i];
+          shift[i] = moved[i] != keep[i] || shift[i];
+        }
+      }
+      ctx = entry;
+      original(ctx, base);
+      const float rate_b[2] = {F32(base, aim + kAimRate[0]), F32(base, aim + kAimRate[1])};
+      for (int i = 0; i < 2; ++i) {
+        SetF32(base, aim + kAimRate[i], float(w[i] * rate_a[i] + (1.0 - w[i]) * rate_b[i]));
+      }
+    }
+  }
   for (int i = 0; i < 2; ++i) {
     if (shift[i] && F32(base, aim + kRampStart[i]) == moved[i]) {  // still the same ramp: its start back
       SetF32(base, aim + kRampStart[i], keep[i]);

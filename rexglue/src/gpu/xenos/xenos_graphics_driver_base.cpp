@@ -16,6 +16,7 @@
 #include <format>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -164,8 +165,56 @@ Result<void> XenosGraphicsDriverBase::AttachTitle(const TitleInfo& info, IPhysic
     const f64 nanoseconds_per_tick = 1e9 / static_cast<f64>(guest_tick_frequency);
     constexpr std::chrono::milliseconds kLongestSleep{50};
     u64 last_frame_time = Clock::QueryGuestTickCount();
+    // FCP: change 300 (UPSTREAM.md). REX_VSYNC_STATS=1: how late the vertical blanks are delivered (the thread
+    // wakes after its scheduled time), one line every 10 s plus one per blank later than 2 ms. Diagnosis only.
+    bool stats = false;
+#if defined(_WIN32)
+    {
+      char* value = nullptr;
+      size_t length = 0;
+      if (_dupenv_s(&value, &length, "REX_VSYNC_STATS") == 0 && value) {
+        stats = value[0] == '1';
+        free(value);
+      }
+      // REX_VSYNC_PRIORITY=<Win32 thread priority> (e.g. 2 highest, 15 time critical): priority of this thread.
+      value = nullptr;
+      if (_dupenv_s(&value, &length, "REX_VSYNC_PRIORITY") == 0 && value) {
+        const int priority = std::atoi(value);
+        free(value);
+        rex::platform::SetCurrentThreadPriority(priority);
+        REXGPU_INFO("vsync: thread priority {} (REX_VSYNC_PRIORITY)", priority);
+      }
+    }
+#else
+    if (const char* value = std::getenv("REX_VSYNC_STATS")) stats = value[0] == '1';
+#endif
+    u64 stats_start = last_frame_time, stats_count = 0, stats_late2 = 0, stats_late4 = 0;
+    f64 stats_max_ms = 0, stats_sum_ms = 0;
     while (vsync_worker_running_) {
       u64 interval_ticks = IsVSyncEnabled() ? vsync_interval_ticks : no_vsync_interval_ticks;
+      if (stats) {
+        const u64 now = Clock::QueryGuestTickCount();
+        if (now - last_frame_time >= interval_ticks) {
+          const f64 late_ms =
+              static_cast<f64>(now - last_frame_time - interval_ticks) * nanoseconds_per_tick / 1e6;
+          ++stats_count;
+          stats_sum_ms += late_ms;
+          stats_max_ms = std::max(stats_max_ms, late_ms);
+          if (late_ms > 2.0) {
+            ++stats_late2;
+            REXGPU_INFO("vsync: blank delivered {:.2f} ms late", late_ms);
+          }
+          if (late_ms > 4.0) ++stats_late4;
+        }
+        if (static_cast<f64>(now - stats_start) * nanoseconds_per_tick >= 10e9) {
+          REXGPU_INFO("vsync: {} blanks in 10 s, late mean {:.3f} ms, max {:.2f} ms, >2 ms {}, >4 ms {}",
+                      stats_count, stats_count ? stats_sum_ms / static_cast<f64>(stats_count) : 0.0,
+                      stats_max_ms, stats_late2, stats_late4);
+          stats_start = now;
+          stats_count = stats_late2 = stats_late4 = 0;
+          stats_max_ms = stats_sum_ms = 0;
+        }
+      }
       DeliverVblanks(
           Clock::QueryGuestTickCount(), last_frame_time, interval_ticks, kMaxVblankCatchUp,
           [this] { MarkVblank(); }, [this] { return vsync_worker_running_.load(); });

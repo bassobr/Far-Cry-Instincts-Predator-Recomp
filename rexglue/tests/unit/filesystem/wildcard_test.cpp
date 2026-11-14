@@ -81,3 +81,14 @@ REX_TEST_CASE("The DOS dot matches a dot or the end of the name", "[filesystem][
   CHECK_FALSE(Matches("readme\"", "readmex"));
   CHECK(Matches("a\"txt", "a.txt"));
 }
+
+REX_TEST_CASE("A final dot star also matches names without a dot", "[filesystem][wildcard]") {
+  // FCP (UPSTREAM 341): Far Cry Instincts Predator lists its level folders with "Levels\0*.*".
+  CHECK(Matches("0*.*", "00_training"));
+  CHECK(Matches("0*.*", "01_beach.dat"));
+  CHECK(Matches("M*.*", "MET_island"));
+  CHECK_FALSE(Matches("0*.*", "10_dead_marshes"));
+  CHECK_FALSE(Matches("2*.*", "13_black_forest"));
+  CHECK(Matches("*.sav", "slot1.sav"));
+  CHECK_FALSE(Matches("*.sav", "slot1"));
+}

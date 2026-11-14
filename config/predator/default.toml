@@ -2,7 +2,8 @@
 # Addresses apply only to default.xex of the disc release (title 555307DC, XDK 2.0.2417, PE timestamp
 # 2006-02-28, SHA-256 in disc.toml). Included via config/predator/predator_manifest.toml.in.
 # Carried over from the phase-0 ReXGlue v0.10.1 title configuration, as of 2026-11-12.
-# Codegen switches stay at their defaults (all *_as_local = false), except [vector_math] and [fp_rules] (below).
+# Codegen switches stay at their defaults (all *_as_local = false), except plain_memory, [vector_math] and
+# [fp_rules] (below).
 
 
 # CRT setjmp (MS variant: first checks a hook pointer and, if set, jumps via bnectr; saves f14-f31,
@@ -12,6 +13,13 @@
 # ordinary calls instead). With these lines: 11 ppc_setjmp and 31 ppc_longjmp sites.
 setjmp_address = 0x8277E900
 longjmp_address = 0x82630280
+
+# Plain guest memory accesses instead of volatile ones (rexglue/UPSTREAM.md, change 291; measured in
+# docs/phase1/leistung-runde2-hauptthread.md). A compiler barrier stands at every loop label and at
+# sync/lwsync/eieio, so every loop iteration reads guest memory again; between two barriers the optimizer
+# may combine and reorder accesses as the PowerPC storage model allows without a barrier instruction.
+# Back to the SDK behavior: remove this line, or at codegen time FCP_CODEGEN_ORIGINAL=plain_memory.
+plain_memory = true
 
 # [functions]: in phase 0 (v0.10.1) 57 entries were needed (one leaf function 0x8275E838 behind a tail
 # branch and 56 vcall/adjustor thunks without .pdata that GapFill assigned to the preceding function).

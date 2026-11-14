@@ -40,7 +40,7 @@ add_custom_target(
   predator_game_code_abi
   COMMAND
     ${CMAKE_COMMAND} -DFCP_SOURCE_DIR=${CMAKE_SOURCE_DIR} -DFCP_OUT=${FCP_GAME_CODE_ABI_H}
-    "-DFCP_EXTRA=march=${FCP_MARCH}|clang=${CMAKE_CXX_COMPILER_VERSION}|pgo=${_fcp_pgo_hash}"
+    "-DFCP_EXTRA=march=${FCP_MARCH}|clang=${CMAKE_CXX_COMPILER_VERSION}|pgo=${_fcp_pgo_hash}|preserve_none=${REX_GUEST_PRESERVE_NONE}"
     -DFCP_SDK_VERSION=${FCP_REXGLUE_SDK_VERSION} -P "${CMAKE_SOURCE_DIR}/cmake/fcp_game_code_abi.cmake"
   BYPRODUCTS "${FCP_GAME_CODE_ABI_H}"
   COMMENT "fcp_game_code_abi.h"

@@ -36,9 +36,10 @@ at once or at the next start.
 | Key | Variable | Default | Values | Applies |
 |---|---|---|---|---|
 | `mode` | `FCP_DISPLAY_MODE` | `"windowed"` | `windowed`, `borderless` (fullscreen window), `exclusive` (fullscreen video mode, not tested). Alt+Enter toggles window/fullscreen and stores the choice here | at once |
-| `width`, `height` | `FCP_WINDOW_WIDTH`, `FCP_WINDOW_HEIGHT` | `0` | window client size in pixels; `0` = 1280x720. The game itself renders at 1280x720 unless `[graphics] scale` is set | at once |
+| `width`, `height` | `FCP_WINDOW_WIDTH`, `FCP_WINDOW_HEIGHT` | `0` | window client size in pixels; `0` = 1280x720 (Steam Deck: 1280x800). The render resolution is `[graphics] resolution` / `scale` | at once |
 | `monitor` | `FCP_MONITOR` | `0` | `0` = the system's choice (primary), `1`..`n` = display number (not tested) | next start |
-| `fps` | `FCP_FPS` | `30` | `30` (as the console), `60`, `120`; see [FRAMERATE.md](FRAMERATE.md) | next start |
+| `fps` | `FCP_FPS` | `30` (Steam Deck OLED: `45`) | `30` (as the console), `45`, `60`, `90`, `120`. Smooth only when the display's refresh rate is a multiple of it (90 Hz: 30, 45, 90; 60 Hz: 30, 60); see [FRAMERATE.md](FRAMERATE.md) | next start |
+| `pacing` | `FCP_FPS_PACING` | `"game"` (Steam Deck: `"display"`) | `display`: every frame stays the same number of refreshes on the display, timed by the display itself (Vulkan; for 30 and 45 on a 90 Hz display, 30 on 60 Hz); `game`: the game's own timing. See [FRAMERATE.md](FRAMERATE.md#display-pacing) | next start |
 | `vsync` | `FCP_RENDER_VSYNC` | `"auto"` | `auto` (wait for the monitor up to 60 frames/s, not above), `on`, `off` | next start |
 
 ### `[graphics]`
@@ -51,11 +52,12 @@ All graphics defaults give the console's picture.
 | `msaa` | `FCP_RENDER_MSAA` | `"console"` | `console` (2x on the screen targets, 4x on the reflection, as the console), `off`, or `2`, `4`, `8` samples on the screen-sized targets (limited to what the GPU supports). Older files: `true` = console, `false` = off | next start |
 | `smaa` | `FCP_RENDER_SMAA` | `false` | `true`: SMAA 1x edge smoothing on the finished picture | at once |
 | `gamma` | `FCP_RENDER_GAMMA` | `true` | the game's gamma ramp (its brightness setting) | at once |
-| `scale` | `FCP_RENDER_SCALE` | `1` | render resolution of the screen-sized targets: `1` = 1280x720 as the console, `auto` = output height / 720 (follows window size changes), or a factor or percentage from 0.5 to 4 (`1.5`, `150%`, `2x`). HUD and text get sharper with it | at once |
+| `scale` | `FCP_RENDER_SCALE` | `1` | render resolution of the screen-sized targets: `1` = 1280x720 as the console, `auto` = output height / 720 (follows window size changes), or a factor or percentage from 0.5 to 4 (`1.5`, `150%`, `2x`). HUD and text get sharper with it. Used while `resolution` is `scale` | at once |
+| `resolution` | `FCP_RENDER_RESOLUTION` | `"scale"` | `scale` = from `scale`; `native` = the picture's size on the output (window or monitor; with bars the size inside them); or `WxH` (`"1280x800"`, 320x180 to 10240x5760) host pixels for the 1280x720 screen targets. Smaller than the output is scaled up; a shape other than the picture's is stretched to it. Steam Deck default: `native` | at once |
 | `shadow_scale` | `FCP_RENDER_SHADOW_SCALE` | `1` | shadow map resolution as a multiple of the console's 1344x1344 (0.5 to 4) | next start |
 | `aniso` | `FCP_RENDER_ANISO` | `1` | anisotropic filtering 1-16 for linearly filtered samplers; `1` = as the game sets it | next start |
 | `fov` | `FCP_RENDER_FOV` | `1` | field of view as a multiple of the game's (0.5 to 2, `1.2` or `120%`); the weapon and hands keep their own projection | next start |
-| `aspect` | `FCP_RENDER_ASPECT` | `"auto"` | shape of the 3D picture: `auto` = the output's shape when it is wider than 16:9 (Hor+: the console's vertical field of view, more to the sides), `16:9` (or `off`) = as the console with bars at the sides, or a fixed shape (`21:9`, `32:9`, `2.39`). Outputs of 16:9 or narrower (16:10, 4:3) always show 16:9 with bars | next start |
+| `aspect` | `FCP_RENDER_ASPECT` | `"auto"` | shape of the 3D picture: `auto` = the output's shape (wider than 16:9: Hor+, the console's vertical field of view, more to the sides; narrower: Vert+, the console's horizontal field of view, more above and below), `16:9` (or `off`) = as the console with bars, or a fixed shape (`16:10`, `4:3`, `21:9`, `32:9`, `2.39`). `FCP_RENDER_VERTPLUS=0` shows narrower outputs with bars as before | next start |
 
 Which targets are scaled: targets at least 640 pixels wide and wider than high get `scale`, square targets from
 1024 get `shadow_scale`, all smaller post-processing targets stay at console size (the game passes their pixel sizes
@@ -195,7 +197,7 @@ Not verified with a real keyboard: F10 and Alt+Enter were tested with window mes
 
 ## Frame rate
 
-`[display] fps` selects 30 (default, as the console), 60 or 120 frames per second. Game time runs at wall-clock
+`[display] fps` selects 30 (default, as the console), 45, 60, 90 or 120 frames per second. Game time runs at wall-clock
 speed at every rate; the places where the game logic depends on the frame count are corrected above 30. Details,
 measurements and open points: [FRAMERATE.md](FRAMERATE.md).
 
@@ -209,7 +211,8 @@ measurements and open points: [FRAMERATE.md](FRAMERATE.md).
 | `FCP_SETTINGS_FILE=<path>` or `none` | another settings file, or none (built-in defaults, nothing stored) |
 | `rexglue.toml` in the user folder | optional SDK settings, only read when present |
 | `renderer.toml` beside the EXE | renderer layout; its `backend` is used by `[graphics] backend = "auto"` |
-| `FCP_DEVICE=deck\|pc` | force the device detection (Steam Deck or PC). No device-specific defaults are set at the moment |
+| `FCP_DEVICE=deck\|ally\|pc` | force the device detection: Steam Deck OLED defaults, ROG Xbox Ally X defaults, or plain PC defaults (see the README sections on handhelds) |
+| `FCP_DECK_FPS45=0` | keep 30 frames/s as the Steam Deck OLED default (from v0.1.2 on it is 45; the LCD model keeps 30) |
 
 Switches for the first start (game code and shader pack build) are listed in the README; switches back to the
 original behaviour in [DEBUG-SWITCHES.md](DEBUG-SWITCHES.md).

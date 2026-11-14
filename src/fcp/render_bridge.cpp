@@ -109,10 +109,30 @@ float ParseAspect(std::string v) {
     w = 0;
   }
   if (!(w > 0) || !(h > 0) || w / h < 1.0 || w / h > 8.0) {
-    FCPLOG("renderer: FCP_RENDER_ASPECT={}: not an aspect (auto, 16:9, 21:9, 32:9, 2.39), auto taken", v);
+    FCPLOG("renderer: FCP_RENDER_ASPECT={}: not an aspect (auto, 16:9, 16:10, 4:3, 21:9, 32:9, 2.39), auto taken", v);
     return 0.0f;
   }
   return float(w / h);
+}
+
+// Render resolution: "" / "scale" = from [graphics] scale (as before); "native" = the picture's size on the output;
+// "1280x800" = that many host pixels for the screen-sized targets (320x180 to 10240x5760).
+uint32_t ParseResolution(std::string v, uint32_t& w, uint32_t& h) {
+  w = h = 0;
+  for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  while (!v.empty() && v.back() == ' ') v.pop_back();
+  while (!v.empty() && v.front() == ' ') v.erase(v.begin());
+  if (v.empty() || v == "scale" || v == "0" || v == "off") return 0;
+  if (v == "native" || v == "auto") return 1;
+  unsigned a = 0, b = 0;
+  char sep = 0, extra = 0;
+  if (std::sscanf(v.c_str(), "%u%c%u%c", &a, &sep, &b, &extra) == 3 && (sep == 'x' || sep == '*' || sep == ':') && a >= 320 &&
+      b >= 180 && a <= 10240 && b <= 5760) {
+    w = a, h = b;
+    return 2;
+  }
+  FCPLOG("renderer: FCP_RENDER_RESOLUTION={}: not a resolution (scale, native, 1280x800), the scale decides", v);
+  return 0;
 }
 
 bool CreateRenderer() {
@@ -148,6 +168,22 @@ bool CreateRenderer() {
   o.pipeline_list = fcp::env::Get("FCP_PIPELINE_LIST");
   if (o.pipeline_list.empty()) o.pipeline_list = (cache / (std::string("pipelines.") + target + ".bin")).string();
   o.pipeline_prewarm = fcp::env::Flag("FCP_PIPELINE_PREWARM", true);
+  // Shipped pipeline list next to the EXE (config/predator/pipelines.fcpl): FCP_RENDER_PIPELINE_SHIPPED=0 off,
+  // =<file> another list.
+  {
+    const std::string s = fcp::env::Get("FCP_RENDER_PIPELINE_SHIPPED");
+    if (s != "0" && s != "off" && s != "false") o.pipeline_shipped = s.empty() || s == "1" ? (exe / "pipelines.fcpl").string() : s;
+  }
+  o.pipeline_collect = fcp::env::Get("FCP_PIPELINE_COLLECT");
+  if (!o.pipeline_collect.empty()) std::filesystem::create_directories(o.pipeline_collect, ec);
+  o.prewarm_low_priority = fcp::env::Flag("FCP_RENDER_PREWARM_LOW_PRIORITY", true);
+  o.pipeline_async = fcp::env::Flag("FCP_RENDER_PIPELINE_ASYNC", true);
+  o.pipeline_threads = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_PIPELINE_THREADS", 0), 0, 32));
+  o.shader_async = fcp::env::Flag("FCP_RENDER_SHADER_ASYNC", true);
+  o.pipeline_max_wait_ms = double(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_PIPELINE_MAX_WAIT_MS", -1), -1, 10000));
+  if (o.pipeline_max_wait_ms >= 0)
+    FCPLOG("renderer: FCP_RENDER_PIPELINE_MAX_WAIT_MS={}: draws without a ready pipeline are left out (changes the image)",
+           o.pipeline_max_wait_ms);
   o.dump_pattern = fcp::env::Get("FCP_DUMP_FRAMES");
   // "%g" = relaunch generation (chains of level transitions: every process writes its own files).
   for (size_t at; (at = o.dump_pattern.find("%g")) != std::string::npos;)
@@ -189,6 +225,13 @@ bool CreateRenderer() {
   }
   o.smaa = fcp::env::Flag("FCP_RENDER_SMAA", false);
   o.constant_versions = uint32_t(std::max<int64_t>(0, fcp::env::Int("FCP_RENDER_CB_VERSIONS", 0)));
+  o.slot_recycle = fcp::env::Flag("FCP_RENDER_SLOT_RECYCLE", true);
+  if (const std::string ts = fcp::env::Get("FCP_RENDER_TABLE_SLOTS"); !ts.empty()) {
+    unsigned v[6] = {};
+    std::sscanf(ts.c_str(), "%u,%u,%u,%u,%u,%u", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]);
+    for (int i = 0; i < 6; ++i) o.table_slots[i] = v[i];
+    FCPLOG("renderer: FCP_RENDER_TABLE_SLOTS={} (diagnostics: table capacities, 0 = default)", ts);
+  }
   if (!fcp::env::Get("FCP_TRACE_HITCHES").empty()) {
     const int64_t ms = fcp::env::Int("FCP_TRACE_HITCHES", 50);
     o.slow_frame_ms = double(ms <= 1 ? 50 : ms);  // 1 = 50 ms, as in gametime.cpp
@@ -198,6 +241,15 @@ bool CreateRenderer() {
   // swap applies the back pressure instead (at most FCP_RENDER_FRAMES_AHEAD swaps open on the GPU).
   o.present_unlocked = fcp::env::Flag("FCP_RENDER_PRESENT_UNLOCKED", true);
   o.frames_ahead = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_FRAMES_AHEAD", 2), 0, 8));
+  // Present timing (presentstat lines, same window as framestat) and display pacing (fcp/framerate.h).
+  o.present_stats_seconds = double(fcp::env::Int("FCP_PRESENT_STATS", fcp::env::Int("FCP_FPS_STATS", 10)));
+  o.pace_fps = fcp::framerate::DisplayPacingTarget();
+  o.pace_queued = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_PACE_QUEUE", 1), 1, 3));
+  if (const std::string h = fcp::env::Get("FCP_PACE_HOLD"); !h.empty()) o.pace_hold = std::clamp(std::atof(h.c_str()), 0.0, 0.9);
+  if (const std::string e = fcp::env::Get("FCP_PACE_EARLY"); !e.empty()) o.pace_early_ms = std::clamp(std::atof(e.c_str()), 0.0, 20.0);
+  o.pace_trace = fcp::env::Flag("FCP_PACE_TRACE", false);
+  o.pace_single = fcp::env::Flag("FCP_PACE_SINGLE", false);
+  if (const std::string s = fcp::env::Get("FCP_PACE_SPIN"); !s.empty()) o.pace_spin_ms = std::clamp(std::atof(s.c_str()), 0.0, 20.0);
   o.fast_constants = fcp::env::Flag("FCP_RENDER_FAST_CONSTANTS", true);
   o.index_cache = fcp::env::Flag("FCP_RENDER_INDEX_CACHE", true);
   o.ring_batch = fcp::env::Flag("FCP_RENDER_RING_BATCH", true);
@@ -225,6 +277,11 @@ bool CreateRenderer() {
     o.scale_min_width = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_SCALE_MIN_WIDTH", 640), 1, 8192));
     o.aniso = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_ANISO", 1), 1, 16));
     o.aspect = ParseAspect(fcp::env::Get("FCP_RENDER_ASPECT"));
+    o.vert_plus = fcp::env::Flag("FCP_RENDER_VERTPLUS", true);
+    o.resolution_mode = ParseResolution(fcp::env::Get("FCP_RENDER_RESOLUTION"), o.res_w, o.res_h);
+    if (o.resolution_mode && (o.scale != 1.0f || o.scale_auto))
+      FCPLOG("renderer: FCP_RENDER_RESOLUTION={} decides, FCP_RENDER_SCALE={} not used for the screen targets",
+             fcp::env::Get("FCP_RENDER_RESOLUTION"), fcp::env::Get("FCP_RENDER_SCALE"));
     o.trace_wide = fcp::env::Flag("FCP_TRACE_WIDE", false);
   }
   o.log = &LogSink;
@@ -430,6 +487,10 @@ void SetGuestBase(uint8_t* base) {
   std::call_once(g_base_once, [base] { g_renderer->SetGuestBase(base); });
 }
 
+void OnLevelLoading(const std::string& level) {
+  if (g_renderer) g_renderer->OnLevelLoading(level);
+}
+
 void Shutdown() {
   if (g_renderer) g_renderer->Shutdown();
   fcp::prompts::WriteSummary();
@@ -461,6 +522,17 @@ void SetSmaa(bool on) {
   if (g_renderer) g_renderer->SetSmaa(on);
 }
 
+void SetResolution(const std::string& value) {
+  if (!g_renderer) return;
+  uint32_t w = 0, h = 0;
+  const uint32_t mode = ParseResolution(value, w, h);
+  g_renderer->SetResolution(mode, w, h);
+}
+
 float HorPlusWide() { return g_renderer ? g_renderer->Wide() : 1.0f; }
+float VertPlusTall() { return g_renderer ? g_renderer->Tall() : 1.0f; }
+
+bool DisplayPacingActive() { return g_renderer && g_renderer->DisplayPacingActive(); }
+double DisplayFrameMs() { return g_renderer ? g_renderer->DisplayFrameMs() : 0.0; }
 
 }  // namespace fcp::render

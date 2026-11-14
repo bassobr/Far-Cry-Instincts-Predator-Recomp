@@ -24,7 +24,9 @@ All of these corrections are inactive at 30 frames/s. Details and measurements: 
 | `FCP_FRAME_TURN=1` | stick turn ramp summed per frame |
 | `FCP_FRAME_PATH=1` | path following with one frame's look-ahead; `FCP_FRAME_PATH_RELEASE=1` keeps the look-ahead correction but turns off the release from corners |
 | `FCP_FRAME_FIRE=1` | fire test once per frame |
-| `FCP_FALL_SAMPLE_FRAMES=<k>` | age of the sampled landing speed in frames for the fall correction (default 2.4, measured) |
+| `FCP_FALL_MODEL=linear` | fall correction without the console step model: only the older fixed-age estimate below (it was 3 % high at 45 frames/s) |
+| `FCP_FALL_SAMPLE_FRAMES=<k>` | age of the sampled landing speed in frames for the older estimate (default 2.4; used where the step model does not apply) |
+| `FCP_TURN_MODEL=floor` | stick turn ramp: a frame that spans two console frames takes the rate of the first only (0.4 % less turn at 45 frames/s) |
 
 Experiments, off by default (the value turns them **on**): `FCP_FRAME_EDGE=0` (step edge test),
 `FCP_FRAME_TIMER_TICK=0` (entity timer ticks on console frames), `FCP_AI_CONSOLE_TICK=1` (thinking rate of
@@ -39,6 +41,8 @@ computer-controlled characters at the console's rate).
 | `[vector_math]` in `config/predator/default.toml` | code generation | removing the block gives the SDK's `fast` approximations |
 | CMake `-DFCP_MARCH=x86-64-v2` | build | the earlier ISA level (no AVX2) |
 | CMake `-DFCP_GAME_CODE_DLL=OFF` | build | game code linked into `predator.exe`, no first-start build |
+| `FCP_GAME_CODE_LTO=0\|1` | first start / game code build | ThinLTO of the game code; default on, on the Steam Deck off (no measurable gain there, shorter build) |
+| `FCP_GAME_CODE_CAPTURE_USES=<n>` | first start / game code build (with `FCP_GAME_CODE_REBUILD=1` for an existing DLL) | LLVM's capture tracking limit for the game code (default 10000; `1000000` = the earlier default, `0` = LLVM's default of 100, about 3 % more main thread time) |
 
 Each of the codegen fixes is checked by the semantic test; see `rexglue/UPSTREAM.md` (changes 9 and 70).
 
@@ -52,9 +56,12 @@ Local changes of the frozen SDK copy (`rexglue/UPSTREAM.md`):
 | `FCP_AUDIO_UNREGISTER_NOWAIT=1` | unregistering an audio render client does not wait for its running callback (upstream order; crashed in 3 of 4 test runs of the map editor launcher with a widened window) |
 | `FCP_NET_IDLE_WAIT_MS=0` | a `select` poll with timeout 0 returns at once every time (upstream); otherwise, after `FCP_NET_IDLE_POLLS` empty polls in a row (default 64), it waits up to 1 ms for readiness. Measured with a failed system link socket: menu 209.6 % against 25.9 % process CPU |
 | `FCP_PROFILE_WRITE_TYPE_FROM_DATA=1` | profile settings take their data type from the game's type byte (upstream); the game leaves it uninitialised and a save's title setting was dropped |
+| `FCP_PROFILE_TITLE_TYPE_FROM_ID=0` | the game's own profile settings no longer always take their type from the setting ID; a type byte of 255 or 1..5/7 drops the save again |
+| `FCP_FIND_STAR_DOT_STRICT=1` | a file pattern like `0*.*` needs a literal dot again; "Load a Map" and the multiplayer map list stay empty |
 | `FCP_DEV_OVERLAYS=1` | registers the SDK's developer overlays (debug F3, console backtick, settings F4, achievements F7), which are off by default |
 | `FCP_RELAUNCH_KEEP_WINDOW=0` | the relaunched process gets only the window size; position, maximised and fullscreen state are set later (earlier hand-over) |
 | `FCP_GPU_WAIT=0` | the D3D library's GPU wait loops spin instead of sleeping on the command processor's progress; `FCP_GPU_WAIT_TIMEOUT_MS=<ms>` (default 1) bounds one sleep |
+| `REX_HID_SDL_SYNC=1` | SDL pads as upstream: `XamInputGetState`/`GetCapabilities`/`SetState` call SDL on the game's thread and vibration is written synchronously (on a Steam Deck 2-18 ms in a few percent of the frames, rarely up to 200 ms); otherwise state and capabilities are cached and vibration is sent from the UI thread |
 | CMake `-DREXGLUE_FFMPEG_SHARED=OFF` | FFmpeg linked statically into the kernel library instead of `rexffmpeg.dll` |
 
 ## Title layer
@@ -93,24 +100,45 @@ Local changes of the frozen SDK copy (`rexglue/UPSTREAM.md`):
 | `FCP_RENDER_FAST_CONSTANTS=0` | shader constants converted and compared per draw (earlier) |
 | `FCP_RENDER_INDEX_CACHE=0`, `FCP_RENDER_RING_BATCH=0` | indices and ring copies per draw (earlier) |
 | `FCP_RENDER_CB_VERSIONS=<n>` | versions per volatile constant buffer under Vulkan (default 8192) |
+| `FCP_RENDER_SLOT_RECYCLE=0` | textures and vertex buffers keep their bindless slot for good (earlier); by default entries not bound for a while are evicted when a table fills up and their slots are reused, so that a long session in one level does not run out of slots (issue #1: missing or flat, untextured objects) |
 | `FCP_PIPELINE_PREWARM=0` | no pipeline creation ahead of time from the stored pipeline list |
+| `FCP_RENDER_PIPELINE_SHIPPED=0` | without the shipped pipeline list (`pipelines.fcpl` next to the EXE); `=<file>` uses another list |
+| `FCP_RENDER_PREWARM_LOW_PRIORITY=0` | prewarm jobs at normal thread priority (default: below normal) |
+| `FCP_PIPELINE_COLLECT=<folder>` | every pipeline record a draw uses goes to `<folder>\<group>.bin` (`menu` or the level name), input of `tools\pipelines_build.ps1` |
+| `FCP_RENDER_PIPELINE_ASYNC=0` | missing pipelines are created on the game's render thread one after another (earlier); by default they are made on worker threads while the rest of the command list is recorded and replayed in order (same image); `FCP_RENDER_PIPELINE_THREADS=<n>` sets the worker count (default: CPUs of the process minus 2, 1..8) |
+| `FCP_RENDER_PIPELINE_MAX_WAIT_MS=<ms>` | **changes the image**: draws whose pipeline is not ready after this wait are left out of that frame (pop-in instead of a hitch); off by default |
+| `FCP_RENDER_SHADER_ASYNC=0` | shaders missing from pack and cache are translated in the game's create call (earlier) instead of on worker threads |
+| `FCP_RENDER_CONST_SPAN=0` | the whole 4 KB constant block is converted on every change (earlier) instead of the changed span |
+| `FCP_RENDER_MSAA_RESOLVE_ONCE=0` | an MSAA target is resolved again for every resolve rectangle, even when unchanged (earlier) |
+| `FCP_RENDER_DEFER_ALL=1` | diagnostics: every command list goes through the deferred (recorded and replayed) list |
 | `FCP_VK_NO_GPL=1` | Vulkan without the graphics pipeline library; `FCP_VK_GPL_ANY_VENDOR=1` also uses it on GPUs other than NVIDIA (only tested there) |
 | `FCP_SHADER_PACK_BUILD=0` | no shader pack on the first start; shaders are translated while playing |
 | `FCP_SHADER_COMPILE_CACHE=0\|verify\|memory` | cache of the game's own run-time shader compiles: off, checked against a fresh compile, or in memory only (default: on disk, `cache\hlsl`) |
 | `FCP_RENDER_VSYNC=0\|1` | host present without / with waiting for the monitor (default: on up to 60 frames/s) |
+| `FCP_FPS_PACING=game` | the game's own pacing (vblank wait / host limiter) also where `display` is the default (Steam Deck); see [FRAMERATE.md](FRAMERATE.md#display-pacing) |
+| `FCP_PRESENT_WAIT=0` | Vulkan without `VK_KHR_present_id`/`present_wait`: no display timing, no display pacing, `presentstat:` with present intervals only |
+| `FCP_PRESENT_STATS=<s>` | `presentstat:` line every s seconds (default: `FCP_FPS_STATS`, 10; 0 = off) |
+| `FCP_PACE_HOLD=<f>` | display pacing: present released f refreshes after the (n-1)-th one (default 0; 0.3 left 9-15 %, 0.6 70 % of the frames one refresh longer on the Deck, measured) |
+| `FCP_PACE_QUEUE=<1..3>`, `FCP_PACE_EARLY=<ms>`, `FCP_PACE_SPIN=<ms>`, `FCP_PACE_LIMIT=<f>`, `FCP_PACE_SINGLE=1` | display pacing experiments: swaps allowed ahead of the display (2 drops frames), release the game earlier, poll instead of sleep, host limiter at f x the display frame period, pace also at one refresh per frame; none improved the measured cadence |
+| `FCP_PACE_TRACE=1` | a `pace late:` line (time line of swap, present, display) for each frame that stayed too long |
 
 Diagnostics only: `FCP_RENDER_CONDITIONAL=1` (skip conditionally rendered draws), `FCP_RENDER_SKIP_PS=<hash>,...`
 (skip draws with these pixel shaders), `FCP_RENDER_SOLID_PS`/`_VS`/`_COLOR`, `FCP_GPU_DEBUG=1` (Direct3D 12 debug
 layer, Vulkan validation), `FCP_GPU_WARP=1` (Direct3D 12 software device), `FCP_SHADER_PACK_STALE_OK=1` (use an
 outdated shader pack), `FCP_RENDER_SCALE_MIN_WIDTH=<px>` (width from which a target counts as screen-sized,
-default 640).
+default 640), `FCP_RENDER_TABLE_SLOTS=<2D>,<3D>,<cube>,<array>,<samplers>,<buffers>` (capacities of the bindless
+tables, 0 = default 4096,64,256,64,256,4096; small values reproduce a full table quickly). The renderer statistics
+line `renderer: tables ...` shows slots in use per table, requests refused because a table was full, and the
+number of draws with the guest's alpha-to-mask bit (`RB_COLORCONTROL` bit 4, not emulated; the first ones are logged).
 
 ## PC features back to the console
 
 | Switch | Effect |
 |---|---|
 | `FCP_RENDER_SCALE=1`, `FCP_RENDER_SHADOW_SCALE=1`, `FCP_RENDER_ANISO=1`, `FCP_RENDER_FOV=1` | the console's resolution, shadow map, filtering and field of view (the defaults) |
-| `FCP_RENDER_ASPECT=16:9` | the console's 16:9 picture with bars on wide outputs (the whole Hor+ path off); `FCP_FOV_RESTORE=1` keeps Hor+ but writes the game's camera values back after each camera update (water then covers only the 16:9 middle) |
+| `FCP_RENDER_RESOLUTION=scale` | the render resolution from `FCP_RENDER_SCALE` (the default; `native` and `WxH` replace it) |
+| `FCP_RENDER_VERTPLUS=0` | outputs narrower than 16:9 (16:10, 4:3) show the 16:9 picture with bars as before (Vert+ off, Hor+ stays) |
+| `FCP_RENDER_ASPECT=16:9` | the console's 16:9 picture with bars on wide and narrow outputs (the whole Hor+ / Vert+ path off); `FCP_FOV_RESTORE=1` keeps Hor+ but writes the game's camera values back after each camera update (water then covers only the 16:9 middle) |
 | `FCP_RENDER_MSAA=console`, `FCP_RENDER_SMAA=0`, `FCP_RENDER_GAMMA=1` | the console's multisampling, no SMAA, the game's gamma ramp (the defaults) |
 | `FCP_BUTTON_PROMPTS=xbox` | the game's own button glyphs; `FCP_PROMPTS=0` turns the prompt module off completely |
 | `FCP_MENU=0` | no F10 settings menu |

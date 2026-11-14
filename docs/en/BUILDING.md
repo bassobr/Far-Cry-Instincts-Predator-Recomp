@@ -139,6 +139,32 @@ plays 8 scripted runs (on foot, boats, a vehicle, swimming; about 8 minutes, nee
 counters into `config/predator/game_code.profdata` and builds again with it. Commit the new profile. Without a
 profile: `-DFCP_PGO=OFF` (or `tools\pgo.ps1 -Off`); on the first start `FCP_GAME_CODE_PGO=0`.
 
+## Pipeline list
+
+The renderer creates a graphics pipeline the first time a draw needs a combination of shaders and render state; a
+cold driver takes tens of milliseconds per pipeline, which shows as stutter on the first visit of a level. The
+repository therefore holds a list of the pipelines the game uses, `config/predator/pipelines.fcpl` (copied next to
+`predator.exe` by the build, shipped as `pipelines.fcpl`). At start the renderer prewarms it together with the
+player's own list (`pipelines.<spirv|dxil>.bin` in the user folder) on its worker threads at below-normal priority:
+the menu group first, then the player's list, then the levels in campaign order; when a level starts loading, its
+records move to the front. A draw whose pipeline is being prewarmed waits for exactly that job. On Vulkan the
+driver results also go into the pipeline cache file (`vk_pipelines.bin`) and the driver's own cache.
+`FCP_RENDER_PIPELINE_SHIPPED=0` turns the shipped list off (`=<file>` uses another one).
+
+What it contains: per record the 64-bit hashes of the vertex and pixel shader containers (the key of the translated
+shaders, not the shaders), the primitive type, the host formats of the bound targets and the render state values
+that make a pipeline (blend control, write masks, depth/stencil control, stencil masks, cull mode and face, depth
+clip, depth bias), the guest MSAA level and a bit for screen-sized targets (the loader derives the sample count for
+the `[graphics] msaa` setting), plus a mask of the groups (`menu`, level names) it was seen in. Version, sizes and an
+FNV-1a 64 checksum are in the header; the format is described in `tools/pipelines_build.ps1`. It is the same file for
+Vulkan and D3D12 and does not depend on resolution, scale, aspect or SMAA.
+
+How it is made: `tools\pipelines_collect.ps1` runs the menus and intro, all 19 levels (walking, looking around,
+firing), the boat and Humvee runs and both campaigns as transition chains with `FCP_PIPELINE_COLLECT=<folder>`
+(every record a draw uses goes to `<folder>\<group>.bin`); `tools\pipelines_build.ps1 -In <folders>` merges them,
+removes duplicates and writes the list (the same inputs give the same file). `-Info <file>` checks and describes a
+list, `-Coverage <file> -In <folder>` counts the records of a run the list lacks.
+
 ## Tests
 
 | Command | What it checks |

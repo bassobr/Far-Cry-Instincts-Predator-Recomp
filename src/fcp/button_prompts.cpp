@@ -891,6 +891,10 @@ Style Current() {
   return g_last.load(std::memory_order_relaxed);
 }
 
+bool KeyboardMouseInUse() {
+  return g_last.load(std::memory_order_relaxed) == Style::kKeyboard;
+}
+
 void NoteKeyboard() {
   if (g_last.load(std::memory_order_relaxed) != Style::kKeyboard || !g_used.load(std::memory_order_relaxed))
     Use(Style::kKeyboard, "key or mouse button");

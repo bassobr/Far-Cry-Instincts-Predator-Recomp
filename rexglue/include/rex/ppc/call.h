@@ -693,7 +693,8 @@ void StoreHostResult(PPCContext& ctx, u8* base, u32 hidden_pointer, const RetT& 
  *         finish.
  */
 template <auto Func, bool StopAtEntry = true>
-__attribute__((noinline)) void GuestToHostThunk(PPCContext& ctx, u8* base) {
+__attribute__((noinline)) REX_GUEST_CC void GuestToHostThunk(REX_CTX_NOESCAPE PPCContext& ctx,
+                                                             u8* base) {
   using RetT = decltype(std::apply(Func, FunctionArgs(Func)));
 
   detail::CheckHookContext(ctx, __PRETTY_FUNCTION__);

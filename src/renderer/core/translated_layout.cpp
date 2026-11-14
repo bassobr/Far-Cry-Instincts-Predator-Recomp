@@ -104,8 +104,8 @@ bool TranslatedLayout::Init(nvrhi::IDevice* device, const TableCapacities& capac
 
 uint32_t TranslatedLayout::AddTexture(Table table, nvrhi::ITexture* texture) {
   const size_t t = size_t(table);
-  if (next_[t] >= capacities_.slots[t]) return 0;
-  const uint32_t slot = next_[t]++;
+  const uint32_t slot = Take(t);
+  if (slot == kFull) return 0;
   device_->writeDescriptorTable(tables_[t], nvrhi::BindingSetItem::Texture_SRV(slot, texture));
   return slot;
 }
@@ -113,8 +113,8 @@ uint32_t TranslatedLayout::AddTexture(Table table, nvrhi::ITexture* texture) {
 uint32_t TranslatedLayout::AddTextureView(Table table, nvrhi::ITexture* texture, nvrhi::ComponentMapping mapping,
                                           nvrhi::TextureDimension dimension) {
   const size_t t = size_t(table);
-  if (next_[t] >= capacities_.slots[t]) return 0;
-  const uint32_t slot = next_[t]++;
+  const uint32_t slot = Take(t);
+  if (slot == kFull) return 0;
   WriteTextureView(table, slot, texture, mapping, dimension);
   return slot;
 }
@@ -130,16 +130,16 @@ void TranslatedLayout::WriteTextureView(Table table, uint32_t slot, nvrhi::IText
 
 uint32_t TranslatedLayout::AddSampler(nvrhi::ISampler* sampler) {
   const size_t t = size_t(Table::kSamplers);
-  if (next_[t] >= capacities_.slots[t]) return 0;
-  const uint32_t slot = next_[t]++;
+  const uint32_t slot = Take(t);
+  if (slot == kFull) return 0;
   device_->writeDescriptorTable(tables_[t], nvrhi::BindingSetItem::Sampler(slot, sampler));
   return slot;
 }
 
 uint32_t TranslatedLayout::AddBuffer(nvrhi::IBuffer* buffer) {
   const size_t t = size_t(Table::kBuffers);
-  if (next_[t] >= capacities_.slots[t]) return 0;
-  const uint32_t slot = next_[t]++;
+  const uint32_t slot = Take(t);
+  if (slot == kFull) return 0;
   device_->writeDescriptorTable(tables_[t], nvrhi::BindingSetItem::RawBuffer_SRV(slot, buffer));
   return slot;
 }

@@ -44,6 +44,11 @@ nr::TextureReplaceSource* Source();
 /** The style shown now; its name ("xbox", "keyboard", "playstation", "switch"). */
 Style Current();
 const char* Name(Style s);
+/**
+ * True when keyboard or mouse is the device used last (or nothing was used and no controller is connected),
+ * whatever the button_prompts setting shows. The pointer lock follows it (pc_input.cpp, UpdatePointer).
+ */
+bool KeyboardMouseInUse();
 
 // ---- what the player used last (auto); cheap, any thread, no locks of the caller taken ----
 void NoteKeyboard();                          // a key or mouse button is down (real or FCP_KEY_SCRIPT)

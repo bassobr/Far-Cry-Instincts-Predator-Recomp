@@ -83,6 +83,13 @@ class HostDevice {
   virtual DriverPipelineCache* pipeline_cache() { return nullptr; }
   // Saves the driver pipeline cache (Vulkan) if one is active.
   virtual void SavePipelineCache() {}
+  // Display timing (Vulkan with VK_KHR_present_id and VK_KHR_present_wait, present_pacer.h). Every Present() gets the
+  // next id (1, 2, ...); last_present_id is the id of the latest one. WaitPresented blocks up to timeout_ns until the
+  // present with this id (or a later one) reached the display: true when it did, false on timeout or error. Any thread,
+  // without the caller's lock (not during Resize).
+  virtual bool has_present_wait() const { return false; }
+  virtual uint64_t last_present_id() const { return 0; }
+  virtual bool WaitPresented(uint64_t id, uint64_t timeout_ns) { (void)id, (void)timeout_ns; return false; }
 };
 
 std::unique_ptr<HostDevice> CreateVulkanHost(const HostOptions& options, std::string* error);

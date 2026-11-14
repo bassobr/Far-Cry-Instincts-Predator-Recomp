@@ -23,7 +23,38 @@
 
 struct PPCContext;
 
-using PPCFunc = void(PPCContext& ctx, u8* base);
+// FCP (rexglue/UPSTREAM.md, change 290): the context parameter of every recompiled function is
+// noescape (LLVM nocapture). No guest function keeps the context pointer after it returns, so a caller
+// may keep context fields in host registers across calls that do not get the context (slow paths,
+// MMIO, dispatch lookups). Together with a higher capture tracking limit this lets the optimizer
+// hold guest registers in host registers within a function. -DREX_GUEST_CTX_NOESCAPE=0 switches it
+// off (only an optimization hint, both settings are ABI compatible).
+#ifndef REX_GUEST_CTX_NOESCAPE
+#define REX_GUEST_CTX_NOESCAPE 1
+#endif
+#if REX_GUEST_CTX_NOESCAPE && defined(__clang__)
+#define REX_CTX_NOESCAPE __attribute__((noescape))
+#else
+#define REX_CTX_NOESCAPE
+#endif
+
+// FCP (rexglue/UPSTREAM.md, change 292): with REX_GUEST_PRESERVE_NONE=1 (rexbase sets it, default on
+// for clang on x86-64) every recompiled function, hook and export of type PPCFunc uses the
+// preserve_none calling convention: the callee saves no register, so a guest call does not push and
+// pop the eight Win64 callee-saved registers and xmm6 to xmm15. The guest state lives in the context,
+// across a call only the context and base pointers are live. Host code that calls a PPCFunc saves its
+// own registers around the call (the compiler does that from the type). The value changes the ABI of
+// the generated code: executable and guest library must be built with the same one.
+#ifndef REX_GUEST_PRESERVE_NONE
+#define REX_GUEST_PRESERVE_NONE 0
+#endif
+#if REX_GUEST_PRESERVE_NONE && defined(__clang__) && (defined(__x86_64__) || defined(_M_X64))
+#define REX_GUEST_CC __attribute__((preserve_none))
+#else
+#define REX_GUEST_CC
+#endif
+
+using PPCFunc = REX_GUEST_CC void(REX_CTX_NOESCAPE PPCContext& ctx, u8* base);
 
 namespace rex::ppc {
 /**
@@ -65,7 +96,9 @@ REX_PPC_API std::jmp_buf& GetJumpBuffer(u32 address);
  * REX_FUNC(sub_82010000);
  * @endcode
  */
-#define REX_FUNC(x) void x([[maybe_unused]] PPCContext& __restrict ctx, [[maybe_unused]] u8* base)
+#define REX_FUNC(x)       \
+  REX_GUEST_CC void x([[maybe_unused]] REX_CTX_NOESCAPE PPCContext& __restrict ctx, \
+                      [[maybe_unused]] u8* base)
 
 /**
  * Declares a recompiled function with C linkage.

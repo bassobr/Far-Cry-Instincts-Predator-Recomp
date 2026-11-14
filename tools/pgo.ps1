@@ -1,6 +1,6 @@
 # PGO of the recompiled code: instrumented training build, training runs, merge, optimized build.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\pgo.ps1 [-Config release] [-BuildCmd build.cmd]
-#       [-Runs <spec;spec>] [-Seconds 55] [-Out <file>] [-SkipTrain] [-NoBuild] [-Off] [-Auto]
+#       [-Runs <spec;spec>] [-Seconds 55] [-Out <file>] [-SkipTrain] [-SkipTrainBuild] [-NoBuild] [-Off] [-Auto]
 # Steps:
 #  1. tools\pgo_train_build.cmd: out\build\pgo-train, the game code linked into predator.exe and instrumented
 #     (-DFCP_GAME_CODE_DLL=OFF -DFCP_PGO=generate; predator_code.dll has no CRT for the profile runtime);
@@ -14,6 +14,8 @@
 # set covers on-foot levels, boats, a vehicle and swimming. In a git worktree: -BuildCmd tools\boot\wt_build.cmd.
 # -Off turns PGO off in the build folder (FCP_PGO=OFF) and builds; -Auto sets the default again (FCP_PGO=auto).
 # -SkipTrain only merges the existing raw profiles; -NoBuild stops after the merge (and the copy to -Out).
+# -SkipTrainBuild trains the existing out\build\pgo-train. Every training run waits for and takes the PC measurement lock
+# (tools\measure_lock.ps1: lock, queue, 60 s pause; released after each run, other jobs measure in between).
 # The profile holds counters per function (names sub_<address>, structure hashes), no code. Commit the new
 # config\predator\game_code.profdata after training. A stale profile (after a codegen, title configuration, hook or
 # compiler change) is only slower, never wrong; the build's tools\pgo_check.py reports it, then retrain.
@@ -24,6 +26,7 @@ param(
   [int]$Seconds = 55,
   [string]$Out = "",
   [switch]$SkipTrain,
+  [switch]$SkipTrainBuild,
   [switch]$NoBuild,
   [switch]$Off,
   [switch]$Auto
@@ -50,6 +53,9 @@ $defaultRuns = @(
   "03_river|40|FCP_TEST_PATCH=236.729,50.1575,28.6314|78.64900,424.710,19.000,FCP_INPUT_SCRIPT=8-9.5:x,12-38:rt+lup",
   "10_dead_marshes|40|FCP_TEST_PATCH=36.615,1005.85,21.8202|154.908,930.400,27.400,FCP_INPUT_SCRIPT=8-9.5:x,12-38:rt+lup",
   "13_black_forest|60|FCP_INPUT_SCRIPT=10-50:lup"
+  # Tried 2026-11-14 with six more runs (04, 11 firing, 22, 24, 28 firing, 30): on balance no gain, 06_cliffs
+  # main thread +9 % (docs/phase1/leistung-runde2-hauptthread.md, section 5); pass them with -Runs to try again,
+  # e.g. "04_rain_forest|55|FCP_INPUT_SCRIPT=10-50:lup;11_wasteland|55|FCP_INPUT_SCRIPT=10-50:lup+rt".
 )
 
 function SetCache([string]$name, [string]$type, [string]$value) {
@@ -73,11 +79,14 @@ if ($Off) { SetCache "FCP_PGO" "STRING" "OFF"; Build; Write-Output "pgo: off"; e
 if ($Auto) { SetCache "FCP_PGO" "STRING" "auto"; Build; Write-Output "pgo: auto"; exit 0 }
 
 $specs = if ($Runs) { $Runs -split ";" } else { $defaultRuns }
+. "$PSScriptRoot\measure_lock.ps1"  # PC measurement lock with queue and 60 s pause
 if (-not $SkipTrain) {
-  Write-Output "pgo: instrumented training build (out\build\pgo-train)"
-  Push-Location $root
-  try { cmd /c "tools\pgo_train_build.cmd > out\logs\build_pgo-train.log 2>&1" } finally { Pop-Location }
-  if ($LASTEXITCODE -ne 0) { throw "training build failed (out\logs\build_pgo-train.log)" }
+  if (-not $SkipTrainBuild) {
+    Write-Output "pgo: instrumented training build (out\build\pgo-train)"
+    Push-Location $root
+    try { cmd /c "tools\pgo_train_build.cmd > out\logs\build_pgo-train.log 2>&1" } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "training build failed (out\logs\build_pgo-train.log)" }
+  }
   New-Item -ItemType Directory -Force $raw | Out-Null
   Get-ChildItem $raw -Filter *.profraw -ErrorAction SilentlyContinue | Remove-Item
   # The training build has no shader pack of its own: use the one of the build folder (else the renderer
@@ -92,8 +101,11 @@ if (-not $SkipTrain) {
     if (Test-Path $pack) { $envs += ";FCP_SHADER_PACK=$pack" }
     if ($extra) { $envs += ";$extra" }
     Write-Output "pgo: training $lv ($sec s)"
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "tools\boot\run.ps1") -Config pgo-train `
-      -Seconds $sec -Env $envs | Out-Null
+    TakeLock "training $lv"
+    try {
+      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "tools\boot\run.ps1") -Config pgo-train `
+        -Seconds $sec -Env $envs | Out-Null
+    } finally { DropLock }
     Copy-Item (Join-Path $root "out\build\pgo-train\bin\predator.log") (Join-Path $raw "$lv.log") -Force
   }
 }

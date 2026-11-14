@@ -44,6 +44,7 @@ constexpr std::array kBinaryKeys = {
     KeySpec{"non_volatile_as_local", Type::kBoolean},
     KeySpec{"forward_stack_stores", Type::kBoolean},
     KeySpec{"generate_exception_handlers", Type::kBoolean},
+    KeySpec{"plain_memory", Type::kBoolean},  // FCP
     KeySpec{"is_dll", Type::kBoolean},
     KeySpec{"analysis", Type::kTable},
     KeySpec{"shim", Type::kTable},

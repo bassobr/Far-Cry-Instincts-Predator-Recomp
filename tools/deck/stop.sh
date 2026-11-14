@@ -17,6 +17,15 @@ case "$base" in *"$APPID"*)
   [ -n "$orig" ] && xprop -root -f GAMESCOPECTRL_BASELAYER_APPID 32co -set GAMESCOPECTRL_BASELAYER_APPID "$orig" && echo "baselayer $base -> $orig";;
 esac
 echo "baselayer: $(xprop -root GAMESCOPECTRL_BASELAYER_APPID 2>/dev/null | sed 's/.*= //')"
+# refresh cycle a run changed (run.sh GS_CYCLE) and could not put back
+if [ -f "$T/cycle.orig" ]; then
+  c=$(cat "$T/cycle.orig")
+  [ -n "$c" ] && WAYLAND_DISPLAY=gamescope-0 timeout 5 gamescopectl debug_set_fps_limit "$c" > /dev/null 2>&1 && echo "refresh cycle -> $c"
+  rm -f "$T/cycle.orig"
+fi
+for a in GAMESCOPE_DYNAMIC_REFRESH GAMESCOPE_FPS_LIMIT GAMESCOPE_DISPLAY_REFRESH_RATE_FEEDBACK; do
+  echo "$a: $(xprop -root $a 2>/dev/null | sed 's/.*= //')"
+done
 echo "left (processes with our folder in their arguments or working folder):"
 for p in $(pgrep -u "$(id -u)" .); do
   c=$(readlink /proc/$p/cwd 2>/dev/null); a=$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)

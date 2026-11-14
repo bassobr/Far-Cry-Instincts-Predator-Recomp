@@ -12,6 +12,8 @@
 #include <vector>
 
 #include <windows.h>
+// windows.h first
+#include <intrin.h>
 
 #include "fcp/devstart.h"
 #include "fcp/env.h"
@@ -52,6 +54,93 @@ Slot* Slots() {
 
 int g_mode = 0;          // FCP_TRACE_IMPORTS
 bool g_files = false;    // FCP_TRACE_FILES
+
+// --- Import time per thread (fcp/imports.h, TakeThreadFrame).
+bool g_timing = false;
+std::vector<uint8_t> g_category;  // per import
+LARGE_INTEGER g_qpc0{};
+uint64_t g_tsc0 = 0;
+struct ThreadTime {
+  std::vector<uint64_t> ticks;  // per import since the last TakeThreadFrame
+  std::vector<uint32_t> calls;
+  uint64_t longest = 0;
+  uint32_t longest_index = 0, longest_lr = 0, longest_r3 = 0, longest_owner = 0;
+  static constexpr int kDepth = 8;  // nested imports (guest APCs inside a wait)
+  uint64_t start[kDepth] = {};
+  uint32_t lr[kDepth] = {}, r3[kDepth] = {}, owner[kDepth] = {};  // owner: of a critical section at entry
+  bool describe[kDepth] = {};  // what Enter would have returned without timing (Leave runs only then)
+  int depth = 0;
+};
+thread_local ThreadTime* t_time = nullptr;
+
+ThreadTime& Time() {
+  if (!t_time) {
+    t_time = new ThreadTime;  // one per thread, never freed (few dozen threads)
+    t_time->ticks.assign(kCount, 0);
+    t_time->calls.assign(kCount, 0);
+  }
+  return *t_time;
+}
+
+bool Is(size_t index, const char* name);
+bool NameHas(size_t index, const char* part) { return std::strstr(kTable[index].name, part) != nullptr; }
+
+int CategoryOf(size_t index) {
+  if (NameHas(index, "Wait") || NameHas(index, "Delay")) return kCatWait;
+  if (Is(index, "NtReadFile") || Is(index, "NtWriteFile") || Is(index, "NtCreateFile") || Is(index, "NtOpenFile") ||
+      Is(index, "NtQueryInformationFile") || Is(index, "NtSetInformationFile") ||
+      Is(index, "NtQueryFullAttributesFile") || Is(index, "NtQueryDirectoryFile") ||
+      Is(index, "NtQueryVolumeInformationFile") || Is(index, "NtFlushBuffersFile") || Is(index, "NtReadFileScatter") ||
+      NameHas(index, "XamContent") || NameHas(index, "XMsg"))
+    return kCatFile;
+  if (std::strncmp(kTable[index].name, "Mm", 2) == 0 || NameHas(index, "VirtualMemory") ||
+      NameHas(index, "ExAllocate") || NameHas(index, "ExFree"))
+    return kCatMemory;
+  if (std::strncmp(kTable[index].name, "XMA", 3) == 0 || std::strncmp(kTable[index].name, "XAudio", 6) == 0)
+    return kCatAudio;
+  if (NameHas(index, "Mutant") || NameHas(index, "Event") || NameHas(index, "Semaphore") ||
+      NameHas(index, "CriticalSection") || NameHas(index, "SpinLock") || NameHas(index, "Irql"))
+    return kCatSync;
+  if (std::strncmp(kTable[index].name, "Vd", 2) == 0) return kCatVideo;
+  return kCatOther;
+}
+
+size_t g_cs_index = SIZE_MAX;  // RtlEnterCriticalSection
+
+void TimeEnter(size_t index, PPCContext& ctx, uint8_t* base, bool describe) {
+  ThreadTime& t = Time();
+  if (t.depth < ThreadTime::kDepth) {
+    t.lr[t.depth] = static_cast<uint32_t>(ctx.lr);
+    t.r3[t.depth] = ctx.r3.u32;
+    // Xbox RTL_CRITICAL_SECTION: OwningThread (KTHREAD) at +0x18
+    t.owner[t.depth] = index == g_cs_index && fcp::guest::Readable(base, ctx.r3.u32, 0x1C)
+                           ? fcp::guest::U32(base, ctx.r3.u32 + 0x18)
+                           : 0;
+    t.describe[t.depth] = describe;
+    t.start[t.depth] = __rdtsc();
+  }
+  ++t.depth;
+}
+
+// Returns whether the rest of Leave must run (Enter's own answer).
+bool TimeLeave(size_t index) {
+  const uint64_t now = __rdtsc();
+  ThreadTime& t = Time();
+  if (t.depth <= 0) return true;
+  --t.depth;
+  if (t.depth >= ThreadTime::kDepth) return true;
+  const uint64_t d = now - t.start[t.depth];
+  t.ticks[index] += d;
+  ++t.calls[index];
+  if (d > t.longest) {
+    t.longest = d;
+    t.longest_index = uint32_t(index);
+    t.longest_lr = t.lr[t.depth];
+    t.longest_r3 = t.r3[t.depth];
+    t.longest_owner = t.owner[t.depth];
+  }
+  return t.describe[t.depth];
+}
 
 // Call counts: one shared atomic per import cost a locked add on a cache
 // line every guest thread writes (RtlEnter/LeaveCriticalSection ~0.5 million calls/s each in 21_dunea). Each
@@ -171,6 +260,13 @@ std::string Detail(size_t index, PPCContext& ctx, uint8_t* base) {
     for (uint32_t n = 0; n < ctx.r5.u32; ++n) {
       const uint32_t e = ctx.r6.u32 + 40 * n;
       s += std::format(" {:08X}/type {}/size {}", U32(base, e + 0x10), unsigned(base[e + 0x18]), U32(base, e + 0x20));
+      // Title setting 1 is the profile block (game profile +0x98): version +0, flags +0x18, level mask +0x1C
+      // (bit n = entry n of the level selection, docs/phase1/issue-1-levels.md).
+      if (U32(base, e + 0x10) == 0x63E83FFF && U32(base, e + 0x20) >= 0x20 && Readable(base, U32(base, e + 0x24), 0x20)) {
+        const uint32_t p = U32(base, e + 0x24);
+        s += std::format(" (version {:X}, flags {:02X}, levels {:05X})", U32(base, p), unsigned(base[p + 0x18]),
+                         U32(base, p + 0x1C));
+      }
     }
     return s;
   }
@@ -287,6 +383,18 @@ void Configure() {
   }
   g_startup_ui_fix = !fcp::env::Flag("FCP_STARTUP_SYS_UI");
   g_shared_count = fcp::env::Flag("FCP_IMPORT_SHARED_COUNT");
+  g_category.assign(kCount, 0);
+  for (size_t i = 0; i < kCount; ++i) {
+    g_category[i] = uint8_t(CategoryOf(i));
+    if (Is(i, "RtlEnterCriticalSection")) g_cs_index = i;
+  }
+  QueryPerformanceCounter(&g_qpc0);
+  g_tsc0 = __rdtsc();
+  g_timing = (!fcp::env::Get("FCP_TRACE_HITCHES").empty() || fcp::env::Flag("FCP_TRACE_FRAMES")) &&
+             fcp::env::Flag("FCP_TRACE_IMPORT_TIME", true);
+  if (g_timing) {
+    FCPLOG("imports: timing every import call per thread (FCP_TRACE_IMPORT_TIME=0: off)");
+  }
   g_exact.assign(kCount, 0);
   for (size_t i = 0; i < kCount; ++i) {
     g_exact[i] = uint8_t(g_mode >= 2 || (g_flags[i] & 1) || (g_files && (g_flags[i] & 2)));
@@ -354,7 +462,21 @@ PPCFunc* Resolve(size_t index) {
   return f;
 }
 
+namespace {
+bool EnterImpl(size_t index, PPCContext& ctx, uint8_t* base);
+}
+
 bool Enter(size_t index, PPCContext& ctx, uint8_t* base) {
+  const bool describe = EnterImpl(index, ctx, base);
+  if (g_timing) {
+    TimeEnter(index, ctx, base, describe);  // after the trace work: only the SDK function is timed
+    return true;     // Leave stops the clock
+  }
+  return describe;
+}
+
+namespace {
+bool EnterImpl(size_t index, PPCContext& ctx, uint8_t* base) {
   Slot& slot = Slots()[index];
   // Quiet imports (no trace, no observer) after their first call: count and go.
   if (index < g_quiet.size() && g_quiet[index] && slot.first.load(std::memory_order_relaxed) != 0) {
@@ -422,8 +544,12 @@ bool Enter(size_t index, PPCContext& ctx, uint8_t* base) {
   }
   return describe || first || (flags & (12 | 128 | 256 | 512)) || observe;
 }
+}  // namespace
 
 void Leave(size_t index, PPCContext& ctx, uint8_t* base) {
+  if (g_timing && !TimeLeave(index)) {
+    return;  // timed only: Enter would not have asked for Leave
+  }
   const uint16_t flags = index < g_flags.size() ? g_flags[index] : 0;
   // The return of the first call (as before: lost when a second call returns first).
   std::atomic<uint8_t>& first = Slots()[index].first;
@@ -524,6 +650,80 @@ uint64_t CountOf(const char* name) {
     }
   }
   return 0;
+}
+
+bool Timing() {
+  return g_timing;
+}
+
+double TicksToMs(uint64_t ticks) {
+  static std::atomic<double> per_ms{0.0};
+  double f = per_ms.load(std::memory_order_relaxed);
+  LARGE_INTEGER now{}, freq{};
+  QueryPerformanceCounter(&now);
+  QueryPerformanceFrequency(&freq);
+  const double qpc_ms = double(now.QuadPart - g_qpc0.QuadPart) * 1000.0 / double(freq.QuadPart);
+  // Recalibrate until the span is long (after ~10 s the value is stable to well below 0.1 %).
+  if (f == 0.0 || qpc_ms < 10000.0) {
+    if (qpc_ms > 50.0) {
+      f = double(__rdtsc() - g_tsc0) / qpc_ms;
+      per_ms.store(f, std::memory_order_relaxed);
+    } else if (f == 0.0) {
+      return double(ticks) / 3.0e6;  // before calibration: assume 3 GHz
+    }
+  }
+  return double(ticks) / f;
+}
+
+const char* CategoryName(int category) {
+  static constexpr const char* kNames[kCatCount] = {"wait", "file", "mem", "audio", "sync", "video", "other"};
+  return category >= 0 && category < kCatCount ? kNames[category] : "?";
+}
+
+ThreadFrame TakeThreadFrame(bool with_top) {
+  ThreadFrame f;
+  if (!g_timing) return f;
+  ThreadTime& t = Time();
+  uint64_t cat[kCatCount] = {};
+  uint64_t total = 0;
+  // the four imports with the most time
+  size_t best[4] = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};
+  for (size_t i = 0; i < kCount; ++i) {
+    const uint64_t v = t.ticks[i];
+    if (!v) continue;
+    total += v;
+    cat[g_category[i]] += v;
+    f.calls += t.calls[i];
+    if (with_top) {
+      for (int k = 0; k < 4; ++k) {
+        if (best[k] == SIZE_MAX || v > t.ticks[best[k]]) {
+          for (int m = 3; m > k; --m) best[m] = best[m - 1];
+          best[k] = i;
+          break;
+        }
+      }
+    }
+  }
+  f.total_ms = TicksToMs(total);
+  for (int c = 0; c < kCatCount; ++c) f.cat_ms[c] = TicksToMs(cat[c]);
+  if (t.longest) {
+    f.longest = kTable[t.longest_index].name;
+    f.longest_ms = TicksToMs(t.longest);
+    f.longest_lr = t.longest_lr;
+    f.longest_r3 = t.longest_r3;
+    f.longest_owner = t.longest_owner;
+  }
+  if (with_top) {
+    for (size_t b : best) {
+      if (b == SIZE_MAX) break;
+      if (!f.top.empty()) f.top += ", ";
+      f.top += std::format("{} {}/{:.1f}", kTable[b].name, t.calls[b], TicksToMs(t.ticks[b]));
+    }
+  }
+  std::fill(t.ticks.begin(), t.ticks.end(), 0);
+  std::fill(t.calls.begin(), t.calls.end(), 0);
+  t.longest = 0;
+  return f;
 }
 
 }  // namespace fcp::imports

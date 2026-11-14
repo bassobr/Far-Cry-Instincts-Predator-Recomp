@@ -3,12 +3,20 @@
 
 #define REX_STACK_ADDR(x) (assert(static_cast<u32>(x) < 0xE0000000u), base + static_cast<u32>(x))
 
-#define REX_STACK_LOAD_U8(x) (*reinterpret_cast<volatile u8*>(REX_STACK_ADDR(x)))
-#define REX_STACK_LOAD_U16(x) __builtin_bswap16(*reinterpret_cast<volatile u16*>(REX_STACK_ADDR(x)))
-#define REX_STACK_LOAD_U32(x) __builtin_bswap32(*reinterpret_cast<volatile u32*>(REX_STACK_ADDR(x)))
-#define REX_STACK_LOAD_U64(x) __builtin_bswap64(*reinterpret_cast<volatile u64*>(REX_STACK_ADDR(x)))
+// FCP (rexglue/UPSTREAM.md, change 291): plain with plain_memory, volatile otherwise (upstream).
+#ifndef REX_GUEST_MEM
+#define REX_GUEST_MEM volatile
+#endif
+// Type based alias analysis must never separate two guest accesses (it is off for this target too).
+typedef u16 __attribute__((may_alias)) rex_guest_u16;
+typedef u32 __attribute__((may_alias)) rex_guest_u32;
+typedef u64 __attribute__((may_alias)) rex_guest_u64;
+#define REX_STACK_LOAD_U8(x) (*reinterpret_cast<REX_GUEST_MEM u8*>(REX_STACK_ADDR(x)))
+#define REX_STACK_LOAD_U16(x) __builtin_bswap16(*reinterpret_cast<REX_GUEST_MEM rex_guest_u16*>(REX_STACK_ADDR(x)))
+#define REX_STACK_LOAD_U32(x) __builtin_bswap32(*reinterpret_cast<REX_GUEST_MEM rex_guest_u32*>(REX_STACK_ADDR(x)))
+#define REX_STACK_LOAD_U64(x) __builtin_bswap64(*reinterpret_cast<REX_GUEST_MEM rex_guest_u64*>(REX_STACK_ADDR(x)))
 
-#define REX_STACK_STORE_U8(x, y) (*reinterpret_cast<volatile u8*>(REX_STACK_ADDR(x)) = (y))
-#define REX_STACK_STORE_U16(x, y) (*reinterpret_cast<volatile u16*>(REX_STACK_ADDR(x)) = __builtin_bswap16(y))
-#define REX_STACK_STORE_U32(x, y) (*reinterpret_cast<volatile u32*>(REX_STACK_ADDR(x)) = __builtin_bswap32(y))
-#define REX_STACK_STORE_U64(x, y) (*reinterpret_cast<volatile u64*>(REX_STACK_ADDR(x)) = __builtin_bswap64(y))
+#define REX_STACK_STORE_U8(x, y) (*reinterpret_cast<REX_GUEST_MEM u8*>(REX_STACK_ADDR(x)) = (y))
+#define REX_STACK_STORE_U16(x, y) (*reinterpret_cast<REX_GUEST_MEM rex_guest_u16*>(REX_STACK_ADDR(x)) = __builtin_bswap16(y))
+#define REX_STACK_STORE_U32(x, y) (*reinterpret_cast<REX_GUEST_MEM rex_guest_u32*>(REX_STACK_ADDR(x)) = __builtin_bswap32(y))
+#define REX_STACK_STORE_U64(x, y) (*reinterpret_cast<REX_GUEST_MEM rex_guest_u64*>(REX_STACK_ADDR(x)) = __builtin_bswap64(y))

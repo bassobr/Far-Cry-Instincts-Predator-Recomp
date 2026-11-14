@@ -13,10 +13,15 @@ changes are listed in the [CHANGELOG](CHANGELOG.md).
 
 - **You need your own, legally obtained copy of the game.** This project contains no part of the game: no game code,
   no game data, no shaders, no videos, no sounds, no textures. Neither this repository nor a release built from it
-  includes anything derived from the game, with one exception: the PGO profile `config/predator/game_code.profdata`
+  includes anything derived from the game, with two exceptions: the PGO profile `config/predator/game_code.profdata`
   (shipped as `compiler\pgo\predator.profdata`). It holds only function names of the form `sub_<address>`,
   structure hashes and execution counts recorded in test runs: no code, no text and no other data of the game
-  ([BUILDING.md](docs/en/BUILDING.md#pgo-profile)).
+  ([BUILDING.md](docs/en/BUILDING.md#pgo-profile)). And the pipeline list `config/predator/pipelines.fcpl` (shipped
+  as `pipelines.fcpl` next to `predator.exe`), which the renderer prewarms at start against stutter on the first
+  visit of a level. It holds only 64-bit hashes of the game's shader containers, render state values (target
+  formats, blend, depth/stencil and cull settings), the guest MSAA level and the names of the levels the pipelines
+  were seen in: no shader code, no constants, no textures and no other data of the game
+  ([BUILDING.md](docs/en/BUILDING.md#pipeline-list)).
 - The game code is translated from *your* disc image on *your* PC the first time you start the game, and it stays in
   your user folder. Do not share the files the first start creates (`predator_code.dll`, shader packs, caches).
 - Please do not ask for, or post, game files or links to them in this project.
@@ -37,7 +42,10 @@ not yet verified on real hardware are listed under [Known issues](#known-issues)
 - **Frame rate 30 (as the console), 60 or 120.** Game time runs at wall-clock speed at every rate (ratio 1.000), and
   places where the game logic depends on the frame count are corrected (see
   [Frame rate and game logic](#frame-rate-and-game-logic)).
-- **Graphics options:** render resolution scale (up to 4x, or `auto` = the output height, e.g. 2x at 1440p), shadow
+- **Any output shape:** wider than 16:9 (21:9, 32:9) shows more to the sides (Hor+), narrower (16:10, 4:3) more
+  above and below (Vert+); the HUD, menus and videos stay in a 16:9 area in the middle.
+- **Graphics options:** render resolution (`native`, a fixed size such as `1280x800`, or a scale up to 4x / `auto` =
+  the output height, e.g. 2x at 1440p), shadow
   map resolution, anisotropic filtering up to 16x, field of view, MSAA as the console or 2x/4x/8x, optional SMAA 1x,
   the game's gamma ramp. All of them default to the console's look.
 - **Mouse and keyboard:** direct mouse look on the game's view angles (fixed degrees per count, no stick emulation,
@@ -212,7 +220,7 @@ The full reference is [docs/en/CONFIGURATION.md](docs/en/CONFIGURATION.md).
 | | `fps_counter` | `false` | `true` = frame rate and frame time display in the corner |
 | | `language` | `"english"` | `english`, `french`, `german`, `spanish`, `italian`, `auto` (Windows display language); restart |
 | `[display]` | `mode` | `"windowed"` | `windowed`, `borderless`, `exclusive` |
-| | `width`, `height` | `0` | window client size in pixels; `0` = 1280x720 |
+| | `width`, `height` | `0` | window client size in pixels; `0` = 1280x720 (Steam Deck: 1280x800) |
 | | `monitor` | `0` | `0` = primary, `1`..`n` = display number |
 | | `fps` | `30` | `30` (console), `60`, `90` (Steam Deck OLED display), `120`; restart |
 | | `vsync` | `"auto"` | `auto` (on up to 60 frames/s, off above), `on`, `off` |
@@ -220,7 +228,9 @@ The full reference is [docs/en/CONFIGURATION.md](docs/en/CONFIGURATION.md).
 | | `msaa` | `"console"` | `console` (2x on the screen, 4x on the reflection, as the console), `off`, or `2`, `4`, `8` samples on the screen-sized targets (limited by the GPU); restart. Older files: `true` = console, `false` = off |
 | | `smaa` | `false` | `true` = SMAA 1x edge smoothing on the finished picture; switches at once |
 | | `gamma` | `true` | the game's gamma ramp (its brightness setting) |
-| | `scale` | `1` | render resolution of screen-sized targets: `1` = 1280x720 as the console, `auto` = output height / 720, or a factor / percentage from 0.5 to 4 (`1.5`, `150%`) |
+| | `scale` | `1` | render resolution of screen-sized targets: `1` = 1280x720 as the console, `auto` = output height / 720, or a factor / percentage from 0.5 to 4 (`1.5`, `150%`); used while `resolution` is `"scale"` |
+| | `resolution` | `"scale"` | `scale` (from `scale`), `native` (the picture's size on the output, e.g. 1280x800 on a Steam Deck or 2560x1080 in a 2560x1080 window), or a size such as `"1920x1080"`; smaller than the output = faster, scaled up. Switches at once. Steam Deck default: `native` |
+| | `aspect` | `"auto"` | shape of the game view: `auto` = the output's (wider than 16:9: more to the sides; narrower: more above and below), `16:9` = as the console with bars, or a fixed shape (`16:10`, `4:3`, `21:9`, `32:9`, `2.39`); restart |
 | | `shadow_scale` | `1` | shadow map resolution as a multiple of the console's 1344x1344 (up to 4) |
 | | `aniso` | `1` | anisotropic filtering 1-16 (`1` = as the game sets it) |
 | | `fov` | `1` | field of view as a multiple of the game's (0.5 to 2); the weapon keeps its own view |
@@ -280,8 +290,8 @@ game stays in its pause menu until you resume.
 
 | Tab | Contents |
 |---|---|
-| Display | display mode, monitor, window size, frame rate, VSync |
-| Graphics | graphics API, render scale, shadow resolution, anisotropic filtering, field of view, MSAA, SMAA, gamma ramp |
+| Display | display mode, monitor, window size (common sizes and the monitor's native size), frame rate, VSync |
+| Graphics | graphics API, render scale, render resolution, shadow resolution, anisotropic filtering, field of view, picture shape (Hor+/Vert+), MSAA, SMAA, gamma ramp |
 | Input | mouse sensitivity (both axes and vertical), invert Y, acceleration and its limit, smoothing, zoomed behaviour, keyboard, mouse, controller driver, dead zone, vibration, button prompts, all 24 key bindings (Change, Clear, Default) |
 | Game | pause on focus loss, skip intro videos, frame rate display, language |
 | About | version, commit, graphics API, file paths, licence notice |
@@ -320,8 +330,8 @@ correction can be switched off for comparison (column "Original"). Causes, more 
 Measured without a dependency on the frame rate: walking speed, jump height, breath under water, the mounted machine
 gun's fire rate, video playback, menu key repeat, game time against wall time.
 
-**At most 120 frames/s.** The frame rate setting accepts 30, 60, 90 and 120; the game logic was measured at 30, 60
-and 120 and is not checked above 120. The corrections above apply to every rate above 30.
+**At most 120 frames/s.** The frame rate setting accepts 30, 45, 60, 90 and 120; the game logic was measured at 30,
+60 and 120 (45: fire rate, swimming and landing) and is not checked above 120. The corrections above apply to every rate above 30.
 
 **Still open** (measured, not corrected):
 - Computer-controlled characters think every fourth frame (7.5 times per second at 30, 30 times at 120). In
@@ -334,18 +344,74 @@ and 120 and is not checked above 120. The corrections above apply to every rate 
 
 ## Steam Deck
 
-Tested on a Steam Deck OLED (SteamOS 3.9, Proton 10.0), started with Proton from a folder in Game Mode by test
-scripts (adding it to Steam as a non-Steam game has not been tried yet):
+Tested on a Steam Deck OLED (SteamOS 3.9, Proton 10.0) in Game Mode.
 
-- The first start (building the game code and the shader packs on the Deck) takes about 7-8 minutes; later starts
-  load a level in about 10 seconds. The user folder is in the Proton prefix's `AppData\Local`.
-- The built-in controls are detected through SDL3. The Deck is detected and defaults to 30 frames/s.
-- Measured frame rates (build without the profile-guided optimisation described in BUILDING): at a 30 frames/s target
-  30.0 in all tested levels; at 60, 56-60 depending on the level; at 90, 58-75. The limit is the CPU (main thread)
-  together with the handheld's ~15 W power limit. Vulkan and Direct3D 12 perform the same within about 2 frames/s.
-- The first visit of a level can stutter once (130-450 ms) while the graphics pipelines are created.
+**Recommended settings:** frame rate **45**, the default on a Steam Deck OLED from v0.1.2 on (F10 → Display → Frame
+rate, or `fps = 45` in `predator.toml`; a `predator.toml` written by an older version keeps its value), and in Steam's
+quick access menu (`...` button → Performance) the refresh rate left at **90 Hz**, the **frame limit off** and
+**allow tearing off**. Every frame then stays exactly two refreshes of the 90 Hz display (22.3 ms), at about 8-9 W.
+The console's 30 frames/s is just as even and uses the least power (about 7.5 W); it stays the default on the 60 Hz
+Steam Deck LCD. If you want 60 frames/s, set the refresh rate in Steam to **60 Hz**; 60 frames/s at 90 Hz alternate
+between one and two refreshes and look uneven although the counter shows 60.
 
-Higher frame rates on the Deck are work in progress.
+### Steam Deck setup
+
+1. In Desktop Mode, extract the release zip into a folder, for example `~/Games/Far-Cry-Instincts-Predator-Recomp/`,
+   and put your disc image next to it or into it (a short file name without spaces is easiest, e.g. `predator.iso`).
+2. Recommended: create an empty file `portable.txt` next to `predator.exe`. Settings, saves, logs and the prepared game
+   code then stay in that folder. Without it they go into the Proton prefix
+   (`~/.local/share/Steam/steamapps/compatdata/<id>/pfx/drive_c/users/steamuser/AppData/Local/Far-Cry-Instincts-Predator-Recomp`).
+3. Create `predator.toml` next to `predator.exe` (with `portable.txt`) with the path of your disc image. Proton shows
+   the Linux file system as drive `Z:`; single quotes keep the backslashes as they are:
+
+   ```toml
+   [game]
+   image = 'Z:\home\deck\Games\Far-Cry-Instincts-Predator-Recomp\predator.iso'
+   ```
+
+   Every setting missing from the file takes the Deck's default. (Without any `predator.toml` the game writes a
+   complete one with the Deck's defaults and asks for the image.)
+4. In Steam (still in Desktop Mode): **Games → Add a Non-Steam Game to My Library… → Browse**, choose `predator.exe`
+   (set the file type filter to "All Files" if it is not listed), **Add Selected Programs**.
+5. In the new entry's **Properties → Compatibility**, tick **Force the use of a specific Steam Play compatibility tool**
+   and choose **Proton 10.0** (tested; newer versions are untested). No launch options are needed.
+6. Switch to Game Mode and start the game. The first start prepares the game code and the shader pack on the Deck,
+   with a progress window: measured about 10.5 minutes (keep the Deck awake and plugged in). Later starts reach a
+   level in about 10 seconds.
+
+The built-in controls work through Steam Input's gamepad layout (SDL3). The settings menu opens with F10 or
+**View + Menu** (Back + Start) and can be used with the pad alone. Every setting is also an environment variable, so
+launch options such as `FCP_FPS=45 %command%` work as well; a value set there wins over `predator.toml` and the F10
+menu shows it as "set by environment".
+
+### Measurements on the Deck
+
+Warm runs (second visit), 1280x800, walking through four levels (`21_dunea`, `00_training`, `06_cliffs`, `01_beach`),
+Vulkan, measured from what the display shows (details in [FRAMERATE.md](docs/en/FRAMERATE.md#display-pacing)):
+
+| Setting | Frames/s | Frames that stay the right number of refreshes | APU power |
+|---|---|---|---|
+| 30, refresh 90 Hz (default) | 29.9-30.0 | 99-100 % (three refreshes) | 7.1-7.5 W |
+| 45, refresh 90 Hz | 44.0-45.0 | 96-100 % (two refreshes) | 7.8-8.6 W |
+| 60, refresh 60 Hz | 58.7-60.0 | 98-100 % (one refresh), 24-36 ms more input latency | 9.5-13.3 W |
+| 60, refresh 90 Hz | 58.7-60.0 | uneven: 52-53 % one, 41-47 % two refreshes | 11.3-13.6 W |
+
+- The heaviest level (`21_dunea`) does not quite hold 60 (58.7 frames/s) and at 45 keeps 96 % of the frames even.
+  The limit is the CPU (main thread) together with the handheld's ~15 W power limit.
+- Resolution: the Deck defaults to a 1280x800 window with `[graphics] resolution = "native"`, so the picture fills
+  the 16:10 display (Vert+: the horizontal view of 16:9, more above and below; HUD and menus in a 16:9 band).
+  Measured against `aspect = "16:9"` (1280x720 with bars) at 45 and 60 frames/s, 1280x800 costs nothing measurable on
+  the Deck (the same frame rates and shares, power within the run-to-run spread). `aspect = "16:9"` brings back the
+  1280x720 picture with bars; `resolution = "1280x720"` keeps the full screen with the earlier pixel count.
+- The shipped pipeline list (`pipelines.fcpl`) is compiled in the background in the first ~12 seconds after the start
+  (before the logos). On a first visit with empty caches the time lost to stutters in a level drops by 55-71 % and the
+  graphics pipelines created while playing from 88-163 to 4-8 per level; the remaining long frame is the level's very
+  first picture behind the loading screen.
+- Vibration costs a little on the Deck: the controller calls take 2-18 ms in a few percent of the frames and rarely
+  up to 200 ms. With `rumble = 0` in `predator_input.toml` a measured level held 60.0 instead of 59.1 frames/s with
+  half the small stutters.
+- Vulkan and Direct3D 12 performed the same within about 2 frames/s in earlier measurements; display pacing (the even
+  30 and 45) needs Vulkan, the default.
 
 ## ROG Xbox Ally X
 
@@ -382,8 +448,9 @@ from hardware test vectors).
   objectives, bosses, vehicles and mid-level videos still need real play.
 - Not yet verified with real hardware: controllers and rumble (tested with virtual SDL pads), mouse feel, the F10
   and Alt+Enter keys from a real keyboard (tested with injected window messages), audio by ear.
-- Ultrawide (Hor+, `[graphics] aspect`): the HUD, menus, videos and loading screens stay in the 16:9 centre. Binocular
-  and scope masks, subtitles, feral vision and the D3D12 backend have not been checked at ultrawide sizes yet.
+- Other shapes than 16:9 (Hor+ / Vert+, `[graphics] aspect`): the HUD, menus, videos and loading screens stay in a
+  16:9 area in the middle. Binocular and scope masks, subtitles and feral vision have not been checked at these
+  shapes yet.
 - Exclusive fullscreen and monitor selection are not tested.
 - User folder paths with non-ASCII characters are not tested for the shader pack.
 - `03_river` is slightly brighter than the console reference.

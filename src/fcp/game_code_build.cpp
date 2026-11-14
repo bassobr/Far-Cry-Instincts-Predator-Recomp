@@ -71,13 +71,35 @@ bool Fail(std::wstring& why, const std::wstring& what) {
   return false;
 }
 
+// LLVM stops following the uses of a pointer after 100 (capture tracking) and then treats it as escaped. A
+// recompiled function uses its context pointer thousands of times, so without a higher limit every call
+// (also a NaN slow path or an MMIO access) counts as a possible write to every context field, and guest
+// registers cannot stay in host registers (docs/phase1/leistung-runde2-hauptthread.md). The limit is an
+// optimization setting only. FCP_GAME_CODE_CAPTURE_USES=0 keeps the LLVM default (the former flags).
+// 10000 instead of 1000000 (docs/phase1/deck-erststart-rumble.md): the same main thread in the game on the Steam
+// Deck (21_dunea 11.84 against 11.88 ms per frame, 06_cliffs 11.10 against 11.05) and on the PC, but the first-start
+// build on the Deck 364 instead of 456 s (ThinLTO link 133 instead of 176 s); FCP_GAME_CODE_CAPTURE_USES=1000000
+// builds as before.
+constexpr int64_t kCaptureUses = 10000;
+
+int64_t CaptureUses() {
+  const int64_t uses = fcp::env::Int("FCP_GAME_CODE_CAPTURE_USES", kCaptureUses);
+  return uses > 0 ? uses : 0;
+}
+
 // The flags of the generated code, the same in the development build and on the first start. Release flags of
 // the former static build (CMake, cmake/fcp_codegen.cmake) plus the freestanding headers.
 std::wstring BaseFlags() {
   std::wstring f = L"--driver-mode=g++ --target=x86_64-pc-windows-msvc -fms-compatibility-version=19.44";
   f += L" -std=c++23 -O3 -DNDEBUG -march=" + Widen(FCP_GAME_CODE_MARCH) + L" -ffp-contract=off -msse4.1";
-  f += L" -fasync-exceptions -g0 -nostdlibinc -DREX_GUEST_FREESTANDING -DNOMINMAX -DWIN32_LEAN_AND_MEAN";
+  // -fno-strict-aliasing is the default of the MSVC target; stated because plain guest accesses (UPSTREAM.md,
+  // change 291) of different widths must never be separated by type based alias analysis.
+  f += L" -fasync-exceptions -fno-strict-aliasing -g0 -nostdlibinc -DREX_GUEST_FREESTANDING -DNOMINMAX";
+  f += L" -DWIN32_LEAN_AND_MEAN";
   f += L" -DREX_PHYSICAL_OFFSET_IN_CODE=" + std::to_wstring(REX_PHYSICAL_OFFSET_IN_CODE);
+  // the calling convention of PPCFunc (UPSTREAM.md, change 292) has to be the one of this executable
+  f += L" -DREX_GUEST_PRESERVE_NONE=" + std::to_wstring(REX_GUEST_PRESERVE_NONE);
+  if (const int64_t uses = CaptureUses()) f += std::format(L" -mllvm -capture-tracking-max-uses-to-explore={}", uses);
   return f;
 }
 
@@ -407,6 +429,8 @@ bool CompileAndLink(const Toolset& t, const Job& job, build::Processes& run, Sta
     // _fltused (runtime.cpp) is only referenced by the code generation itself, after LTO dropped unused symbols.
     rsp += std::format(L"/opt:lldltojobs={}\n/include:_fltused\n", Slots(sources.size()));
     rsp += L"/lldltocache:" + Quote(job.work / "lto-cache") + L"\n";
+    // the optimization of ThinLTO runs here as well (BaseFlags)
+    if (const int64_t uses = CaptureUses()) rsp += std::format(L"/mllvm:-capture-tracking-max-uses-to-explore={}\n", uses);
   }
   rsp += L"/pdb:" + Quote(fs::path(job.dll).replace_extension(".pdb")) + L"\n";
   rsp += L"/out:" + Quote(job.dll) + L"\n/def:" + Quote(dll_def_path) + L"\n/implib:" +

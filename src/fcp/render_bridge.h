@@ -35,6 +35,9 @@ void RegisterModule(std::vector<rex::IModule*>& modules);
 /** The guest memory base the hooks see (first call wins). */
 void SetGuestBase(uint8_t* base);
 
+/** The game starts loading `level` (StartLevel command): the pipeline prewarm moves that level's records ahead. */
+void OnLevelLoading(const std::string& level);
+
 /** Waits for the GPU, saves caches and writes the summary into the log. */
 void Shutdown();
 
@@ -52,6 +55,8 @@ void RequestPresentDump(const std::string& path);
 /** At once: the gamma ramp on or off; the render scale (1, 1.5, ..., or auto), from the next frame. */
 void SetGammaRamp(bool on);
 void SetScale(const std::string& value);
+// [graphics] resolution: scale | native | WxH, from the next frame.
+void SetResolution(const std::string& value);
 // [graphics] smaa: SMAA 1x on the final image, from the next present.
 void SetSmaa(bool on);
 
@@ -59,5 +64,15 @@ void SetSmaa(bool on);
 /** How much wider than 16:9 the screen-sized targets are now (1 = off); the camera (fcp/camera_fov.cpp) widens its
  *  projection by the same factor. Any thread. */
 float HorPlusWide();
+/** Vert+: how much taller than 16:9 the screen-sized targets are now (1 = off; FCP_RENDER_VERTPLUS=0 keeps it 1);
+ *  the camera keeps the horizontal view and sees that much more vertically. Any thread. */
+float VertPlusTall();
+
+// ---- frame pacing (fcp/framerate.h, renderer/present_pacer.h) ----
+/** True while the renderer paces the game on the display's refresh (FCP_FPS_PACING=display, the refresh rate is
+ *  known and divisible by the target). Any thread. */
+bool DisplayPacingActive();
+/** While display pacing is on: the display's frame period in ms, else 0. Any thread. */
+double DisplayFrameMs();
 
 }  // namespace fcp::render

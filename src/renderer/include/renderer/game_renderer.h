@@ -60,6 +60,27 @@ struct GameRendererOptions {
   // appended and pre-created in the background at startup (FCP_PIPELINE_PREWARM=0 off). Empty: no list.
   std::string pipeline_list;
   bool pipeline_prewarm = true;
+  // Shipped pipeline list (pipelines.fcpl next to the EXE, tools/pipelines_build.ps1): shader container hashes and
+  // render state only, the same for Vulkan and D3D12. Prewarmed together with pipeline_list, menu first, the level
+  // being loaded moved ahead (OnLevelLoading). Empty: none (FCP_RENDER_PIPELINE_SHIPPED=0).
+  std::string pipeline_shipped;
+  // FCP_PIPELINE_COLLECT=<folder>: every record a draw uses goes to <folder>/<group>.bin (group "menu" before the
+  // first level, else the level name) - input of tools/pipelines_build.ps1.
+  std::string pipeline_collect;
+  // FCP_RENDER_PREWARM_LOW_PRIORITY=0: prewarm jobs at normal thread priority (default: below normal).
+  bool prewarm_low_priority = true;
+  // Missing pipelines on worker threads: the rest of the command list is recorded and replayed in order once its
+  // pipelines are made (same commands, same image; the pipelines of a list are made in parallel), the pipeline list
+  // is prewarmed by the same threads. FCP_RENDER_PIPELINE_ASYNC=0: on the render thread as before (one prewarm thread).
+  bool pipeline_async = false;
+  uint32_t pipeline_threads = 0;  // FCP_RENDER_PIPELINE_THREADS, 0 = logical CPUs of the process - 2 (1..8)
+  // FCP_RENDER_PIPELINE_MAX_WAIT_MS=<ms> (NOT the default, changes the image): wait at most this long at the end of a
+  // command list; draws whose pipeline is not ready are left out of that frame (pop-in instead of a hitch). -1: wait.
+  double pipeline_max_wait_ms = -1.0;
+  // Shaders missing from pack and disk cache (the game's run-time shaders, first start) are translated on worker
+  // threads (as many as pipeline_threads); the first draw with the shader waits for it. Same code as before.
+  // FCP_RENDER_SHADER_ASYNC=0: in the create hook on the game's thread.
+  bool shader_async = false;
   bool depth_resolve = true;        // FCP_RENDER_DEPTH_RESOLVE=0: skip depth resolves (old behavior)        // FCP_TRACE_CONSTS=<hash>: in trace frames c0-c31 of draws with this VS/PS
   std::set<uint64_t> skip_ps;       // FCP_RENDER_SKIP_PS=<hash>[,<hash>..]: omit draws with these pixel shaders
   bool texture_check = true;
@@ -80,6 +101,12 @@ struct GameRendererOptions {
   bool smaa = false;
   // FCP_RENDER_CB_VERSIONS: versions per volatile constant buffer (Vulkan; 0 = layout default).
   uint32_t constant_versions = 0;
+  // FCP_RENDER_TABLE_SLOTS=<2D>,<3D>,<cube>,<array>,<samplers>,<buffers>: capacities of the bindless tables
+  // (diagnostics; 0 = layout default).
+  uint32_t table_slots[6] = {};
+  // Evict textures and vertex buffers not bound for a while when their bindless table fills up and reuse their
+  // slots (GitHub issue #1). FCP_RENDER_SLOT_RECYCLE=0: slots are never reused (old behaviour).
+  bool slot_recycle = true;
   // Small, continuously read targets asynchronously (1-2 frames old) instead of synchronously; FCP_RENDER_LOCK_READBACK=sync: always synchronous.
   bool lock_readback_async = true;
   // FCP_RENDER_BUFFER_WATCH=0: hash vertex buffers every frame instead of using the write watch.
@@ -121,8 +148,27 @@ struct GameRendererOptions {
   // times wider (anamorphic: guest coordinates stay 1280 wide), the camera (fcp/camera_fov.cpp) by the same factor;
   // 2D after the post processing of a 3D picture goes into the 16:9 middle.
   float aspect = 0.0f;
+  // Vert+ (FCP_RENDER_VERTPLUS, default on): a picture shape narrower than 16:9 (16:10, 4:3, 3:2) fills the output;
+  // screen-sized targets get tall = (16/9) / aspect times taller, the camera keeps the horizontal view and sees
+  // more above and below, 2D after the post processing goes into the 16:9 band in the middle. false: such outputs
+  // show 16:9 with bars as before.
+  bool vert_plus = true;
+  // Render resolution ([graphics] resolution / FCP_RENDER_RESOLUTION): 0 = from `scale` (as before); 1 = native (the
+  // picture's size on the output); 2 = fixed res_w x res_h host pixels for the 1280x720 guest screen targets (other
+  // shapes than the picture's are stretched to it). Replaces `scale` when not 0.
+  uint32_t resolution_mode = 0;
+  uint32_t res_w = 0, res_h = 0;
   // FCP_TRACE_WIDE=1: each new kind of 2D draw over a wide 3D picture (shaders, box, decision) once into the log.
   bool trace_wide = false;
+  // Present timing and display pacing (renderer/present_pacer.h; FCP_PRESENT_STATS, FCP_FPS_PACING=display).
+  double present_stats_seconds = 10;  // presentstat line every n seconds, 0: none
+  double pace_fps = 0;                // display pacing target (0: off, < 0: every refresh)
+  uint32_t pace_queued = 1;           // FCP_PACE_QUEUE
+  double pace_hold = 0.0;             // FCP_PACE_HOLD, fraction of a refresh
+  double pace_early_ms = 0;           // FCP_PACE_EARLY
+  double pace_spin_ms = 0;            // FCP_PACE_SPIN
+  bool pace_trace = false;            // FCP_PACE_TRACE
+  bool pace_single = false;           // FCP_PACE_SINGLE
   // Log (the game's log thread); null: stderr.
   void (*log)(const char* line) = nullptr;
 };
@@ -156,14 +202,25 @@ class GameRenderer : public DrawSink {
   // swapchain height / 720), applied on the next swap.
   void SetGammaRamp(bool on);
   void SetScale(float scale, bool scale_auto);
+  // Render resolution (mode and size as in GameRendererOptions::resolution_mode), applied on the next swap.
+  void SetResolution(uint32_t mode, uint32_t w, uint32_t h);
   // Hor+: how much wider than 16:9 the screen-sized targets are now (1 = off). Any thread (camera hook).
   float Wide() const;
+  // Vert+: how much taller than 16:9 the screen-sized targets are now (1 = off). Any thread (camera hook).
+  float Tall() const;
   // SMAA 1x on the finished image before the overlay, from the next present on.
   void SetSmaa(bool on);
   // Texture replacement (renderer/texture_replace.h, button glyphs); nullptr = off. The source must live until Shutdown.
   void SetTextureReplaceSource(TextureReplaceSource* source);
+  // The game starts loading a level (StartLevel command, any thread): prewarm jobs of that level's group go first;
+  // with FCP_PIPELINE_COLLECT the following records go into that group's file.
+  void OnLevelLoading(const std::string& level);
   void Shutdown();
   std::string Summary() const;
+  // Display pacing is on (present_pacer.h): the game then needs no frame rate limiter and no vblank wait of its own.
+  bool DisplayPacingActive() const;
+  // While display pacing is on: the display's frame period in ms (refreshes per frame x refresh), else 0.
+  double DisplayFrameMs() const;
 
   // DrawSink
   void OnDeviceCreated(uint32_t device) override;

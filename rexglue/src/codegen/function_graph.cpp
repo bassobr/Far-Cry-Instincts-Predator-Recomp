@@ -524,6 +524,16 @@ std::string FunctionNode::EmitCpp(const EmitContext& ctx) const {
     }
   }
 
+  // FCP (rexglue/UPSTREAM.md, change 291): with plain_memory every label that a backward branch, a
+  // jump table, a switch table or a mid-asm hook jump reaches gets a guest memory barrier, so each
+  // loop iteration reads guest memory again. The emission below adds every label that a goto reaches
+  // after the label was emitted (a backward edge in emission order) and starts over.
+  const bool plain_memory = UsePlainMemory(ctx.config);
+  std::unordered_set<u32> barrier_labels;
+  if (plain_memory) {
+    barrier_labels = unknown_labels;
+  }
+
   const MMIOClassification mmio = ClassifyFunctionMMIO(*this, ctx);
   for (const MMIOSite& site : mmio.sites) {
     if (site.reason == MMIOReason::kUnsupported) {
@@ -596,6 +606,9 @@ std::string FunctionNode::EmitCpp(const EmitContext& ctx) const {
       while (block_base < block_end && !restart) {
         if (labels.find(block_base) != labels.end() && emitted_labels.insert(block_base).second) {
           EmitPrintln(body, "loc_{:X}:", block_base);
+          if (barrier_labels.contains(static_cast<u32>(block_base))) {
+            EmitPrintln(body, "\tREX_GUEST_BARRIER();");
+          }
           CSRState entry = CSRState::kUnknown;
           if (!unknown_labels.contains(block_base)) {
             std::optional<CSRState> joined;
@@ -688,6 +701,9 @@ std::string FunctionNode::EmitCpp(const EmitContext& ctx) const {
           u32 target = 0;
           const char* digits = emitted.data() + at + 9;
           std::from_chars(digits, emitted.data() + emitted.size(), target, 16);
+          if (plain_memory && emitted_labels.contains(target) && barrier_labels.insert(target).second) {
+            restart = true;  // a backward edge in emission order to a label without a barrier
+          }
           if (const auto entry = label_entries.find(target); entry != label_entries.end()) {
             if (entry->second != CSRState::kUnknown && entry->second != csr_state) {
               unknown_labels.insert(target);

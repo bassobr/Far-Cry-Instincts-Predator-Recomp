@@ -1,6 +1,6 @@
 # Frame rate and game logic
 
-The game was written for 30 frames per second. The port can run it at 30 (default), 60 or 120. This page lists how
+The game was written for 30 frames per second. The port can run it at 30 (default), 45, 60, 90 or 120. This page lists how
 the frame rate is set, which parts of the game logic depend on the frame count, what was corrected, what was
 measured and what is still open.
 
@@ -25,8 +25,31 @@ present held the renderer lock and made every third frame 16 ms long.
 
 Diagnostic values (not for play): `FCP_FPS=<n>` (limiter at n; above 120 not verified, logged), `FCP_FPS=unlimited`,
 `FCP_FPS_PACING=limiter` (60 through the limiter instead of a vblank), `FCP_PRESENT_INTERVAL=1|2|immediate`
-(`r_vsynch` directly, wins over `FCP_FPS`), `FCP_FPS_LIMIT` (older name of `FCP_FPS`). The settings file only
-accepts 30, 60 and 120.
+(`r_vsynch` directly, wins over `FCP_FPS`), `FCP_FPS_LIMIT` (older name of `FCP_FPS`). The settings file accepts
+30, 45, 60, 90 and 120; 45 and 90 run like 120 (no vblank wait, host limiter at the rate).
+
+## Display pacing
+
+A steady frame rate is not yet a smooth picture: every frame has to stay on the screen equally long. On the Steam
+Deck OLED (89.6 Hz measured) 60 frames/s cannot do that: frames alternate between one and two refreshes (11 and
+22 ms), measured 50 % / 45 % with about 45 cadence changes per second even while the game holds 60.0. And the
+game's own clock (the null GPU driver's 60 Hz vblank, or the host limiter) runs apart from the display's, so even 30
+and 45 drift: measured 10-31 % (30) and 9-21 % (45) of the frames one refresh too short or too long.
+
+`[display] pacing = "display"` (`FCP_FPS_PACING=display`, the default on the Steam Deck) times the game by the
+display instead: the Vulkan renderer sees when each image reaches the display (`VK_KHR_present_wait`), measures the
+refresh period, and for a frame rate the refresh rate is a multiple of (n = 2 or more refreshes per frame) it
+- holds the present of a frame until the (n-1)-th refresh of the previous one has started (FIFO then shows it at
+  the n-th), and
+- lets the game's render thread continue only once its previous frame is on the display, so the game renders each
+  shown frame once and its frame time is even; the game's vblank wait and the host limiter are off meanwhile.
+
+Measured on the Deck (21_dunea, the heaviest level tested; 99-100 % in the three others): 30 frames/s 97-99 % of the frames exactly three refreshes
+(the game's own pacing: 84 %), 45 frames/s 98 % exactly two (own pacing: 79 %), at less power (45: 10.4 W instead of
+13.7 W). Without display timing (Direct3D 12), until the refresh is measured, at one refresh per frame (60 on a 60 Hz
+display, where FIFO alone keeps it even) and above 60 the game paces itself as before. Diagnostics: a
+`presentstat:` line every 10 s in the log (refreshes per frame, cadence changes, latency); switches in
+[DEBUG-SWITCHES.md](DEBUG-SWITCHES.md).
 
 **Game time.** The game's frame timer measures real frame time (rounded to whole milliseconds, clamped to 0.1 s).
 Measured: game time against wall time 1.000 at 30, 60 and 120 frames/s. The game does not run "too fast"; what
@@ -44,21 +67,27 @@ Most places were measured with three runs per rate (30, 60, 120) and one or more
 
 | Area | Cause (image, measured) | Original at high frame rates (measured, 120 unless noted) | Now (measured) | Back to original |
 |---|---|---|---|---|
-| Fall damage | the landing speed is taken about 2.4 frames before the impact | the same jump sends 4.60 instead of 4.09 m/s (11 ms frames), so more damage | 4.03-4.21 m/s at 15-28 ms frames | `FCP_FRAME_FALL=1` |
+| Fall damage | the landing sends the mean speed of the last physics step in the air, and which step that is depends on where the frames fall | the same jump sends 4.47 / 4.50 / 4.63 / 4.70 instead of 4.08-4.10 m/s at 45 / 60 / 90 / 120 | the console's steps are worked out from the flight: 4.087-4.088 m/s at 45, 60, 90 and 120; falls of 2.5-12 m do the same damage as at 30 | `FCP_FRAME_FALL=1`; `FCP_FALL_MODEL=linear` for the earlier estimate |
 | Drowning damage | the script timer deals damage per call times the frame time | 2.9 instead of 7.3-7.9 HP/s; death after 33.7 instead of 11.2 s (12 ms frames) | 7.2-8.6 HP/s | `FCP_FRAME_TIMERS=1` |
 | View bob in water | the bob angle is summed per frame | tilt up to 13.8 instead of 3.3-5.0 degrees (12 ms frames) | 4.8 degrees | `FCP_FRAME_BOB=1` |
 | Boats (computer-controlled and the player's) | the water model subtracts drag per call, one call per physics step | patrol boat 5.46 instead of 11.74-11.84 m/s; player's boat 5.34 instead of 5.81-5.83 m/s 3 s after full throttle (at 15.8 ms frames) | the console's model rate (at most 50 calls per second of game time): 11.89 m/s; player's boat as at 30 | `FCP_FRAME_WATER=1` |
 | Swimming: buoyancy and currents | applied per frame | after the jump from the helicopter in `13_black_forest` the player rose at 0.003 instead of 0.37 m/s, stayed under water and drowned | 0.367 m/s at 30, 60 and 120; surface after 3.8-4.7 s | `FCP_FRAME_SWIM=1` |
 | First landing after take-off | with steps shorter than a console frame the flight can end in its first step | flight over a stair edge in `05_mines` 0.02 instead of 0.60 s | 0.68 s | `FCP_FRAME_LANDING=1` |
 | Entering water | swim mode starts one step after crossing the water line, so the depth depends on the step length | 0.14-0.28 instead of 0.55-1.1 m below the line; surfaced after 30.3-30.6 instead of 31.4-32.8 s | depth and time in the range of 30 | `FCP_FRAME_DIVE=1` |
-| Stick turn ramp | the turn rate ramp is summed per frame | 1 s of full stick: 253.0-253.2 instead of 249.6-249.8 degrees | 249.6-250.2 degrees | `FCP_FRAME_TURN=1` |
+| Stick turn ramp | the turn rate ramp is summed per frame | 1 s of full stick: 253.0-253.2 instead of 249.6-249.8 degrees | 249.5-250.3 degrees at 45, 60, 90 and 120 (frames that cross a console frame mix the rates of both) | `FCP_FRAME_TURN=1`; `FCP_TURN_MODEL=floor` |
 | Path following of computer-controlled characters | the look-ahead is one frame's movement | 3-4 cm instead of 13-15 cm | 13-15 cm, as at 30 | `FCP_FRAME_PATH=1` |
 | Fire rate | the fire test runs once per frame, so the interval is rounded up to whole frames | assault rifle 9.62-9.64 instead of 8.97-9.07 shots/s; after reloading 75 instead of 100 ms per shot | the test runs on the console's 1/30 s grid: 8.97 shots/s at 120, 8.61-9.15 at 60; 100 ms after reloading | `FCP_FRAME_FIRE=1` |
 
 Notes:
 
-- **Fall damage:** only the speed sent to the landing was measured; the damage itself was not. The factor 2.4 can be
-  changed with `FCP_FALL_SAMPLE_FRAMES=<k>`.
+- **Fall damage:** measured as health lost for falls of 2.5, 4, 6, 9 and 12 m (teleport in `m01_mercycreek`): 0 / 0 /
+  11.5 / 37.8 / 50.7 at 30, 45, 60, 90 and 120. The earlier estimate (a fixed age of 2.4 frames) was 3 % high for a
+  jump at 45 frames/s and gave 9.1 / 36.9 / 54.0 for these falls at 45; it still serves where the step model does not
+  apply (`FCP_FALL_SAMPLE_FRAMES=<k>`).
+- **45 frames/s:** all corrections were checked at 45 against 30 (PC, two to six runs each). Besides fall damage and
+  the turn ramp (corrected), the assault rifle fires 1.7 % faster than the PC at 30 (no frame falls on the 100 ms
+  interval; the correction alternates 89 and 111 ms), and entering water ends 0.23 m higher than in the PC's 30 runs,
+  inside the range the console gives depending on where its frames fall. Neither is corrected.
 - **Drowning timer:** the correction scales `_frametime` for every entity script timer, not only drowning; in the
   game's scripts `_frametime` is read inside a timer only there (image).
 - **Path following:** the correction also contains a release from corners (`FCP_FRAME_PATH_RELEASE=1` turns only

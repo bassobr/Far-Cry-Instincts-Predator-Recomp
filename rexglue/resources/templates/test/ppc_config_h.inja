@@ -62,12 +62,12 @@
 // Darwin has no overridable alias (see codegen/pch_h.inja), so use a weak
 // musttail thunk so `name` stays overridable by hooks and lowers to a `jmp`.
 #define DEFINE_REX_FUNC(name)                                            \
-  extern "C" void __imp__##name(PPCContext& __restrict, u8*);            \
+  extern "C" void __imp__##name(REX_CTX_NOESCAPE PPCContext& __restrict, u8*);            \
   __attribute__((weak, noinline)) extern "C" void name(                  \
-      PPCContext& __restrict ctx, u8* base) {                            \
+      REX_CTX_NOESCAPE PPCContext& __restrict ctx, u8* base) {                            \
     REX_MUSTTAIL return __imp__##name(ctx, base);                        \
   }                                                                      \
-  REX_RECOMPILED_CODE_SECTION extern "C" void __imp__##name([[maybe_unused]] PPCContext& __restrict ctx, u8* base)
+  REX_RECOMPILED_CODE_SECTION extern "C" void __imp__##name([[maybe_unused]] REX_CTX_NOESCAPE PPCContext& __restrict ctx, u8* base)
 #else
 #define DEFINE_REX_FUNC(name)                                       \
   __attribute__((alias("__imp__" #name)))                           \

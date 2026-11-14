@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <numeric>
@@ -19,6 +20,7 @@
 #include "fcp/gametime.h"
 #include "fcp/guest.h"
 #include "fcp/log.h"
+#include "fcp/render_bridge.h"
 #include "fcp_addresses.h"
 
 namespace fcp::framerate {
@@ -30,6 +32,10 @@ int g_target = 30;          // reported target, 0 = unlimited
 int g_vsynch = -1;          // value forced into r_vsynch every frame, -1 = leave the game's value
 double g_limit_period = 0;  // host limiter: shortest time between two frames, 0 = none
 bool g_logged_vsynch = false;
+bool g_display = false;      // FCP_FPS_PACING=display requested
+bool g_display_on = false;   // the renderer paces on the display right now
+int64_t g_game_vsynch = -1;  // the game's own r_vsynch before the first write (restored when display pacing stops)
+double g_pace_limit = 0.0;   // FCP_PACE_LIMIT: limiter at this factor of the display's frame period (0: none)
 Clock::time_point g_next_frame;
 
 // statistics
@@ -68,16 +74,25 @@ void Limit() {
 }
 
 void ApplyVsynch(uint8_t* base) {
-  if (g_vsynch < 0 || !fcp::guest::Readable(base, fcp::addr::r_vsynch, 4)) {
+  int want = g_vsynch;
+  if (g_display_on) {
+    want = 0;  // the renderer waits for the display: no vblank wait of the null driver on top
+  } else if (want < 0 && g_game_vsynch >= 0) {
+    want = int(g_game_vsynch);  // display pacing stopped: the game's own value again
+  }
+  if (want < 0 || !fcp::guest::Readable(base, fcp::addr::r_vsynch, 4)) {
     return;
   }
   const uint32_t old = fcp::guest::U32(base, fcp::addr::r_vsynch);
-  if (old != uint32_t(g_vsynch)) {
-    const uint32_t be = __builtin_bswap32(uint32_t(g_vsynch));
+  if (g_game_vsynch < 0) {
+    g_game_vsynch = old;
+  }
+  if (old != uint32_t(want)) {
+    const uint32_t be = __builtin_bswap32(uint32_t(want));
     std::memcpy(fcp::guest::Ptr(base, fcp::addr::r_vsynch), &be, 4);
     if (!g_logged_vsynch) {
       g_logged_vsynch = true;
-      FCPLOG("framerate: r_vsynch {} -> {} (frame {})", old, g_vsynch, fcp::gametime::Frame());
+      FCPLOG("framerate: r_vsynch {} -> {} (frame {})", old, want, fcp::gametime::Frame());
     }
   }
 }
@@ -116,8 +131,12 @@ std::string Histogram(const std::vector<float>& ms) {
     }
     ++bins[b];
   }
-  return std::format("<8:{} 8-12:{} 12-20:{} 20-30:{} 30-40:{} 40-60:{} >=60:{}", bins[0], bins[1], bins[2], bins[3],
-                     bins[4], bins[5], bins[6]);
+  const size_t over25 = size_t(std::count_if(ms.begin(), ms.end(), [](float v) { return v > 25.f; }));
+  // long: over 1.5 frame periods of the target (a visible hitch at that rate; unlimited: 25 ms)
+  const float long_ms = g_target > 0 ? 1500.f / float(g_target) : 25.f;
+  const size_t longer = size_t(std::count_if(ms.begin(), ms.end(), [&](float v) { return v > long_ms; }));
+  return std::format("<8:{} 8-12:{} 12-20:{} 20-30:{} 30-40:{} 40-60:{} >=60:{} >25:{} long:{}", bins[0], bins[1],
+                     bins[2], bins[3], bins[4], bins[5], bins[6], over25, longer);
 }
 
 void Stats(double game_seconds) {
@@ -194,8 +213,16 @@ void Configure() {
     g_vsynch = iv == "immediate" || iv == "0" ? 0 : int(std::clamp<int64_t>(fcp::env::Int("FCP_PRESENT_INTERVAL", 2), 1, 2));
     FCPLOG("FCP_PRESENT_INTERVAL={}: r_vsynch {}", iv, g_vsynch);
   }
-  if (g_limit_period > 0.0) {
+  g_display = DisplayPacingTarget() != 0.0;
+  if (const std::string pl = fcp::env::Get("FCP_PACE_LIMIT"); !pl.empty()) {
+    g_pace_limit = std::clamp(std::atof(pl.c_str()), 0.0, 1.0);
+  }
+  if (g_limit_period > 0.0 || g_display) {
     timeBeginPeriod(1);
+  }
+  if (g_display) {
+    FCPLOG("FCP_FPS_PACING=display: the renderer paces on the display's refresh once it is measured and divisible by "
+           "the target; until then and otherwise the pacing below");
   }
   if (!from.empty()) {
     FCPLOG("{}={}: target {}, r_vsynch {}, host limiter {}{}", from, value,
@@ -207,13 +234,35 @@ void Configure() {
 }
 
 void OnMainLoop(uint8_t* base, double game_seconds) {
-  Limit();
+  if (g_display) {
+    const bool on = fcp::render::DisplayPacingActive();
+    if (on != g_display_on) {
+      g_display_on = on;
+      FCPLOG("framerate: display pacing {} (frame {}): {}", on ? "on" : "off", fcp::gametime::Frame(),
+             on ? "r_vsynch 0, no host limiter" : "the game's own pacing");
+      g_next_frame = {};  // the limiter starts anew when it is needed again
+    }
+  }
+  if (!g_display_on) {
+    Limit();
+  } else if (g_pace_limit > 0.0) {
+    // Display pacing with the limiter at the display's own frame period (a little shorter, so the display, not the
+    // limiter, sets the rate): the main thread waits here as with the plain limiter instead of the render thread
+    // waiting for the display (FCP_PACE_LIMIT=<factor>).
+    const double ms = fcp::render::DisplayFrameMs();
+    if (ms > 0.0) {
+      const double keep = g_limit_period;
+      g_limit_period = ms * g_pace_limit / 1000.0;
+      Limit();
+      g_limit_period = keep;
+    }
+  }
   ApplyVsynch(base);
   Stats(game_seconds);
 }
 
 void Shutdown() {
-  if (g_limit_period > 0.0) {
+  if (g_limit_period > 0.0 || g_display) {
     timeEndPeriod(1);
   }
   if (!g_all_ms.empty()) {
@@ -227,13 +276,35 @@ int TargetFps() {
   return g_target;
 }
 
-bool HostPresentImmediate() {
-  // May run before Configure (the renderer module starts first), so it reads the switches itself.
+namespace {
+// The configured target, read without Configure (the renderer module starts first).
+int ConfiguredTarget() {
   std::string v = fcp::env::Get("FCP_FPS");
-  const int target = !v.empty() ? ParseTarget(v, false)
-                     : !(v = fcp::env::Get("FCP_FPS_LIMIT")).empty() ? ParseTarget(v, true)
-                                                                     : 30;
+  return !v.empty() ? ParseTarget(v, false)
+         : !(v = fcp::env::Get("FCP_FPS_LIMIT")).empty() ? ParseTarget(v, true)
+                                                         : 30;
+}
+}  // namespace
+
+bool HostPresentImmediate() {
+  if (DisplayPacingTarget() != 0.0) {
+    return false;  // display pacing needs FIFO: the image waits for its refresh
+  }
+  const int target = ConfiguredTarget();
   return target == 0 || target > 60;
+}
+
+double DisplayPacingTarget() {
+  if (fcp::env::Get("FCP_FPS_PACING") != "display" || !fcp::env::Get("FCP_PRESENT_INTERVAL").empty()) {
+    return 0.0;
+  }
+  const int target = ConfiguredTarget();
+  // Over 60 (and unlimited) the display cannot be paced on the Deck's 90 Hz with frames of two refreshes or more,
+  // and the FIFO present it needs cost 7 fps at 90 (measured: 57 instead of 64 in 21_dunea): the game's own pacing.
+  if (target == 0 || target > 60) {
+    return 0.0;
+  }
+  return double(target);
 }
 
 }  // namespace fcp::framerate

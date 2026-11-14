@@ -40,6 +40,9 @@ Result in `out\dist\`: `Far-Cry-Instincts-Predator-Recomp-v<version>-win64\` and
 - **PGO profile:** exactly one `.profdata`, `compiler\pgo\predator.profdata`, with the same SHA-256 as
   `config/predator/game_code.profdata` (`dist.ps1` and the release workflow check it). `predator.exe` only uses
   a profile with the SHA-256 it was built with; the first-start log shows `game code: PGO profile ...`.
+- **Pipeline list:** exactly one `.fcpl`, `pipelines.fcpl` next to `predator.exe`, with the same SHA-256 as
+  `config/predator/pipelines.fcpl` (`dist.ps1` checks header and checksum with `tools\pipelines_build.ps1 -Info`, the
+  release workflow the SHA-256); the log shows `renderer: shipped pipeline list ...: N records, ... checksum ok`.
 - **SHA256SUMS** lists exactly the release zip and the source archive, and the hashes match:
   `certutil -hashfile <file> SHA256` (or `sha256sum -c SHA256SUMS`).
 - **Source archive** holds `BUILDING.txt`, `ffmpeg/source/`, `libmspack/source/`, `binutils-disasm/source/`,

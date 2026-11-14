@@ -10,6 +10,7 @@
 #include <format>
 #include <inja/inja.hpp>
 
+#include "builder/builder_context.h"
 #include "call_usage.h"
 #include "function_graph.h"
 #include "output_partition.h"
@@ -103,6 +104,7 @@ nlohmann::json BuildTemplateData(const rex::codegen::CodegenContext& ctx,
       {"cr_as_local", cfg.cr_registers_as_local_variables},
       {"non_argument_as_local", cfg.non_argument_registers_as_local_variables},
       {"non_volatile_as_local", cfg.non_volatile_registers_as_local_variables},
+      {"plain_memory", UsePlainMemory(cfg)},  // FCP (UPSTREAM.md, change 291)
   };
 
   return {

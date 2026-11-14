@@ -145,6 +145,9 @@ bool ApplyTOML(const toml::table& root, RecompilerConfig& cfg, const std::string
             has_bool("forward_stack_stores"), "forward_stack_stores");
   MergeBool(cfg.generate_exception_handlers, root["generate_exception_handlers"].value_or(false),
             has_bool("generate_exception_handlers"), "generate_exception_handlers");
+  // FCP (rexglue/UPSTREAM.md, change 291)
+  MergeBool(cfg.plain_memory, root["plain_memory"].value_or(false), has_bool("plain_memory"),
+            "plain_memory");
   if (has_bool("is_dll")) {
     cfg.is_dll = root["is_dll"].value_or(false);
   }

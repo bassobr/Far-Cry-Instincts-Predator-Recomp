@@ -80,7 +80,59 @@ void DrawTriangle(HostApi api) {
   CHECK_EQ(Counters::Get().nvrhi_errors - nvrhi_errors, uint64_t(0));
 }
 
+// Bindless table slots: a full table refuses (0, counted), a freed slot is handed out again, slot 0 (fallback) never.
+void TableSlots(HostApi api) {
+  std::string error;
+  HostOptions o;
+  o.api = api;
+  auto host = CreateHostDevice(o, &error);
+  if (!host) {
+    std::printf("  skipped: no %s device (%s)\n", HostApiName(api), error.c_str());
+    return;
+  }
+  nvrhi::IDevice* dev = host->device();
+  TableCapacities caps;
+  caps.slots[size_t(Table::kTex2D)] = 16;
+  caps.slots[size_t(Table::kBuffers)] = 16;
+  TranslatedLayout layout;
+  CHECK(layout.Init(dev, caps, &error));
+  nvrhi::TextureDesc td;
+  td.width = td.height = 4;
+  td.format = nvrhi::Format::RGBA8_UNORM;
+  td.initialState = nvrhi::ResourceStates::ShaderResource;
+  td.keepInitialState = true;
+  nvrhi::TextureHandle tex = dev->createTexture(td);
+  nvrhi::BufferDesc bd;
+  bd.byteSize = 256;
+  bd.canHaveRawViews = true;
+  bd.initialState = nvrhi::ResourceStates::ShaderResource;
+  bd.keepInitialState = true;
+  nvrhi::BufferHandle buf = dev->createBuffer(bd);
+  CHECK(tex && buf);
+  if (!tex || !buf) return;
+  CHECK_EQ(layout.used(Table::kTex2D), 1u);  // the fallback
+  std::vector<uint32_t> slots;
+  for (int i = 0; i < 15; ++i) slots.push_back(layout.AddTextureView(Table::kTex2D, tex, nvrhi::ComponentMapping()));
+  for (uint32_t s : slots) CHECK(s != 0);
+  CHECK_EQ(layout.used(Table::kTex2D), 16u);
+  CHECK_EQ(layout.AddTextureView(Table::kTex2D, tex, nvrhi::ComponentMapping()), 0u);
+  CHECK_EQ(layout.refused(Table::kTex2D), uint64_t(1));
+  layout.FreeSlot(Table::kTex2D, slots[3]);
+  layout.FreeSlot(Table::kTex2D, 0);  // never freed
+  CHECK_EQ(layout.used(Table::kTex2D), 15u);
+  CHECK_EQ(layout.AddTextureView(Table::kTex2D, tex, nvrhi::ComponentMapping()), slots[3]);
+  CHECK_EQ(layout.AddTextureView(Table::kTex2D, tex, nvrhi::ComponentMapping()), 0u);
+  uint32_t last = 0;
+  for (int i = 0; i < 15; ++i) last = layout.AddBuffer(buf);
+  CHECK(last != 0);
+  CHECK_EQ(layout.AddBuffer(buf), 0u);
+  layout.FreeSlot(Table::kBuffers, last);
+  CHECK_EQ(layout.AddBuffer(buf), last);
+}
+
 }  // namespace
 
 TEST(Gpu_Vulkan_TriangleReadback) { DrawTriangle(HostApi::kVulkan); }
 TEST(Gpu_D3D12_TriangleReadback) { DrawTriangle(HostApi::kD3D12); }
+TEST(Gpu_Vulkan_TableSlots) { TableSlots(HostApi::kVulkan); }
+TEST(Gpu_D3D12_TableSlots) { TableSlots(HostApi::kD3D12); }

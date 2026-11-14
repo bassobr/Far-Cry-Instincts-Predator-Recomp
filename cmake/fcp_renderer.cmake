@@ -29,6 +29,16 @@ if (FCP_RENDERER)
               "$<TARGET_FILE_DIR:predator>/renderer.toml"
       VERBATIM
     )
+    # Shipped pipeline list (shader hashes and render state only; tools/pipelines_build.ps1), prewarmed at start.
+    if (EXISTS "${CMAKE_SOURCE_DIR}/config/predator/pipelines.fcpl")
+      add_custom_command(
+        TARGET predator
+        POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/config/predator/pipelines.fcpl"
+                "$<TARGET_FILE_DIR:predator>/pipelines.fcpl"
+        VERBATIM
+      )
+    endif ()
   endfunction ()
   cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL fcp_renderer_attach)
 endif ()

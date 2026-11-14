@@ -22,9 +22,13 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <shared_mutex>
 #include <vector>
 
 #include "kk/backend/vk_pipeline_cache.h"
@@ -222,7 +226,12 @@ class VulkanHost final : public HostDevice {
     info.swapchainCount = 1;
     info.pSwapchains = &swapchain_;
     info.pImageIndices = &index_;
+    // Present id (VK_KHR_present_id): WaitPresented can then see when this image reached the display.
+    const uint64_t id = present_id_ + 1;
+    vk::PresentIdKHR pid(1, &id);
+    if (present_wait_) info.pNext = &pid;
     (void)queue_.presentKHR(&info);
+    if (present_wait_) present_id_.store(id, std::memory_order_release);
     device()->runGarbageCollection();
     ++frame_;
   }
@@ -231,12 +240,24 @@ class VulkanHost final : public HostDevice {
     if (device()) device()->waitForIdle();
   }
 
+  bool has_present_wait() const override { return present_wait_; }
+  uint64_t last_present_id() const override { return present_id_.load(std::memory_order_acquire); }
+  bool WaitPresented(uint64_t id, uint64_t timeout_ns) override {
+    if (!present_wait_ || !id) return false;
+    std::shared_lock lock(swapchain_mutex_);  // Resize replaces the swapchain under the exclusive lock
+    if (!swapchain_) return false;
+    // The raw entry point: vulkan.hpp's wrapper throws on OUT_OF_DATE/SURFACE_LOST.
+    const VkResult r = VULKAN_HPP_DEFAULT_DISPATCHER.vkWaitForPresentKHR(VkDevice(dev_), VkSwapchainKHR(swapchain_), id, timeout_ns);
+    return r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR;
+  }
+
   uint32_t swapchain_width() const override { return width_; }
   uint32_t swapchain_height() const override { return height_; }
 
   bool Resize(uint32_t width, uint32_t height) override {
     if (!swapchain_ || !width || !height) return false;
     device()->waitForIdle();
+    std::unique_lock swap_lock(swapchain_mutex_);  // no WaitPresented on the old swapchain from here on
     images_.clear();
     for (auto s : acquire_) dev_.destroySemaphore(s);
     for (auto s : present_) dev_.destroySemaphore(s);
@@ -384,6 +405,37 @@ class VulkanHost final : public HostDevice {
     const auto device_exts = phys_.enumerateDeviceExtensionProperties();
     std::vector<const char*> dexts;
     if (surface_) dexts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    // Display timing for frame pacing (present_pacer.h): VK_KHR_present_id + VK_KHR_present_wait, if the driver (and
+    // under Proton winevulkan and gamescope's WSI layer) has both. FCP_PRESENT_WAIT=0 leaves them off.
+    vk::PhysicalDevicePresentIdFeaturesKHR present_id_on;
+    vk::PhysicalDevicePresentWaitFeaturesKHR present_wait_on;
+    {
+      const char* off = std::getenv("FCP_PRESENT_WAIT");
+      const bool exts_there = HasExtension(device_exts, VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
+                              HasExtension(device_exts, VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+      bool features = false;
+      if (surface_ && exts_there) {
+        vk::PhysicalDeviceFeatures2 q;
+        vk::PhysicalDevicePresentIdFeaturesKHR qid;
+        vk::PhysicalDevicePresentWaitFeaturesKHR qwait;
+        q.pNext = &qid;
+        qid.pNext = &qwait;
+        phys_.getFeatures2(&q);
+        features = qid.presentId && qwait.presentWait;
+      }
+      present_wait_ = features && !(off && std::strcmp(off, "0") == 0);
+      if (present_wait_) {
+        dexts.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+        dexts.push_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+        present_id_on.presentId = VK_TRUE;
+        present_wait_on.presentWait = VK_TRUE;
+        f13.pNext = &present_id_on;
+        present_id_on.pNext = &present_wait_on;
+      }
+      if (surface_)
+        LogLine("[vulkan] present wait: %s (extensions %s, features %s)", present_wait_ ? "on" : "off",
+                exts_there ? "yes" : "no", features ? "yes" : "no");
+    }
     const float priority = 1.0f;
     vk::DeviceQueueCreateInfo qci({}, family_, 1, &priority);
     vk::DeviceCreateInfo dci({}, 1, &qci, 0, nullptr, uint32_t(dexts.size()), dexts.data());
@@ -503,6 +555,9 @@ class VulkanHost final : public HostDevice {
   nvrhi::Format back_format_ = nvrhi::Format::RGBA8_UNORM;
   uint32_t width_ = 0, height_ = 0, index_ = 0;
   uint64_t frame_ = 0;
+  bool present_wait_ = false;            // VK_KHR_present_id + VK_KHR_present_wait enabled
+  std::atomic<uint64_t> present_id_{0};  // id of the latest present
+  std::shared_mutex swapchain_mutex_;    // WaitPresented (shared) against Resize (exclusive)
   std::vector<nvrhi::TextureHandle> images_;
   std::vector<vk::Semaphore> acquire_, present_;
   std::vector<nvrhi::EventQueryHandle> frame_queries_;

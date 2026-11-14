@@ -6,6 +6,7 @@
 #include <chrono>
 #include <format>
 #include <map>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -41,7 +42,27 @@ struct Module {
   Where where = kOther;
 };
 
+// Spike view: recent samples per thread.
+struct SpikeSample {
+  Clock::time_point t;
+  uint32_t chain[8];
+  uint8_t n;
+  uint8_t where;
+};
+constexpr size_t kRing = 8192;
+struct PendingHitch {
+  Clock::time_point start, end;
+  uint64_t frame;
+  uint32_t thread;  // host id of the main thread
+};
+bool g_spikes = false;
+std::mutex g_hitch_mutex;
+std::vector<PendingHitch> g_hitches;
+
 struct ThreadStats {
+  std::vector<SpikeSample> ring;  // g_spikes: the last kRing samples
+  size_t ring_pos = 0;
+  uint32_t kthread = 0;  // guest KTHREAD (owner field of critical sections)
   std::string name;
   HANDLE handle = nullptr;
   uint64_t cpu100ns_at_window = 0;
@@ -214,6 +235,62 @@ std::string Top(const std::unordered_map<K, uint32_t>& counts, uint64_t total, i
   return out;
 }
 
+// One "spike:" line per thread with samples in a pending hitch frame (once the frame is a few ms in the past).
+void ReportSpikes(std::unordered_map<uint32_t, ThreadStats>& threads, Clock::time_point now) {
+  std::vector<PendingHitch> ready;
+  {
+    std::lock_guard lock(g_hitch_mutex);
+    for (size_t i = 0; i < g_hitches.size();) {
+      if (now - g_hitches[i].end > std::chrono::milliseconds(5)) {
+        ready.push_back(g_hitches[i]);
+        g_hitches.erase(g_hitches.begin() + i);
+      } else {
+        ++i;
+      }
+    }
+  }
+  for (const PendingHitch& h : ready) {
+    const double ms = std::chrono::duration<double, std::milli>(h.end - h.start).count();
+    struct Line {
+      std::string text;
+      uint64_t busy;
+      bool main;
+    };
+    std::vector<Line> lines;
+    for (auto& [id, s] : threads) {
+      if (s.ring.empty()) continue;
+      std::unordered_map<uint32_t, uint32_t> self, incl;
+      uint64_t where[kWhereCount] = {};
+      uint64_t n = 0;
+      for (const SpikeSample& r : s.ring) {
+        if (r.t < h.start || r.t > h.end) continue;
+        ++n;
+        ++where[r.where < kWhereCount ? r.where : kOther];
+        if (r.n) ++self[r.chain[0]];
+        for (int i = 0; i < r.n; ++i) {
+          bool seen = false;
+          for (int j = 0; j < i && !seen; ++j) seen = r.chain[j] == r.chain[i];
+          if (!seen) ++incl[r.chain[i]];
+        }
+      }
+      if (!n) continue;
+      const bool main = id == h.thread;
+      const uint64_t busy = n - where[kSystem];  // samples outside ntdll/kernel32 (waits and system calls)
+      std::string w;
+      for (int i = 0; i < kWhereCount; ++i)
+        if (where[i]) w += std::format(" {} {}", kWhereNames[i], where[i]);
+      lines.push_back({std::format("spike: frame {} {:.1f} ms | {}{} host {} kthread {:08X}: {} samples |{} | self{} | incl{}",
+                                   h.frame, ms, s.name, main ? " (main)" : "", id, s.kthread, n, w, Top(self, n, 5, true),
+                                   Top(incl, n, 8, true)),
+                       busy, main});
+    }
+    std::sort(lines.begin(), lines.end(), [](const Line& a, const Line& b) {
+      return a.main != b.main ? a.main : a.busy > b.busy;
+    });
+    for (size_t i = 0; i < lines.size() && i < 10; ++i) FCPLOG("{}", lines[i].text);
+  }
+}
+
 void Loop(int interval_ms, double window_s) {
   SetThreadDescription(GetCurrentThread(), L"fcp profile");
   timeBeginPeriod(1);
@@ -238,6 +315,7 @@ void Loop(int interval_ms, double window_s) {
       ThreadStats& s = it->second;
       if (inserted) {
         s.name = std::string(t.GetName());
+        s.kthread = t.GetGuestObject();
         s.handle = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION, FALSE, id);
         if (s.handle) s.cpu100ns_at_window = ThreadCpu(s.handle);
       }
@@ -288,6 +366,15 @@ void Loop(int interval_ms, double window_s) {
             if (!seen) ++s.guest_incl[chain[i]];
           }
         }
+        if (g_spikes) {
+          if (s.ring.empty()) s.ring.resize(kRing);
+          SpikeSample& r = s.ring[s.ring_pos++ % kRing];
+          r.t = Clock::now();
+          r.n = uint8_t(std::min(nchain, 8));
+          for (int i = 0; i < r.n; ++i) r.chain[i] = chain[i];
+          const Module* rm = FindModule(rip);
+          r.where = uint8_t(rm ? rm->where : kOther);
+        }
       }
       const Module* m = FindModule(rip);
       const Where w = m ? m->where : kOther;
@@ -301,6 +388,7 @@ void Loop(int interval_ms, double window_s) {
       ++s.host_fn[fe ? uintptr_t(image_base + fe->BeginAddress) : rip];
     }
     const Clock::time_point now = Clock::now();
+    if (g_spikes) ReportSpikes(threads, now);
     const double wall = std::chrono::duration<double>(now - window_start).count();
     if (wall < window_s) continue;
     const uint64_t frames = fcp::gametime::Frame() - frame0;
@@ -352,8 +440,16 @@ void Start(rex::kernel::TitleRuntime& runtime) {
   if (g_guest.by_host.empty()) g_guest.Load();
   const double window = double(std::max<int64_t>(1, fcp::env::Int("FCP_PROFILE_WINDOW", 10)));
   FCPLOG("FCP_PROFILE={}: sampling the guest threads every {} ms, report every {:.0f} s", interval, interval, window);
+  g_spikes = !fcp::env::Get("FCP_TRACE_HITCHES").empty() && fcp::env::Flag("FCP_PROFILE_SPIKES", true);
+  if (g_spikes) FCPLOG("FCP_PROFILE: spike view on (samples of each hitch frame; FCP_PROFILE_SPIKES=0: off)");
   g_stop = false;
   g_thread = std::thread(Loop, int(interval), window);
+}
+
+void OnHitch(Clock::time_point start, Clock::time_point end, uint64_t frame) {
+  if (!g_spikes) return;
+  std::lock_guard lock(g_hitch_mutex);
+  if (g_hitches.size() < 64) g_hitches.push_back({start, end, frame, GetCurrentThreadId()});
 }
 
 void Stop() {

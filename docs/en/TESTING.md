@@ -48,6 +48,8 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 | `FCP_TRACE_STATE=<n>` | every n-th frame one line in `logs\state[.gen<n>].csv`: frame, wall/game/level time, frame time, position, angles, speed, health, armour, water state, breath, firing/reloading, clip counters, shots |
 | `FCP_TRACE_COMMANDS=1` | `logs\commands[.gen<n>].csv`: every queued and dispatched game command, level loaded |
 | `FCP_TRACE_HITCHES=<ms>` | frames over the threshold (`1` = 50 ms) with file reads, file opens, run-time shader compiles, allocations and the frame's commands |
+| `FCP_TRACE_FRAMES=1` | every frame as CSV (`logs/frames.csv`): duration, main-thread CPU, time inside imports by kind (wait, file, memory, audio, sync), longest import call; with it or `FCP_TRACE_HITCHES` every import call is timed per thread (`FCP_TRACE_IMPORT_TIME=0` off) and hitch lines carry that breakdown |
+| `REX_VSYNC_STATS=1` | how late the SDK vblank thread delivers each blank (line every 10 s, one per blank over 2 ms); `REX_VSYNC_PRIORITY=<n>` sets that thread's Win32 priority (experiment, unset = unchanged) |
 | `FCP_TRACE_LAND=1`, `FCP_TRACE_TIMERS=1`, `FCP_TRACE_AI=1` | landing speed per landing; corrected (and held) script timers; count of thinking turns of computer-controlled characters |
 | `FCP_TRACE_BOAT=1`, `FCP_TRACE_WHEELS=1`, `FCP_TRACE_DROWNING=1` | boat physics steps and speed; wheel force calls per vehicle; every "under water" answer |
 | `FCP_TRACE_LIVING=<x>,<y>\|player` | one line per physics step for the first living entity within 2 m of (x, y), or the local player (needs `FCP_TRACE_STATE`) |
@@ -80,6 +82,7 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 | `FCP_FPS_STATS=<s>` | a `framestat:` line every s seconds (default 10, 0 = off): frames/s, mean, p50, p99, max, 1 % low, game time against wall time, level, histogram; `framestat total` at the end |
 | `FCP_CPU_STATS=<s>` | a `cpu:` line every s seconds: process CPU per wall second (100 % = one core), user/kernel, frames/s, and every thread with at least 2 % of a core; totals at shutdown |
 | `FCP_PROFILE=<ms>` | sampling profile of all guest threads every ms: CPU share, where the samples are (game code, SDK, system, driver), hottest guest functions and host callers. `FCP_PROFILE_WINDOW=<s>` (default 10), `FCP_PROFILE_TOP=<n>`, `FCP_PROFILE_DEPTH=<n>`; `tools\profile_symbolize.py` resolves host addresses |
+| `FCP_PROFILE_SPIKES=0` | with `FCP_PROFILE` and `FCP_TRACE_HITCHES` a `spike:` line per thread for every hitch frame (its samples only); `0` turns that off |
 | `FCP_GAMETIME_STATS=0` | turns off the `clock:` line (every 5 s: frames/s, game time against wall time, frame time range, level) |
 | `FCP_RENDER_STATS=<n>` | renderer statistics every n frames (default 150) |
 | `FCP_AUDIO_STATS=0` | turns off the audio and XMA statistics lines (every 10 s of audio) |
@@ -89,6 +92,12 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 `tools\perf_measure.ps1` runs a level several times with `FCP_CPU_STATS` and `FCP_FPS_STATS` and summarises them
 (`-Affinity` limits the process to a set of logical processors, e.g. 4 cores / 8 threads). `tools\audit\run_series.ps1`
 runs frame rate series (30/60/120, several repeats) for the [frame rate audit](FRAMERATE.md).
+`tools\hitch_measure.ps1` measures hitches (frames over `-Threshold` ms, default 25) with its own user folder:
+`-Fresh` starts cold every run (no pipeline list, no shader or driver cache, as for a new player), without it the
+folder is kept (second start). Each hitch is assigned to the renderer's share of that frame (pipeline creation,
+texture conversion, buffer upload, the rest of the draw path, GPU wait, outside the renderer) or to the game.
+`tools\image_ab.ps1` dumps frames of two builds or settings and compares them pixel by pixel (the boot logos are
+deterministic; later frames depend on timing).
 
 **Other processes falsify measurements.** Measure with no other game process running; the series scripts count
 other game processes before and after each run and log them. Repeat runs that had company.

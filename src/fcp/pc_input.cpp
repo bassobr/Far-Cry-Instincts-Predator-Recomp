@@ -940,21 +940,56 @@ void NotePadUse(const uint8_t* s) {
   if (used) fcp::prompts::NotePad(family);
 }
 
-// Pointer lock: while player 1's look input runs and the mouse is on (the SDK frees it without focus).
+// Pointer lock: while player 1's look input runs and the mouse is on (the SDK frees it without focus), and
+// (FCP_POINTER_LOCK=auto, default) while keyboard or mouse is the device used last. The lock puts SDL into relative
+// mode, which runs SDL's raw input thread (SDLRawInput); under Proton on the Steam Deck that thread took 22.7 % of a
+// core while the controller played (docs/phase1/leistung-deck.md). With a controller in use the pointer stays free,
+// mouse motion still counts (below) and locks it again. FCP_POINTER_LOCK=always: locked whenever the look input runs
+// (before).
+bool PointerLockAlways() {
+  static const bool always = [] {
+    const bool on = fcp::env::Get("FCP_POINTER_LOCK") == "always";
+    FCPLOG("input: pointer lock {}", on ? "always while the look input runs (FCP_POINTER_LOCK=always)"
+                                        : "while keyboard or mouse is in use (FCP_POINTER_LOCK=auto)");
+    return on;
+  }();
+  return always;
+}
+
 void UpdatePointer() {
   if (!g_input || !g_set.mouse) return;
   const double last = g_last_look.load(std::memory_order_relaxed);
   // free while the settings menu is open (its pointer), else locked while the look input runs
-  const bool want = last >= 0 && Wall() - last < 0.25 && !fcp::menu::BlocksInput();
-  if (want != g_locked) {
+  const bool look = last >= 0 && Wall() - last < 0.25 && !fcp::menu::BlocksInput();
+  const bool want = look && (PointerLockAlways() || fcp::prompts::KeyboardMouseInUse());
+  // Look input with the controller in use: free but without the arrow (SDK mode kHidden, no relative mode, no
+  // SDLRawInput); mouse motion past the prompt threshold makes keyboard/mouse the device in use and locks again.
+  const rex::PointerMode mode = want ? rex::PointerMode::kLocked : look ? rex::PointerMode::kHidden : rex::PointerMode::kFree;
+  static rex::PointerMode applied = rex::PointerMode::kFree;
+  if (mode != applied) {
+    applied = mode;
     g_locked = want;
-    g_input->SetPointerMode(want ? rex::PointerMode::kLocked : rex::PointerMode::kFree);
-    FCPLOG("input: pointer {} at {:.2f} s", want ? "locked (look input runs)" : "free (no look input)", Wall());
+    g_input->SetPointerMode(mode);
+    FCPLOG("input: pointer {} at {:.2f} s", want ? "locked (look input runs)"
+                                            : look ? "free and hidden (controller in use)" : "free (no look input)",
+           Wall());
   }
+  static float last_x = 0, last_y = 0;
+  static bool had = false;
   if (!want) {
-    // motion outside the look input is dropped; it still tells the button prompts the mouse is in use
+    // motion outside the look input is dropped; it still tells the button prompts the mouse is in use. Without the
+    // lock the SDK reports absolute positions only (no deltas), so the motion is the change of the position.
     const rex::PointerDelta d = g_input->TakeMotion();
-    if (d.dx != 0 || d.dy != 0) fcp::prompts::NoteMouseMotion(double(d.dx), double(d.dy));
+    double dx = d.dx, dy = d.dy;
+    const rex::PointerState p = g_input->GetPointer();
+    if (p.has_position) {
+      if (had) dx += double(p.x - last_x), dy += double(p.y - last_y);
+      last_x = p.x, last_y = p.y;
+    }
+    had = p.has_position;
+    if (dx != 0 || dy != 0) fcp::prompts::NoteMouseMotion(dx, dy);
+  } else {
+    had = false;  // positions jump while locked; start over when the pointer is free again
   }
 }
 

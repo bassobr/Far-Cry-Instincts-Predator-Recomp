@@ -1,14 +1,41 @@
 #include "filesystem/wildcard.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <vector>
 
 #include <rex/string/text.h>
 
 namespace rex::filesystem {
 
-WildcardMatcher::WildcardMatcher(std::string_view pattern)
-    : pattern_(pattern == "*.*" ? std::string("*") : std::string(pattern)) {}
+namespace {
+
+// FCP (UPSTREAM 341): a pattern ending in ".*" also matches names without a dot, as on Windows and the
+// console ("0*.*" finds the folder "00_training"). Far Cry Instincts Predator lists its levels with
+// "Levels\0*.*" .. "Levels\3*.*" (level selection) and "Levels\M*.*" (multiplayer maps); the folders have no
+// dot, so the lists stayed empty. The final dot becomes the DOS dot '"' (a dot or the end of the name).
+// FCP_FIND_STAR_DOT_STRICT=1 restores the literal dot.
+std::string Normalize(std::string_view pattern) {
+  if (pattern == "*.*") {
+    return "*";
+  }
+  std::string p(pattern);
+  static const bool strict = [] {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    const char* v = std::getenv("FCP_FIND_STAR_DOT_STRICT");  // read only
+#pragma clang diagnostic pop
+    return v && v[0] == '1';
+  }();
+  if (!strict && p.size() >= 2 && p.ends_with(".*")) {
+    p[p.size() - 2] = '"';
+  }
+  return p;
+}
+
+}  // namespace
+
+WildcardMatcher::WildcardMatcher(std::string_view pattern) : pattern_(Normalize(pattern)) {}
 
 bool WildcardMatcher::Match(std::string_view name) const {
   if (pattern_.empty()) {

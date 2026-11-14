@@ -39,7 +39,8 @@
 namespace fcp::settings {
 namespace {
 
-enum class Kind { kMode, kSize, kMonitor, kFps, kOnOffAuto, kBackend, kBool, kPath, kFactor, kAniso, kLanguage, kPrompts, kMsaa };
+enum class Kind { kMode, kSize, kMonitor, kFps, kOnOffAuto, kBackend, kBool, kPath, kFactor, kAniso, kLanguage, kPrompts, kMsaa,
+                  kPacing, kResolution };
 
 struct Key {
   const char* section;
@@ -70,14 +71,18 @@ constexpr Key kKeys[] = {
      "windowed | borderless (fullscreen window on the monitor) | exclusive (fullscreen video mode).\n"
      "# Alt+Enter switches between the window and fullscreen at once and stores the choice here."},
     {"display", "width", "FCP_WINDOW_WIDTH", "0", Kind::kSize,
-     "Window client size in pixels; 0 = 1280x720. The game itself renders at 1280x720, as on the console."},
+     "Window client size in pixels; 0 = 1280x720. The render resolution is set under [graphics]."},
     {"display", "height", "FCP_WINDOW_HEIGHT", "0", Kind::kSize, nullptr},
     {"display", "monitor", "FCP_MONITOR", "0", Kind::kMonitor,
      "Monitor: 0 = the system's choice (primary), 1..n = display number."},
     {"display", "fps", "FCP_FPS", "30", Kind::kFps,
-     "Frame rate: 30 (as the console), 60, 90 (Steam Deck OLED display) or 120."},
+     "Frame rate: 30 (as the console), 45, 60, 90 (Steam Deck OLED display) or 120. Smooth only when the display's\n"
+     "# refresh rate is a multiple of it (90 Hz: 30, 45, 90; 60 Hz: 30, 60; 120 Hz: 30, 60, 120)."},
     {"display", "vsync", "FCP_RENDER_VSYNC", "\"auto\"", Kind::kOnOffAuto,
      "Wait for the monitor when presenting: auto (on up to 60 frames/s, off above), on, off."},
+    {"display", "pacing", "FCP_FPS_PACING", "\"game\"", Kind::kPacing,
+     "Frame pacing: display (every frame stays the same number of refreshes on the display, timed by the display;\n"
+     "# needs Vulkan and a frame rate the refresh rate is a multiple of, else as game) or game (the game's own timing)."},
     {"graphics", "backend", "FCP_RENDER_BACKEND", "\"auto\"", Kind::kBackend,
      "Graphics API: auto (renderer.toml next to the EXE, else Vulkan), vulkan, d3d12."},
     {"graphics", "msaa", "FCP_RENDER_MSAA", "\"console\"", Kind::kMsaa,
@@ -89,7 +94,12 @@ constexpr Key kKeys[] = {
      "The game's gamma ramp (brightness setting of the game; true = as the console)."},
     {"graphics", "scale", "FCP_RENDER_SCALE", "1", Kind::kFactor,
      "Render resolution of the screen-sized targets: 1 = as the console (1280x720), auto = the output's height\n"
-     "# (e.g. 2 at 1440p), or a factor / percentage (1.5, 150%; 0.5 to 4). HUD and text get sharper with it."},
+     "# (e.g. 2 at 1440p), or a factor / percentage (1.5, 150%; 0.5 to 4). HUD and text get sharper with it.\n"
+     "# Used when resolution (below) is \"scale\"."},
+    {"graphics", "resolution", "FCP_RENDER_RESOLUTION", "\"scale\"", Kind::kResolution,
+     "Render resolution in pixels: scale = from the scale above, native = the picture's size on the output\n"
+     "# (1280x800 on a Steam Deck), or a size such as \"1280x800\", \"1920x1080\" (smaller than the output = faster,\n"
+     "# scaled up; a shape other than the picture's is stretched to it). Switches with the next frame."},
     {"graphics", "shadow_scale", "FCP_RENDER_SHADOW_SCALE", "1", Kind::kFactor,
      "Shadow map resolution as a multiple of the console's (1344x1344; 1 = as the console, up to 4)."},
     {"graphics", "aniso", "FCP_RENDER_ANISO", "1", Kind::kAniso,
@@ -97,9 +107,9 @@ constexpr Key kKeys[] = {
     {"graphics", "fov", "FCP_RENDER_FOV", "1", Kind::kFactor,
      "Field of view as a multiple of the game's (1 = as the console; 0.5 to 2). The weapon keeps its own view."},
     {"graphics", "aspect", "FCP_RENDER_ASPECT", "\"auto\"", Kind::kFactor,
-     "Shape of the game view: auto = the output's when wider than 16:9 (21:9, 32:9: the same height, more to the\n"
-     "# sides; HUD, menus and videos stay 16:9 in the middle), \"16:9\" = as the console (bars at the sides), or a\n"
-     "# fixed shape (\"21:9\", \"32:9\", 2.39). Narrower outputs (16:10, 4:3) show 16:9 with bars. Needs a restart."},
+     "Shape of the game view: auto = the output's (21:9, 32:9: the same height, more to the sides; 16:10, 4:3:\n"
+     "# the same width, more above and below; HUD, menus and videos stay 16:9 in the middle), \"16:9\" = as the\n"
+     "# console (bars), or a fixed shape (\"16:10\", \"4:3\", \"21:9\", \"32:9\", 2.39). Needs a restart."},
     {"input", "file", "FCP_INPUT_CONFIG", "\"predator_input.toml\"", Kind::kPath,
      "Keyboard and mouse bindings (relative to this folder); written with the defaults when missing."},
     {"input", "button_prompts", "FCP_BUTTON_PROMPTS", "\"auto\"", Kind::kPrompts,
@@ -235,13 +245,18 @@ bool Normalize(const Key& k, const std::string& text, std::string& env) {
       if (!ParseInt(v, 0, 16, n)) return false;
       return env = n > 0 ? std::to_string(n) : "", true;
     case Kind::kFps:
-      // 90: the Steam Deck OLED's refresh rate
-      if (v != "30" && v != "60" && v != "90" && v != "120") return false;
+      // 90: the Steam Deck OLED's refresh rate; 45: half of it (every frame two refreshes)
+      if (v != "30" && v != "45" && v != "60" && v != "90" && v != "120") return false;
       return env = v, true;
     case Kind::kOnOffAuto:
       if (v == "auto" || v.empty()) return env = "", true;
       if (!ParseBoolText(v, b)) return false;
       return env = b ? "1" : "0", true;
+    case Kind::kPacing:
+      // display = FCP_FPS_PACING=display; game = the game's own pacing (the switch unset)
+      if (v == "display") return env = v, true;
+      if (v == "game" || v.empty()) return env = "", true;
+      return false;
     case Kind::kBackend:
       if (v == "auto" || v.empty()) return env = "", true;
       if (v == "vulkan" || v == "d3d12") return env = v, true;
@@ -253,6 +268,15 @@ bool Normalize(const Key& k, const std::string& text, std::string& env) {
       // checked by the renderer (log line there): 1, auto, 1.5, 150%
       if (v.empty()) return env = "", true;
       return env = v, true;
+    case Kind::kResolution: {
+      if (v.empty() || v == "scale") return env = "", true;
+      if (v == "native") return env = v, true;
+      const size_t x = v.find('x');
+      int w = 0, h = 0;
+      if (x == std::string::npos || !ParseInt(v.substr(0, x), 320, 10240, w) || !ParseInt(v.substr(x + 1), 180, 5760, h))
+        return false;
+      return env = std::format("{}x{}", w, h), true;
+    }
     case Kind::kAniso:
       if (!ParseInt(v, 1, 16, n)) return false;
       return env = std::to_string(n), true;
@@ -439,7 +463,12 @@ void Apply(rex::SettingsRegistry& settings) {
   }
   set("ui.fullscreen", mode == "windowed" ? "false" : "true", "FCP_DISPLAY_MODE");
   set("ui.fullscreen_exclusive", mode == "exclusive" ? "true" : "false", "FCP_DISPLAY_MODE");
-  const int64_t w = fcp::env::Int("FCP_WINDOW_WIDTH", 0), h = fcp::env::Int("FCP_WINDOW_HEIGHT", 0);
+  int64_t w = fcp::env::Int("FCP_WINDOW_WIDTH", 0), h = fcp::env::Int("FCP_WINDOW_HEIGHT", 0);
+  if (w <= 0 || h <= 0) {
+    // 0 (also in an older file): the device's size when it has one (Steam Deck 1280x800), else the SDK's 1280x720
+    const std::string dw = fcp::device::Default("FCP_WINDOW_WIDTH"), dh = fcp::device::Default("FCP_WINDOW_HEIGHT");
+    if (!dw.empty() && !dh.empty()) w = std::atoll(dw.c_str()), h = std::atoll(dh.c_str());
+  }
   if (w > 0 && h > 0) {
     set("ui.window_width", std::to_string(w), "FCP_WINDOW_WIDTH");
     set("ui.window_height", std::to_string(h), "FCP_WINDOW_HEIGHT");

@@ -49,12 +49,12 @@ extern const rex::ppc::PPCCallUsage kPPCCallUsage[];
 // it, and keeps __imp__##name as the always-original entry point. This is a thin
 // thunk, not a same-address alias: &name != &__imp__##name by design.
 #define DEFINE_REX_FUNC(name)                                                       \
-  extern "C" void __imp__##name(PPCContext& __restrict, u8*);                       \
+  extern "C" void __imp__##name(REX_CTX_NOESCAPE PPCContext& __restrict, u8*);                       \
   __attribute__((weak, noinline)) extern "C" void name(                             \
-      PPCContext& __restrict ctx, u8* base) {                                       \
+      REX_CTX_NOESCAPE PPCContext& __restrict ctx, u8* base) {                                       \
     REX_MUSTTAIL return __imp__##name(ctx, base);                                   \
   }                                                                                 \
-  REX_RECOMPILED_CODE_SECTION extern "C" void __imp__##name([[maybe_unused]] PPCContext& __restrict ctx, u8* base)
+  REX_RECOMPILED_CODE_SECTION extern "C" void __imp__##name([[maybe_unused]] REX_CTX_NOESCAPE PPCContext& __restrict ctx, u8* base)
 #else
 #define DEFINE_REX_FUNC(name)                                       \
   __attribute__((alias("__imp__" #name)))                           \
@@ -88,25 +88,37 @@ extern const rex::ppc::PPCCallUsage kPPCCallUsage[];
 
 #define REX_RAW_ADDR(x) (base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x))
 
+// FCP (rexglue/UPSTREAM.md, change 291): with plain_memory, guest loads and stores are plain accesses
+// (may_alias, so type based alias analysis never separates two guest accesses) and REX_GUEST_BARRIER,
+// a compiler barrier for guest memory, stands at every loop label and at sync/lwsync/eieio. The
+// barrier names no operand, so the context (a noescape __restrict parameter) stays in registers.
+// Without plain_memory every access is volatile (upstream) and the barrier is empty.
+{% if config_flags.plain_memory %}#define REX_GUEST_MEM
+#define REX_GUEST_BARRIER() __asm__ __volatile__("" ::: "memory")
+{% else %}#define REX_GUEST_MEM volatile
+#define REX_GUEST_BARRIER() ((void)0)
+{% endif %}
+// rex_guest_u16/u32/u64 (may_alias): codegen/_stack_access.inja, included below.
+
 #define REX_LOAD_U8(x) \
-  (*reinterpret_cast<volatile u8*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
+  (*reinterpret_cast<REX_GUEST_MEM u8*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
 #define REX_LOAD_U16(x) \
-  __builtin_bswap16(*reinterpret_cast<volatile u16*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
+  __builtin_bswap16(*reinterpret_cast<REX_GUEST_MEM rex_guest_u16*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
 #define REX_LOAD_U32(x) \
-  __builtin_bswap32(*reinterpret_cast<volatile u32*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
+  __builtin_bswap32(*reinterpret_cast<REX_GUEST_MEM rex_guest_u32*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
 #define REX_LOAD_U64(x) \
-  __builtin_bswap64(*reinterpret_cast<volatile u64*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
+  __builtin_bswap64(*reinterpret_cast<REX_GUEST_MEM rex_guest_u64*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)))
 #define REX_LOAD_STRING(x, len) \
   std::string_view(reinterpret_cast<const char*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)), (len))
 
 #define REX_STORE_U8(x, y) \
-  (*reinterpret_cast<volatile u8*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
+  (*reinterpret_cast<REX_GUEST_MEM u8*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
 #define REX_STORE_U16(x, y) \
-  (*reinterpret_cast<volatile u16*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
+  (*reinterpret_cast<REX_GUEST_MEM rex_guest_u16*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
 #define REX_STORE_U32(x, y) \
-  (*reinterpret_cast<volatile u32*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
+  (*reinterpret_cast<REX_GUEST_MEM rex_guest_u32*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
 #define REX_STORE_U64(x, y) \
-  (*reinterpret_cast<volatile u64*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
+  (*reinterpret_cast<REX_GUEST_MEM rex_guest_u64*>(base + static_cast<u32>(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
 
 {% include "codegen/_stack_access.inja" %}
 

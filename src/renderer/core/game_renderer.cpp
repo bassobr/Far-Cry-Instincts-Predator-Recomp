@@ -9,8 +9,11 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
+#include <condition_variable>
 #include <cstdarg>
+#include <deque>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -19,6 +22,7 @@
 #include <set>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <thread>
 #include <atomic>
@@ -34,11 +38,14 @@
 #include "kk/resources/resolve.h"
 #include "kk/resources/texture_convert.h"
 #include "kk/resources/xenos.h"
+#include "deferred_list.h"
 #include "overlay_pass.h"
+#include "pipeline_pool.h"
 #include "smaa_pass.h"
 #include "renderer/builtin_shaders.h"
 #include "renderer/diagnostics.h"
 #include "renderer/guest_device.h"
+#include "renderer/present_pacer.h"
 #include "renderer/shader_library.h"
 #include "renderer/texture_replace.h"
 #include "renderer/translated_layout.h"
@@ -188,6 +195,9 @@ struct Target {
   uint32_t host_samples = 1;  // MSAA of the host target
   uint32_t surface = 0;       // guest address of the surface (diagnostics)
   nvrhi::TextureHandle single;  // MSAA targets: resolved single-sample copy (source of the resolve blits)
+  // Write generation (every framebuffer use by a draw, every clear) and the generation `single` was resolved at:
+  // equal = single is current, a further resolve from this target needs no new MSAA resolve.
+  uint64_t writes = 0, single_at = ~0ull;
   // Render scaling: logical size in guest pixels (width/height are host pixels) and factor.
   uint32_t gw = 0, gh = 0;
   float sx = 1.0f, sy = 1.0f;
@@ -206,6 +216,8 @@ struct GuestTex {
   bool volatile_data = false;  // changes constantly: hash every frame, do not watch
   uint64_t last_change_frame = ~0ull;
   int replace_kind = -1;       // TextureReplaceSource::Classify (button glyphs), -1: never replaced
+  uint64_t used_frame = 0;     // last frame that bound it (slot recycling)
+  uint64_t retry_frame = 0;    // failed only because its table was full: try again from this frame on
 };
 
 struct GuestBuf {
@@ -213,6 +225,7 @@ struct GuestBuf {
   uint32_t slot = 0;
   uint64_t hash = 0;
   uint64_t checked_frame = ~0ull;
+  uint64_t used_frame = 0;  // last frame that bound it (slot recycling)
   bool watched = false, volatile_data = false;
   uint64_t last_change_frame = ~0ull;
 };
@@ -280,16 +293,88 @@ struct PipeRec {
   uint32_t formats[4] = {}, controls[4] = {}, masks[4] = {};
   uint32_t depth_format = 0, depth_control = 0, ref_mask = 0;
   uint32_t mode = 0, clip = 0, poly_scale = 0, poly_offset = 0, pad = 0;
+  // The struct is 100 bytes of fields padded to 104; the padding used to be uninitialised stack bytes that went
+  // into Key() and the list file, so one pipeline got many keys (created again whenever the stack garbage changed,
+  // the list grew by duplicates). Now an explicit field, not part of Key(): the variant word (kVariantMark | guest
+  // MSAA level in bits 0-1 | bit 2 screen-sized target), from which the shipped list derives `pad` (the host sample
+  // count) for the player's MSAA setting. Older lists had garbage there; it is cleared on load (StartPrewarm).
+  uint32_t reserved = 0;
   uint64_t Key() const {
     const uint32_t* w = reinterpret_cast<const uint32_t*>(this);
     uint64_t h = 0x50495045ull;
-    for (size_t i = 0; i < sizeof(PipeRec) / 4; ++i) h = Mix(h, w[i]);
+    for (size_t i = 0; i < sizeof(PipeRec) / 4 - 1; ++i) h = Mix(h, w[i]);
     return h;
   }
+  // Key plus variant: one entry per variant in the lists (two variants may be the same pipeline at one setting).
+  uint64_t FullKey() const { return Mix(Key(), reserved); }
 };
 static_assert(sizeof(PipeRec) % 8 == 0);
+static_assert(sizeof(PipeRec) == 104, "PipeRec: file format of the pipeline list, no implicit padding");
 constexpr uint64_t kSolidPsKey = 0x501D;
 constexpr uint32_t kPipeListMagic = 0x31504346;  // "FCP1"
+constexpr uint32_t kVariantMark = 0x5A000000u, kVariantMarkMask = 0xFF000000u;
+bool VariantValid(uint32_t v) { return (v & kVariantMarkMask) == kVariantMark && (v & 0x00FFFFF8u) == 0; }
+
+// Shipped pipeline list (config/predator/pipelines.fcpl, built by tools/pipelines_build.ps1; format described
+// there): only shader container hashes and render state, the same file for Vulkan and D3D12.
+constexpr uint32_t kShippedMagic = 0x4C504346;  // "FCPL"
+constexpr uint32_t kShippedVersion = 1, kShippedHeader = 40, kShippedRecord = 112, kShippedName = 32, kShippedMaxGroups = 32;
+struct ShippedRec {
+  PipeRec rec;
+  uint32_t groups = 0, zero = 0;
+};
+static_assert(sizeof(ShippedRec) == kShippedRecord);
+
+uint64_t Fnv1a64(const uint8_t* p, size_t n) {
+  uint64_t h = 0xcbf29ce484222325ull;
+  for (size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 0x100000001b3ull;
+  return h;
+}
+
+// Reads and checks the shipped list (magic, version, sizes, length, checksum, every record). False: *error.
+bool ReadShippedList(const std::string& path, std::vector<ShippedRec>& recs, std::vector<std::string>& groups, std::string* error) {
+  FILE* f = std::fopen(path.c_str(), "rb");
+  if (!f) return *error = "not found", false;
+  std::vector<uint8_t> b;
+  uint8_t chunk[65536];
+  for (size_t n; (n = std::fread(chunk, 1, sizeof(chunk), f)) > 0;) b.insert(b.end(), chunk, chunk + n);
+  std::fclose(f);
+  auto u32 = [&](size_t at) {
+    uint32_t v;
+    std::memcpy(&v, b.data() + at, 4);
+    return v;
+  };
+  if (b.size() < kShippedHeader) return *error = "too short", false;
+  if (u32(0) != kShippedMagic || u32(4) != kShippedVersion || u32(8) != kShippedHeader || u32(12) != kShippedRecord ||
+      u32(24) != kShippedName || u32(20) > kShippedMaxGroups)
+    return *error = "not a pipeline list version 1", false;
+  const uint64_t count = u32(16), gcount = u32(20);
+  if (b.size() != kShippedHeader + gcount * kShippedName + count * kShippedRecord) return *error = "wrong length", false;
+  uint64_t sum;
+  std::memcpy(&sum, b.data() + 32, 8);
+  if (Fnv1a64(b.data() + kShippedHeader, b.size() - kShippedHeader) != sum) return *error = "checksum mismatch", false;
+  for (uint64_t g = 0; g < gcount; ++g) {
+    const char* s = reinterpret_cast<const char*>(b.data() + kShippedHeader + g * kShippedName);
+    groups.emplace_back(s, strnlen(s, kShippedName));
+  }
+  const uint8_t* at = b.data() + kShippedHeader + gcount * kShippedName;
+  recs.resize(size_t(count));
+  for (size_t i = 0; i < count; ++i, at += kShippedRecord) {
+    std::memcpy(&recs[i], at, kShippedRecord);
+    if (!VariantValid(recs[i].rec.reserved) || recs[i].rec.pad != 0) return *error = "record " + std::to_string(i) + " invalid", false;
+  }
+  return true;
+}
+
+// Lower-case group name (level name of the StartLevel command, "menu" before the first level), [a-z0-9_-] only.
+std::string GroupName(const std::string& level) {
+  std::string g;
+  for (char c : level) {
+    const char l = char(std::tolower(static_cast<unsigned char>(c)));
+    if ((l >= 'a' && l <= 'z') || (l >= '0' && l <= '9') || l == '_' || l == '-') g += l;
+  }
+  return g.empty() ? std::string("menu") : g.substr(0, 31);
+}
 
 nvrhi::GraphicsPipelineDesc PipelineDescFrom(const PipeRec& r, nvrhi::IShader* vs, nvrhi::IShader* ps,
                                              const nvrhi::BindingLayoutVector& layouts) {
@@ -403,6 +488,9 @@ struct GameRenderer::Impl {
   ShaderLibrary shaders;
   bool shaders_open = false;
   std::unique_ptr<HostDevice> host;
+  // Present timing and display pacing (present_pacer.h); after host, so it stops before the host goes away.
+  PresentPacer pacer;
+  uint64_t present_swap = 0;  // guest swap shown by the present in progress (BeginPresent)
   nvrhi::IDevice* dev = nullptr;
   nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::VULKAN;
   TranslatedLayout tl;
@@ -438,6 +526,102 @@ struct GameRenderer::Impl {
   std::unordered_map<FetchKey, GuestTex, FetchKeyHash> textures;
   std::unordered_map<uint64_t, GuestBuf> buffers;
   std::vector<std::pair<uint64_t, nvrhi::TextureHandle>> retired;
+
+  // --- Slot recycling (FCP_RENDER_SLOT_RECYCLE=0: off, the old behaviour) ------------------------------------
+  // Every guest texture (per fetch constant) and every vertex buffer holds a slot in a bindless table for good;
+  // the tables are finite (TableCapacities). A long session in one level can stream in new textures and geometry
+  // until a table is full; from then on new textures were drawn with the black fallback and new vertex streams read
+  // zeros (suspected cause of GitHub issue #1). With recycling, entries not bound for a while are evicted when a table
+  // fills up; their slots return to the table three frames later (like `retired`), when no command list on the GPU
+  // references them any more.
+  bool slot_recycle = true;
+  bool table_full = false;  // set by CreateTexture when a table refused a slot
+  bool evict_now = false;   // a table refused a slot: evict at the next swap
+  struct SlotRelease {
+    uint64_t frame;
+    Table table;
+    uint32_t slot;
+  };
+  std::vector<SlotRelease> slot_releases;
+  std::vector<std::pair<uint64_t, nvrhi::BufferHandle>> retired_buffers;
+  uint64_t evicted_textures = 0, evicted_buffers = 0, evict_passes = 0;
+  uint64_t a2m_draws = 0, a2m_logged = 0;  // draws with RB_COLORCONTROL alpha-to-mask (FCP_RENDER_ALPHA_TO_MASK)
+  static constexpr uint64_t kEvictAge = 600;      // frames without a binding before an entry may be evicted
+  static constexpr uint64_t kEvictAgeShort = 60;  // when a table stays nearly full after a normal pass
+
+  void ReleaseSlot(Table table, uint32_t slot) {
+    if (slot) slot_releases.push_back({frame, table, slot});
+  }
+  static bool Pressed(uint32_t used, uint32_t capacity, uint32_t num, uint32_t den) { return uint64_t(used) * den >= uint64_t(capacity) * num; }
+  bool TablePressed(Table t, uint32_t num, uint32_t den) const { return Pressed(tl.used(t), tl.capacity(t), num, den); }
+
+  // At a swap: evict entries not bound for `age` frames from tables at least 3/4 full.
+  size_t EvictPass(uint64_t age) {
+    bool tex_pressed[4] = {};
+    bool any_tex = false;
+    for (uint32_t i = 0; i < 4; ++i) any_tex |= tex_pressed[i] = TablePressed(Table(i), 3, 4);
+    const bool buf_pressed = TablePressed(Table::kBuffers, 3, 4);
+    size_t n = 0;
+    if (any_tex) {
+      for (auto it = textures.begin(); it != textures.end();) {
+        GuestTex& t = it->second;
+        if (t.slot && uint32_t(t.table) < 4 && tex_pressed[uint32_t(t.table)] && t.used_frame + age < frame) {
+          ReleaseSlot(t.table, t.slot & 0x7FFFFFFFu);
+          if (t.tex) retired.emplace_back(frame, t.tex);
+          it = textures.erase(it);
+          ++evicted_textures, ++n;
+        } else {
+          ++it;
+        }
+      }
+    }
+    if (buf_pressed) {
+      for (auto it = buffers.begin(); it != buffers.end();) {
+        GuestBuf& b = it->second;
+        if (b.slot && b.used_frame + age < frame) {
+          ReleaseSlot(Table::kBuffers, b.slot);
+          if (b.buf) retired_buffers.emplace_back(frame, b.buf);
+          it = buffers.erase(it);
+          ++evicted_buffers, ++n;
+        } else {
+          ++it;
+        }
+      }
+    }
+    return n;
+  }
+
+  void RecycleSlots() {
+    // Slots released at least three frames ago go back to their tables.
+    slot_releases.erase(std::remove_if(slot_releases.begin(), slot_releases.end(), [&](const SlotRelease& r) {
+                          if (r.frame + 3 >= frame) return false;
+                          tl.FreeSlot(r.table, r.slot);
+                          return true;
+                        }), slot_releases.end());
+    retired_buffers.erase(std::remove_if(retired_buffers.begin(), retired_buffers.end(), [&](const auto& e) { return e.first + 3 < frame; }),
+                          retired_buffers.end());
+    if (!slot_recycle) return;
+    bool pressed = evict_now;
+    if (!pressed && frame % 120 == 0)
+      for (uint32_t i = 0; i < uint32_t(Table::kCount); ++i)
+        if (Table(i) != Table::kSamplers && TablePressed(Table(i), 3, 4)) pressed = true;
+    if (!pressed) return;
+    evict_now = false;
+    const size_t before_tex = textures.size(), before_buf = buffers.size();
+    size_t n = EvictPass(kEvictAge);
+    bool nearly_full = false;
+    for (uint32_t i = 0; i < uint32_t(Table::kCount); ++i)
+      if (Table(i) != Table::kSamplers && TablePressed(Table(i), 19, 20)) nearly_full = true;
+    // Released slots only count after three frames: judge by what this pass will give back.
+    if (nearly_full && n * 20 < size_t(tl.capacity(Table::kTex2D))) n += EvictPass(kEvictAgeShort);
+    ++evict_passes;
+    if (evict_passes <= 20 || evict_passes % 100 == 0)
+      Log("renderer: slot recycling pass %llu at frame %llu: evicted %zu textures (%zu -> %zu) and %zu buffers (%zu -> %zu); "
+          "2D %u/%u, buffers %u/%u",
+          (unsigned long long)evict_passes, (unsigned long long)frame, before_tex - textures.size(), before_tex, textures.size(),
+          before_buf - buffers.size(), before_buf, buffers.size(), tl.used(Table::kTex2D), tl.capacity(Table::kTex2D),
+          tl.used(Table::kBuffers), tl.capacity(Table::kBuffers));
+  }
 
   // Replacement textures (renderer/texture_replace.h, button glyphs): one host texture with a Tex2D slot per image
   // (id). Slots are never freed but reused for a new image (at most kReplaceSlots).
@@ -499,17 +683,25 @@ struct GameRenderer::Impl {
   std::vector<uint32_t> unsubmitted;
   uint64_t q_begins = 0, q_ready = 0, q_not_ready = 0, q_fallback = 0, q_zero = 0, q_logged = 0;
 
+  // Native query begin/end: into the deferred list while it records (keeps the order), else directly.
+  void QueryOp(nvrhi::ICommandList* c, bool begin, uint32_t slot) {
+    if (dlist && c == dlist.Get() && dlist->recording()) {
+      dlist->Defer([this, begin, slot](nvrhi::ICommandList* r) { begin ? occ->Begin(r, slot) : occ->End(r, slot); });
+      return;
+    }
+    begin ? occ->Begin(c, slot) : occ->End(c, slot);
+  }
   void BeginSegment(nvrhi::ICommandList* c, HostQuery& q) {
     if (api == nvrhi::GraphicsAPI::VULKAN) c->clearState();  // query not inside a render pass
     const uint32_t slot = next_slot++ % occ->capacity();
-    occ->Begin(c, slot);
+    QueryOp(c, true, slot);
     q.slots.push_back(slot);
     active_segment = true;
   }
   void EndSegment(nvrhi::ICommandList* c, HostQuery& q) {
     if (!active_segment || q.slots.empty()) return;
     if (api == nvrhi::GraphicsAPI::VULKAN) c->clearState();
-    occ->End(c, q.slots.back());
+    QueryOp(c, false, q.slots.back());
     active_segment = false;
   }
 
@@ -618,13 +810,15 @@ struct GameRenderer::Impl {
   uint64_t rescales = 0;
   uint64_t diag_rescale_frame = 0;
   float diag_rescale_to = 1.0f;
-  // Factor per axis; with Hor+ screen-sized targets are cur_wide times wider in x as well (anamorphic).
+  // Factor per axis; with Hor+ screen-sized targets are cur_wide times wider in x as well, with Vert+ cur_tall times
+  // taller in y (anamorphic). cur_sx/cur_sy: FactorsFor (scale mode: the previous computation).
+  float cur_sx = 1.0f, cur_sy = 1.0f;
   void ScaleFor(uint32_t w, uint32_t h, float& sx, float& sy) const {
     if (w == h && w >= 1024) {
       sx = sy = opt.shadow_scale;
     } else if (IsScreenTarget(w, h)) {
-      sx = cur_wide == 1.0f ? cur_scale : cur_scale * cur_wide;
-      sy = cur_scale;
+      sx = cur_sx;
+      sy = cur_sy;
     } else {
       sx = sy = 1.0f;
     }
@@ -638,22 +832,64 @@ struct GameRenderer::Impl {
   // (showing them undoes the stretch). Over a 3D picture, 2D draws after its post processing (HUD, texts, menus over
   // the game) go into the 16:9 middle (narrower host viewport), unless they cover the whole width (post processing,
   // fades, bars).
+  // Vert+ is the same in y: with a picture narrower than 16:9 the targets are cur_tall times taller, the camera sees
+  // more above and below, 2D after the post processing goes into the 16:9 band in the middle (narrower in y).
   float cur_wide = 1.0f, wanted_wide = 1.0f;
+  float cur_tall = 1.0f, wanted_tall = 1.0f;
   std::atomic<float> wide_published{1.0f};  // for the camera hook (Wide())
+  std::atomic<float> tall_published{1.0f};  // for the camera hook (Tall())
+  uint32_t out_w = 0, out_h = 0;            // swapchain size (native resolution), 0: none
+  bool Shaped() const { return cur_wide != 1.0f || cur_tall != 1.0f; }
   bool frame_3d = false;      // since the last swap: a draw with depth test into a screen-sized target
   bool post_3d = false;       // after that: a resolve from the 3D view's target (post processing begins)
   uint32_t view_surface = 0;  // colour target of the 3D view
-  bool front_wide = false;    // the shown picture has a 3D view (shown in the wide shape)
+  bool front_wide = false;    // the shown picture has a 3D view (shown in the wide / tall shape)
+  float front_aspect = 16.0f / 9.0f;  // its shape (fixed resolution: the targets may have another one)
   uint64_t wide_frames = 0, narrow_draws = 0, full_draws = 0, unknown_boxes = 0;
   std::set<uint64_t> wide_traced;  // FCP_TRACE_WIDE: kinds already logged
   // Aspect of the 3D picture -> factor over 16:9 (1: off). Up to 1 % above 16:9 counts as 16:9.
+  float PictureAspect(uint32_t swap_w, uint32_t swap_h) const {
+    return opt.aspect > 0.0f ? opt.aspect : (swap_w && swap_h ? float(swap_w) / float(swap_h) : 16.0f / 9.0f);
+  }
   float WideFor(uint32_t swap_w, uint32_t swap_h) const {
-    const float want = opt.aspect > 0.0f ? opt.aspect : (swap_w && swap_h ? float(swap_w) / float(swap_h) : 16.0f / 9.0f);
-    const float w = want / (16.0f / 9.0f);
+    const float w = PictureAspect(swap_w, swap_h) / (16.0f / 9.0f);
     return w <= 1.01f ? 1.0f : std::min(w, 4.0f);
   }
+  // ... and under 16:9 (Vert+, 1: off). Up to 1 % under 16:9 counts as 16:9; at most square (portrait: bars).
+  float TallFor(uint32_t swap_w, uint32_t swap_h) const {
+    if (!opt.vert_plus) return 1.0f;
+    const float t = (16.0f / 9.0f) / PictureAspect(swap_w, swap_h);
+    return t <= 1.01f ? 1.0f : std::min(t, 16.0f / 9.0f);
+  }
   uint32_t screen_samples = 0;  // [graphics] msaa = 2|4|8, limited to the device (0: like the console)
-  static float AutoScale(uint32_t swap_h) { return swap_h >= 720 ? float(swap_h) / 720.0f : 1.0f; }
+  // scale = auto: the output's height (with Vert+ the output's width: the band of 16:9 in the middle).
+  static float AutoScale(uint32_t swap_h, float tall = 1.0f) {
+    if (tall == 1.0f) return swap_h >= 720 ? float(swap_h) / 720.0f : 1.0f;
+    return std::max(1.0f, float(swap_h) / (720.0f * tall));
+  }
+  // Host factors of the 1280x720 guest screen targets. Scale mode: scale x wide / tall (exactly the previous values
+  // with both 1). Native: the size of the picture in the output (bars included in the fit). Fixed: res_w x res_h.
+  void FactorsFor(float s, float wide, float tall, float& sx, float& sy) const {
+    if (opt.resolution_mode == 1 && out_w && out_h) {
+      const float p = (16.0f / 9.0f) * wide / tall;
+      float pw = float(out_w), ph = float(out_h);
+      if (pw / ph > p) pw = std::round(ph * p);
+      else ph = std::round(pw / p);
+      sx = pw / 1280.0f, sy = ph / 720.0f;
+    } else if (opt.resolution_mode == 2 && opt.res_w && opt.res_h) {
+      sx = float(opt.res_w) / 1280.0f, sy = float(opt.res_h) / 720.0f;
+    } else {
+      sx = wide == 1.0f ? s : s * wide;
+      sy = tall == 1.0f ? s : s * tall;
+      return;
+    }
+    sx = std::clamp(sx, 0.25f, 8.0f), sy = std::clamp(sy, 0.25f, 8.0f);
+  }
+  // Pixel density of the 16:9 band (HUD, texts; the button glyphs are drawn for it).
+  float HudScale() const {
+    if (opt.resolution_mode == 0) return cur_scale;
+    return std::min(cur_sx / cur_wide, cur_sy / cur_tall);
+  }
   fcshaders::ScaleConstants scale_c{}, last_scale_c{};
   uint64_t scale_epoch = 0;
   float tex_inv_x = 1.0f, tex_inv_y = 1.0f;  // from Texture(): guest/host of the last returned texture
@@ -663,15 +899,27 @@ struct GameRenderer::Impl {
 
   // New factor (scale = auto after a resize): recreate the targets (EDRAM content only lives within a frame), carry
   // resolve textures with content over to the new size (textures resolved once are preserved that way).
-  void ApplyScale(float s, float wide) {
-    if (s == cur_scale && wide == cur_wide) return;
+  void ApplyScale(float s, float wide, float tall) {
+    float nsx = 1.0f, nsy = 1.0f;
+    FactorsFor(s, wide, tall, nsx, nsy);
+    if (s == cur_scale && wide == cur_wide && tall == cur_tall && nsx == cur_sx && nsy == cur_sy) return;
+    if (!dev) {  // no device yet: the first targets get these values
+      cur_scale = s, cur_wide = wide, cur_tall = tall, cur_sx = nsx, cur_sy = nsy;
+      wide_published.store(wide), tall_published.store(tall);
+      return;
+    }
     Flush();
     dev->waitForIdle();
-    Log("renderer: render scale %.3f -> %.3f, Hor+ %.4f -> %.4f (targets recreated, %zu resolve textures carried over)", cur_scale, s,
-        cur_wide, wide, resolved.size());
+    Log("renderer: render scale %.3f -> %.3f, Hor+ %.4f -> %.4f, Vert+ %.4f -> %.4f, screen targets %ux%u -> %ux%u (targets "
+        "recreated, %zu resolve textures carried over)",
+        cur_scale, s, cur_wide, wide, cur_tall, tall, HostSize(1280, cur_sx), HostSize(720, cur_sy), HostSize(1280, nsx),
+        HostSize(720, nsy), resolved.size());
     cur_scale = s;
     cur_wide = wide;
+    cur_tall = tall;
+    cur_sx = nsx, cur_sy = nsy;
     wide_published.store(wide);
+    tall_published.store(tall);
     ++rescales;
     targets.clear();
     framebuffers.clear();
@@ -755,13 +1003,19 @@ struct GameRenderer::Impl {
   // FCP_RENDER_FAST_CONSTANTS: big-endian raw data of the last conversion (vs_c/ps_c are its converted form).
   std::array<uint8_t, 4096> raw_vs{}, raw_ps{};
   bool raw_vs_valid = false, raw_ps_valid = false;
-  uint64_t fast_const_skips = 0, fast_const_converts = 0;
+  uint64_t fast_const_skips = 0, fast_const_converts = 0, const_span_bytes = 0;
+  uint64_t msaa_resolves = 0, msaa_resolves_skipped = 0;
+  const bool defer_all = std::getenv("FCP_RENDER_DEFER_ALL") && std::string(std::getenv("FCP_RENDER_DEFER_ALL")) == "1";
+  const bool msaa_resolve_once = std::getenv("FCP_RENDER_MSAA_RESOLVE_ONCE") == nullptr ||
+                                 std::string(std::getenv("FCP_RENDER_MSAA_RESOLVE_ONCE")) != "0";
+  const bool const_span = std::getenv("FCP_RENDER_CONST_SPAN") == nullptr || std::string(std::getenv("FCP_RENDER_CONST_SPAN")) != "0";
   fcshaders::DrawConstants last_dc{};
   uint64_t constants_epoch = 0, constant_uploads = 0;
   // Versions of the volatile constant buffers (VS/PS/Draw) per frame and maximum in the statistics interval.
   std::array<uint32_t, 3> cb_frame{}, cb_max{};
   std::vector<uint32_t> scratch_indices;
   std::vector<res::VertexElement> elements;
+  nvrhi::GraphicsState draw_gs;  // reused by every draw (Draw)
 
   // Counters
   uint64_t frame = 0;
@@ -795,7 +1049,7 @@ struct GameRenderer::Impl {
   }
 
   void AppendPipelineRecord(const PipeRec& r) {
-    if (opt.pipeline_list.empty() || !listed_keys.insert(r.Key()).second) return;
+    if (opt.pipeline_list.empty() || !listed_keys.insert(r.FullKey()).second) return;
     if (FILE* f = std::fopen(opt.pipeline_list.c_str(), "ab")) {
       std::fseek(f, 0, SEEK_END);
       if (std::ftell(f) == 0) {
@@ -807,11 +1061,258 @@ struct GameRenderer::Impl {
     }
   }
 
+  // FCP_PIPELINE_COLLECT: every record a draw uses, once per group, into <folder>/<group>.bin (FCP1 format).
+  std::mutex collect_mutex;
+  std::string collect_group = "menu";
+  std::set<uint64_t> collect_seen;
+  void CollectRecord(const PipeRec& r) {
+    std::lock_guard lock(collect_mutex);
+    uint64_t gk = r.FullKey();
+    for (char c : collect_group) gk = Mix(gk, uint8_t(c));
+    if (!collect_seen.insert(gk).second) return;
+    const std::string path = opt.pipeline_collect + "/" + collect_group + ".bin";
+    if (FILE* f = std::fopen(path.c_str(), "ab")) {
+      std::fseek(f, 0, SEEK_END);
+      if (std::ftell(f) == 0) {
+        const uint32_t head[2] = {kPipeListMagic, uint32_t(sizeof(PipeRec))};
+        std::fwrite(head, 4, 2, f);
+      }
+      std::fwrite(&r, sizeof(r), 1, f);
+      std::fclose(f);
+    }
+  }
+
+  // --- Prewarm of the local and the shipped list (pipeline_async): a feeder thread resolves the shaders of the
+  // records (outside the renderer lock; may wait for a translation) and submits them to the pool's background queue.
+  // Records whose shader is not known yet (the game's run-time shaders before their first translation) wait in
+  // `waiting` until NotifyShader reports that hash. A draw that needs a queued or running prewarm job waits for that
+  // job (AsyncPipeline: Promote), it does not create the pipeline a second time.
+  std::mutex feed_mutex;  // order: renderer mutex may be held when taking it, never the other way round
+  std::condition_variable feed_cv;
+  std::deque<ShippedRec> feed;
+  std::unordered_map<uint64_t, std::vector<ShippedRec>> waiting;
+  std::atomic<size_t> waiting_count{0};
+  std::vector<std::string> group_names;  // of the shipped list (bit i = group i)
+  uint64_t prewarm_failed = 0;
+  std::atomic<uint64_t> prewarm_parked{0};
+  std::atomic<bool> feed_idle{false};
+  uint32_t loading_mask = 0;  // group of the level being loaded (feeder: moved ahead too)
+
+  // Host sample count (pad) of a shipped record for the current MSAA setting, as GetTarget would create its target.
+  uint32_t PadForVariant(uint32_t variant) const {
+    const uint32_t gm = variant & 3;
+    uint32_t s = opt.msaa && gm ? (1u << std::min(gm, 2u)) : 1u;
+    if (s > 1 && screen_samples && (variant & 4)) s = screen_samples;
+    return s > 1 ? s : 0;
+  }
+
+  void NotifyShader(uint64_t hash) {
+    if (waiting_count.load(std::memory_order_acquire) == 0) return;
+    std::lock_guard lock(feed_mutex);
+    auto it = waiting.find(hash);
+    if (it == waiting.end()) return;
+    for (ShippedRec& r : it->second) feed.push_back(r);
+    waiting_count -= it->second.size();
+    waiting.erase(it);
+    feed_idle = false;
+    feed_cv.notify_one();
+  }
+
+  void Park(uint64_t hash, const ShippedRec& r) {
+    {
+      std::lock_guard lock(feed_mutex);
+      waiting[hash].push_back(r);
+      ++waiting_count;
+    }
+    // The shader may have arrived between the lookup and parking: look again.
+    if (shaders.FindByHash(hash)) NotifyShader(hash);
+  }
+
+  void Feeder() {
+    const auto t0 = Clock::now();
+    bool logged = false;
+    for (;;) {
+      std::vector<ShippedRec> batch;
+      {
+        std::unique_lock lock(feed_mutex);
+        if (feed.empty()) feed_idle = true;
+        if (feed.empty() && !logged) {
+          logged = true;
+          lock.unlock();
+          std::lock_guard rl(mutex);
+          Log("renderer: prewarm: %llu pipelines queued in %.0f ms, %zu waiting for their shaders, %llu without shaders",
+              (unsigned long long)prewarm_jobs, MsSince(t0), waiting_count.load(), (unsigned long long)prewarm_failed);
+          continue;
+        }
+        feed_cv.wait(lock, [&] { return prewarm_stop.load() || !feed.empty(); });
+        if (prewarm_stop) return;
+        feed_idle = false;
+        while (!feed.empty() && batch.size() < 64) batch.push_back(feed.front()), feed.pop_front();
+      }
+      std::vector<const ShaderEntry*> vs(batch.size()), ps(batch.size());
+      for (size_t i = 0; i < batch.size(); ++i) {
+        if (prewarm_stop) return;
+        vs[i] = shaders.FindByHash(batch[i].rec.vs);
+        ps[i] = batch[i].rec.ps && vs[i] ? shaders.FindByHash(batch[i].rec.ps) : nullptr;
+      }
+      std::vector<std::pair<uint64_t, ShippedRec>> park;
+      {
+        std::lock_guard lock(mutex);
+        if (!ready || shut_down) return;
+        for (size_t i = 0; i < batch.size(); ++i) {
+          const PipeRec& r = batch[i].rec;
+          const uint64_t key = r.Key();
+          if (pipelines.count(key) || pending.count(key)) continue;
+          if (!vs[i]) { park.emplace_back(r.vs, batch[i]); continue; }
+          if (r.ps && !ps[i]) { park.emplace_back(r.ps, batch[i]); continue; }
+          nvrhi::IShader* vs_h = Handle(vs[i]);
+          nvrhi::IShader* ps_h = r.ps ? Handle(ps[i]) : nullptr;
+          if (!vs_h || (r.ps && !ps_h)) {
+            ++prewarm_failed;
+            continue;
+          }
+          Pending p;
+          p.job = MakeJob(r, vs_h, ps_h);
+          p.job->groups = batch[i].groups;
+          p.rec = r;
+          p.listed = true;
+          auto it = pending.emplace(key, std::move(p)).first;
+          pool.Submit(it->second.job, false);
+          ++prewarm_jobs;
+        }
+        if (loading_mask) pool.PrioritizeBackground(loading_mask);
+      }
+      prewarm_parked += park.size();
+      for (auto& [h, r] : park) Park(h, r);
+    }
+  }
+  // --- Pipelines on worker threads (opt.pipeline_async, FCP_RENDER_PIPELINE_ASYNC) ----------------------------
+  // A draw whose pipeline is missing hands it to the pool and records the rest of the command list into dlist
+  // (deferred_list.h); Flush waits for the list's pipelines and replays: same commands, same order, same image, but
+  // the pipelines of one list are made in parallel. The pipeline list is prewarmed by the same pool (background).
+  struct Pending {
+    PipelineJobPtr job;
+    nvrhi::GraphicsPipelineHandle placeholder;  // PendingPipeline for the GraphicsState of deferred draws
+    PipeRec rec{};
+    bool listed = false;  // from the pipeline list (prewarm): not appended again
+    bool solid = false;
+  };
+  PipelinePool pool;
+  nvrhi::RefCountPtr<DeferredCommandList> dlist;
+  // King Kong's slab workers for large textures (>= 256 KB: subresources split into slabs, same bytes); null = serial.
+  // FCP_RENDER_TEXTURE_WORKERS=0: serial as before.
+  std::unique_ptr<res::TextureConversionWorkers> tex_workers;
+  std::unordered_map<uint64_t, Pending> pending;
+  std::vector<uint64_t> list_jobs;  // keys the deferred list waits for
+  uint64_t async_lists = 0, async_jobs = 0, async_wait_us = 0, async_create_us = 0, async_replayed_ops = 0;
+  uint64_t async_replayed_bytes = 0, async_materialize_early = 0, prewarm_jobs = 0, prewarm_done = 0, async_late = 0;
+  Clock::time_point prewarm_t0{};
+  bool prewarm_logged = false;
+
+  PipelineJobPtr MakeJob(const PipeRec& r, nvrhi::IShader* vs_h, nvrhi::IShader* ps_h) {
+    auto job = std::make_shared<PipelineJob>();
+    job->key = r.Key();
+    job->make = [this, r, vs = nvrhi::ShaderHandle(vs_h), ps = nvrhi::ShaderHandle(ps_h)]() {
+      return dev->createGraphicsPipeline(PipelineDescFrom(r, vs, ps, tl.layouts()), FramebufferInfoFrom(r));
+    };
+    return job;
+  }
+
+  // A finished job into the memory cache (render thread, under the lock). Returns the pipeline (null: failed).
+  nvrhi::IGraphicsPipeline* Adopt(uint64_t key) {
+    auto it = pending.find(key);
+    if (it == pending.end()) return nullptr;
+    Pending& p = it->second;
+    nvrhi::GraphicsPipelineHandle h = p.job->result;
+    async_create_us += uint64_t(p.job->create_ms * 1000.0);
+    if (p.listed) {
+      ++prewarm_done;
+    } else {
+      Counters& cn = Counters::Get();
+      if (h) cn.pipelines_created++, ++frame_new_pipelines;
+      if (h && !p.solid) AppendPipelineRecord(p.rec);
+    }
+    pending.erase(it);
+    return pipelines.emplace(key, h).first->second;
+  }
+  // Finished background jobs into the memory cache (at every swap).
+  void AdoptFinished() {
+    for (auto it = pending.begin(); it != pending.end();) {
+      const uint64_t key = it->first;
+      const bool done = it->second.job->state.load() == PipelineJob::kDone;
+      const bool waited = std::find(list_jobs.begin(), list_jobs.end(), key) != list_jobs.end();
+      ++it;
+      if (done && !waited) Adopt(key);
+    }
+    if (prewarm_jobs && !prewarm_logged && prewarm_done >= prewarm_jobs && feed_idle) {
+      prewarm_logged = true;
+      Log("renderer: prewarm done: %llu pipelines in %.0f ms on %u threads (%zu still waiting for their shaders)",
+          (unsigned long long)prewarm_done, MsSince(prewarm_t0), pool.threads(), waiting_count.load());
+    }
+  }
+  // Draw path: the pipeline for `key` from the pool (null: not async). Done jobs are adopted; otherwise the rest of
+  // the list is recorded and the placeholder returned.
+  nvrhi::IGraphicsPipeline* AsyncPipeline(uint64_t key, const PipeRec& rec, nvrhi::IShader* vs_h, nvrhi::IShader* ps_h, bool solid) {
+    auto it = pending.find(key);
+    if (it == pending.end()) {
+      Pending p;
+      p.job = MakeJob(rec, vs_h, ps_h);
+      p.rec = rec;
+      p.solid = solid;
+      it = pending.emplace(key, std::move(p)).first;
+      pool.Submit(it->second.job, true);
+      ++async_jobs;
+    } else {
+      pool.Promote(it->second.job);
+    }
+    Pending& p = it->second;
+    if (p.job->state.load() == PipelineJob::kDone && std::find(list_jobs.begin(), list_jobs.end(), key) == list_jobs.end()) return Adopt(key);
+    if (!p.placeholder)
+      p.placeholder = new PendingPipeline(p.job, PipelineDescFrom(rec, vs_h, ps_h, tl.layouts()), FramebufferInfoFrom(rec));
+    if (std::find(list_jobs.begin(), list_jobs.end(), key) == list_jobs.end()) list_jobs.push_back(key);
+    if (!dlist->recording()) {
+      CL();  // the real list is open before recording starts
+      dlist->Begin(cl);
+      ++async_lists;
+    }
+    return p.placeholder;
+  }
+  // Waits for the deferred list's pipelines and replays it onto the real list (Flush, or a call that cannot be
+  // recorded). The wait is the render thread's share of the pipeline time (counted as pipeline creation).
+  void Materialize() {
+    if (!dlist || !dlist->recording()) return;
+    const auto t0 = Clock::now();
+    // FCP_RENDER_PIPELINE_MAX_WAIT_MS (not the default): draws whose pipeline is not ready by then are left out of
+    // this list (changes the image for a frame or two); the job goes on and is used once it is done.
+    const auto deadline = opt.pipeline_max_wait_ms < 0 ? Clock::time_point::max()
+                                                      : t0 + std::chrono::microseconds(int64_t(opt.pipeline_max_wait_ms * 1000.0));
+    std::vector<uint64_t> keys, late;
+    keys.swap(list_jobs);
+    for (uint64_t key : keys) {
+      auto it = pending.find(key);
+      if (it == pending.end()) continue;
+      Pending& p = it->second;
+      const bool done = pool.WaitUntil(p.job, deadline);
+      if (auto* pp = static_cast<PendingPipeline*>(p.placeholder.Get())) pp->Resolve(done ? p.job->result.Get() : nullptr);
+      if (!done) late.push_back(key);
+    }
+    const uint64_t waited = uint64_t(MsSince(t0) * 1000.0);
+    async_wait_us += waited;
+    Counters::Get().pipeline_create_us += waited;
+    async_replayed_ops += dlist->ops();
+    async_replayed_bytes += dlist->bytes();
+    async_late += late.size();
+    dlist->Replay();
+    for (uint64_t key : keys)
+      if (std::find(late.begin(), late.end(), key) == late.end()) Adopt(key);
+  }
+
   // Reads the list and creates every pipeline whose shaders are in the pack or disk cache, on a thread (the driver
   // compiles in parallel with the game; the draw path picks it up as soon as it is in the memory cache).
   void StartPrewarm() {
-    if (opt.pipeline_list.empty() || !opt.pipeline_prewarm) return;
+    if (!opt.pipeline_prewarm) return;
     std::vector<PipeRec> recs;
+    if (!opt.pipeline_list.empty())
     if (FILE* f = std::fopen(opt.pipeline_list.c_str(), "rb")) {
       uint32_t head[2] = {};
       if (std::fread(head, 4, 2, f) == 2 && head[0] == kPipeListMagic && head[1] == sizeof(PipeRec)) {
@@ -820,8 +1321,77 @@ struct GameRenderer::Impl {
       }
       std::fclose(f);
     }
-    for (const PipeRec& r : recs) listed_keys.insert(r.Key());
-    if (recs.empty()) return;
+    // Normalise lists written with undefined padding (PipeRec::reserved) and drop the duplicates that caused;
+    // the file is rewritten once when it had any.
+    const size_t read = recs.size();
+    {
+      std::vector<PipeRec> unique;
+      unique.reserve(recs.size());
+      for (PipeRec r : recs) {
+        if (!VariantValid(r.reserved)) r.reserved = 0;
+        if (listed_keys.insert(r.FullKey()).second) unique.push_back(r);
+      }
+      recs.swap(unique);
+    }
+    if (recs.size() != read && !opt.pipeline_list.empty()) {
+      if (FILE* f = std::fopen(opt.pipeline_list.c_str(), "wb")) {
+        const uint32_t head[2] = {kPipeListMagic, uint32_t(sizeof(PipeRec))};
+        std::fwrite(head, 4, 2, f);
+        if (!recs.empty()) std::fwrite(recs.data(), sizeof(PipeRec), recs.size(), f);
+        std::fclose(f);
+      }
+      Log("renderer: pipeline list: %zu records, %zu after removing duplicates (undefined padding of older versions)", read, recs.size());
+    }
+    // Shipped list: the sample count follows the player's MSAA setting (variant word); keys go into listed_keys so
+    // the local list only collects what the shipped one lacks.
+    std::vector<ShippedRec> shipped;
+    if (!opt.pipeline_shipped.empty()) {
+      std::string error;
+      const auto t0 = Clock::now();
+      if (ReadShippedList(opt.pipeline_shipped, shipped, group_names, &error)) {
+        for (ShippedRec& s : shipped) s.rec.pad = PadForVariant(s.rec.reserved);
+        Log("renderer: shipped pipeline list %s: %zu records, %zu groups, checksum ok (%.1f ms)", opt.pipeline_shipped.c_str(),
+            shipped.size(), group_names.size(), MsSince(t0));
+      } else {
+        shipped.clear();
+        group_names.clear();
+        Log("renderer: shipped pipeline list %s not used: %s", opt.pipeline_shipped.c_str(), error.c_str());
+      }
+    }
+    // Order: the menu group (title, menus, videos, loading screens), then the player's own list, then the shipped
+    // records by their first level in campaign order (the file is sorted that way). OnLevelLoading moves a level ahead.
+    uint32_t menu_bit = 0;
+    for (size_t g = 0; g < group_names.size(); ++g)
+      if (group_names[g] == "menu") menu_bit = 1u << g;
+    std::vector<ShippedRec> order;
+    order.reserve(recs.size() + shipped.size());
+    std::unordered_map<uint64_t, size_t> at;  // Key -> index in order
+    auto add = [&](const ShippedRec& s) {
+      auto [it, inserted] = at.emplace(s.rec.Key(), order.size());
+      if (inserted) order.push_back(s);
+      else order[it->second].groups |= s.groups;
+    };
+    for (const ShippedRec& s : shipped)
+      if (s.groups & menu_bit) add(s);
+    for (const PipeRec& r : recs) add(ShippedRec{r, 0, 0});
+    for (const ShippedRec& s : shipped)
+      if (!(s.groups & menu_bit)) add(s);
+    for (const ShippedRec& s : shipped) listed_keys.insert(s.rec.FullKey());
+    if (order.empty()) return;
+    if (opt.pipeline_async) {
+      // The pool's background queue (draws of the running list go first), filled by the feeder thread.
+      prewarm_t0 = Clock::now();
+      Log("renderer: prewarm: %zu pipelines (local list %zu, shipped %zu) on %u threads at %s priority", order.size(), recs.size(),
+          shipped.size(), pool.threads(), opt.prewarm_low_priority ? "below normal" : "normal");
+      {
+        std::lock_guard lock(feed_mutex);
+        feed.assign(order.begin(), order.end());
+      }
+      prewarm = std::thread([this] { Feeder(); });
+      return;
+    }
+    recs.clear();
+    for (const ShippedRec& s : order) recs.push_back(s.rec);
     Log("renderer: pipeline list %s: %zu entries, prewarming in the background", opt.pipeline_list.c_str(), recs.size());
     prewarm = std::thread([this, recs = std::move(recs)] {
       const auto t0 = Clock::now();
@@ -978,17 +1548,35 @@ struct GameRenderer::Impl {
     const auto t0 = Clock::now();
     host = CreateHostDevice(ho, error);
     if (!host) return false;
+    if (host->has_swapchain()) {
+      PacerOptions po;
+      po.stats_seconds = opt.present_stats_seconds;
+      po.target_fps = opt.pace_fps;
+      po.queued = opt.pace_queued;
+      po.hold = opt.pace_hold;
+      po.early_ms = opt.pace_early_ms;
+      po.spin_ms = opt.pace_spin_ms;
+      po.trace = opt.pace_trace;
+      po.single = opt.pace_single;
+      pacer.Start(host.get(), po);
+    }
     dev = host->device();
     api = dev->getGraphicsAPI();
     Log("renderer: device %s (%s), swapchain %s %ux%u, %.0f ms", host->description().c_str(), HostApiName(opt.api),
         host->has_swapchain() ? "yes" : "no", host->swapchain_width(), host->swapchain_height(), MsSince(t0));
-    cur_scale = wanted_scale = opt.scale_auto && host->has_swapchain() ? AutoScale(host->swapchain_height()) : opt.scale;
-    cur_wide = wanted_wide = host->has_swapchain() || opt.aspect > 0.0f ? WideFor(host->swapchain_width(), host->swapchain_height()) : 1.0f;
+    const bool shaped = host->has_swapchain() || opt.aspect > 0.0f;
+    if (host->has_swapchain()) out_w = host->swapchain_width(), out_h = host->swapchain_height();
+    cur_wide = wanted_wide = shaped ? WideFor(host->swapchain_width(), host->swapchain_height()) : 1.0f;
+    cur_tall = wanted_tall = shaped ? TallFor(host->swapchain_width(), host->swapchain_height()) : 1.0f;
+    cur_scale = wanted_scale = opt.scale_auto && host->has_swapchain() ? AutoScale(host->swapchain_height(), cur_tall) : opt.scale;
+    FactorsFor(cur_scale, cur_wide, cur_tall, cur_sx, cur_sy);
     wide_published.store(cur_wide);
-    Log("renderer: Hor+ %s: aspect %s, factor %.4f (screen targets %ux720 guest -> %ux%u host)%s",
-        cur_wide != 1.0f ? "on" : "off", opt.aspect > 0.0f ? "fixed" : "auto (output)", cur_wide, 1280u,
-        HostSize(1280, cur_scale * cur_wide), HostSize(720, cur_scale),
-        cur_wide != 1.0f ? "" : " - 16:9 or narrower: bars as before");
+    tall_published.store(cur_tall);
+    Log("renderer: Hor+ %s, Vert+ %s: aspect %s, factor %.4f / %.4f (screen targets 1280x720 guest -> %ux%u host, %s)%s",
+        cur_wide != 1.0f ? "on" : "off", cur_tall != 1.0f ? "on" : opt.vert_plus ? "off" : "off (FCP_RENDER_VERTPLUS=0)",
+        opt.aspect > 0.0f ? "fixed" : "auto (output)", cur_wide, cur_tall, HostSize(1280, cur_sx), HostSize(720, cur_sy),
+        opt.resolution_mode == 1 ? "resolution native" : opt.resolution_mode == 2 ? "resolution fixed" : "from the scale",
+        Shaped() ? "" : " - 16:9: bars as before");
     char an[16];
     std::snprintf(an, sizeof(an), "%ux", opt.aniso);
     if (opt.msaa && opt.msaa_samples > 1) {
@@ -1010,7 +1598,11 @@ struct GameRenderer::Impl {
     // Lower bound: one list (at most kMaxDrawsPerList draws plus blits) must never use up all versions, otherwise a
     // draw would get the previous one's constants (NVRHI error "insufficient").
     if (opt.constant_versions) caps.constant_versions = std::max(opt.constant_versions, 2 * kMaxDrawsPerList + 64);
+    for (size_t i = 0; i < caps.slots.size(); ++i)
+      if (opt.table_slots[i]) caps.slots[i] = std::max(opt.table_slots[i], 16u);
     if (!tl.Init(dev, caps, error)) return false;
+    slot_recycle = opt.slot_recycle;
+    if (!slot_recycle) Log("renderer: FCP_RENDER_SLOT_RECYCLE=0: bindless slots are never reused (old behaviour)");
     std::string e;
     solid_ps = CreateBuiltinShader(dev, opt.api, BuiltinShader::kSolidPS, &e);
     blit_vs = CreateBuiltinShader(dev, opt.api, BuiltinShader::kBlitVS, &e);
@@ -1070,6 +1662,15 @@ struct GameRenderer::Impl {
       Log("renderer: Occlusion Queries: %s", occ ? "host (FCP_RENDER_QUERY=host)" : "not available, original's answer");
     }
     ready = true;
+    if (opt.pipeline_async) {
+      const unsigned threads = opt.pipeline_threads ? opt.pipeline_threads : AutoPipelineThreads();
+      pool.SetLowPriorityBackground(opt.prewarm_low_priority);
+      pool.Start(threads);
+      dlist = new DeferredCommandList(dev, [this] { ++async_materialize_early, Materialize(); });
+      Log("renderer: pipelines on %u worker threads (FCP_RENDER_PIPELINE_ASYNC=0: on the render thread)", threads);
+    }
+    if (const char* tw = std::getenv("FCP_RENDER_TEXTURE_WORKERS"); !tw || std::string(tw) != "0")
+      tex_workers = std::make_unique<res::TextureConversionWorkers>(std::min(3u, AutoPipelineThreads()));
     StartPrewarm();
     return true;
   }
@@ -1095,7 +1696,10 @@ struct GameRenderer::Impl {
       up_used = 0;  // the rings are in queue order, copies run after the readers before them
       index_used = 0;
       if (active_query) BeginSegment(cl, queries[active_query]);  // the query continues in the new list
+      // Diagnostics FCP_RENDER_DEFER_ALL=1: every list goes through the deferred list (tests the replay).
+      if (defer_all && dlist) dlist->Begin(cl), ++async_lists;
     }
+    if (dlist && dlist->recording()) return dlist.Get();
     return cl;
   }
 
@@ -1111,6 +1715,7 @@ struct GameRenderer::Impl {
 
   void Flush() {
     if (!cl_open) return;
+    Materialize();
     if (active_query) EndSegment(cl, queries[active_query]);
     cl->close();
     if (opt.ring_batch && (!up_stage.empty() || !index_stage.empty())) {
@@ -1271,7 +1876,9 @@ struct GameRenderer::Impl {
         tl.WriteTextureView(table, t.slot & 0x7FFFFFFFu, nt, mapping, d.dimension);
       } else {
         const uint32_t slot = tl.AddTextureView(table, nt, mapping, d.dimension);
-        if (!slot) return false;
+        if (!slot) return table_full = true, false;
+        // A rewrite into another table (new dimension): the old slot is no longer referenced by this entry.
+        if (t.slot && slot_recycle) ReleaseSlot(t.table, t.slot & 0x7FFFFFFFu);
         t.slot = slot | (stacked ? 0x80000000u : 0u);
       }
       t.tex = nt;
@@ -1322,7 +1929,7 @@ struct GameRenderer::Impl {
 
   // Binding of a classified texture: the source's current replacement image (uploaded and cached) or `slot`.
   uint32_t ReplacedSlot(const GuestTex& t, uint32_t slot, nvrhi::ICommandList* c) {
-    const std::shared_ptr<const ReplacementImage> img = replace_source->Current(t.replace_kind, cur_scale);
+    const std::shared_ptr<const ReplacementImage> img = replace_source->Current(t.replace_kind, HudScale());
     if (!img || img->rgba.size() != size_t(img->width) * img->height * 4 || !img->width) return slot;
     ++replace_binds;
     for (ReplaceTex& r : replace_cache) {
@@ -1393,7 +2000,13 @@ struct GameRenderer::Impl {
     std::memcpy(key.w.data(), words, 24);
     auto [it, inserted] = textures.try_emplace(key);
     GuestTex& t = it->second;
-    if (t.failed) return 0;
+    t.used_frame = frame;
+    if (t.failed) {
+      // Failed only because the table was full (slot recycling): convert again once slots may be free.
+      if (!t.retry_frame || frame < t.retry_frame) return 0;
+      textures.erase(it);
+      return TextureOf(words, c, out);
+    }
     out = &t;
     if (!inserted && (t.checked_frame == frame || !opt.texture_check)) return t.slot;
     const auto t0 = Clock::now();
@@ -1427,7 +2040,20 @@ struct GameRenderer::Impl {
     const auto t1 = Clock::now();
     res::HostTextureData data;
     std::string why;
-    if (!res::ConvertTexture(f, phys, data, &why) || !CreateTexture(t, data, c, !inserted)) {
+    table_full = false;
+    if (!res::ConvertTexture(f, phys, data, &why, res::TextureOptions(), tex_workers.get()) || !CreateTexture(t, data, c, !inserted)) {
+      if (table_full) {
+        // No free slot: logged once; with slot recycling the next eviction pass frees slots, try again then.
+        Once("tablefull", "renderer: texture table full (%s), textures without a slot are drawn with the black fallback",
+             slot_recycle ? "evicting unused textures" : "slot recycling off");
+        if (slot_recycle) {
+          evict_now = true;
+          if (inserted) t.failed = true, t.retry_frame = frame + 30;
+        } else if (inserted) {
+          t.failed = true;
+        }
+        return 0;
+      }
       if (inserted) {
         t.failed = true;
         char line[160];
@@ -1465,6 +2091,11 @@ struct GameRenderer::Impl {
     const uint64_t key = (uint64_t(physical) << 32) | bytes;
     auto [it, inserted] = buffers.try_emplace(key);
     GuestBuf& b = it->second;
+    b.used_frame = frame;
+    if (!inserted && !b.slot && b.buf && slot_recycle) {
+      // Created while the table was full: try for a slot again (content is written below as for a change).
+      if ((b.slot = tl.AddBuffer(b.buf)) != 0) b.hash = 0, b.checked_frame = ~0ull, b.watched = false;
+    }
     if (!inserted && b.checked_frame == frame) return b.slot;
     const auto t0 = Clock::now();
     const bool watch = Watching() && opt.buffer_watch && !b.volatile_data;
@@ -1498,7 +2129,12 @@ struct GameRenderer::Impl {
       b.buf = dev->createBuffer(d);
       if (!b.buf) return 0;
       b.slot = tl.AddBuffer(b.buf);
-      if (!b.slot) return 0;
+      if (!b.slot) {
+        Once("buffull", "renderer: vertex buffer table full (%s), draws without a slot lose that vertex stream",
+             slot_recycle ? "evicting unused buffers" : "slot recycling off");
+        if (slot_recycle) evict_now = true;
+        return 0;
+      }
     }
     c->writeBuffer(b.buf, data, bytes & ~3u);
     if (bytes & 3) {
@@ -1663,11 +2299,14 @@ struct GameRenderer::Impl {
 
   nvrhi::IFramebuffer* Framebuffer(const std::array<Target*, 4>& colors, Target* depth) {
     std::array<nvrhi::ITexture*, 5> key{};
+    for (int i = 0; i < 4; ++i)
+      if (colors[i]) key[i] = colors[i]->tex, ++colors[i]->writes;
+    if (depth) key[4] = depth->tex, ++depth->writes;
+    if (auto it = framebuffers.find(key); it != framebuffers.end()) return it->second;
     nvrhi::FramebufferDesc d;
     for (int i = 0; i < 4; ++i)
-      if (colors[i]) key[i] = colors[i]->tex, d.addColorAttachment(colors[i]->tex);
-    if (depth) key[4] = depth->tex, d.setDepthAttachment(depth->tex);
-    if (auto it = framebuffers.find(key); it != framebuffers.end()) return it->second;
+      if (colors[i]) d.addColorAttachment(colors[i]->tex);
+    if (depth) d.setDepthAttachment(depth->tex);
     nvrhi::FramebufferHandle fb = dev->createFramebuffer(d);
     return framebuffers.emplace(key, fb).first->second;
   }
@@ -1929,6 +2568,8 @@ struct GameRenderer::Impl {
     }
     rec.mode = mode & 0x80F;
     rec.pad = size_from->host_samples > 1 ? size_from->host_samples : 0;
+    // Variant word (not in Key): guest MSAA level and screen-sized target, from which the shipped list derives pad.
+    rec.reserved = kVariantMark | std::min(size_from->msaa, 2u) | (IsScreenTarget(size_from->gw, size_from->gh) ? 4u : 0u);
     rec.clip = clip_cntl & (1u << 16);
     if (depth && (mode & (1u << 11))) {
       const float ps0 = d.f32(F::pa_su_poly_offset, 0), po = d.f32(F::pa_su_poly_offset, 1);
@@ -1936,10 +2577,17 @@ struct GameRenderer::Impl {
       std::memcpy(&rec.poly_offset, &po, 4);
     }
     const uint64_t key = rec.Key();
+    if (!opt.pipeline_collect.empty() && !solid) CollectRecord(rec);
     nvrhi::IGraphicsPipeline* pipeline = nullptr;
+    nvrhi::GraphicsPipelineHandle pipeline_hold;
     if (auto it = pipelines.find(key); it != pipelines.end()) {
       pipeline = it->second;
       Counters::Get().pipelines_cached++;
+    } else if (opt.pipeline_async && dlist && !Tracing() && opt.probe_x < 0) {
+      // Worker threads; the rest of the list is recorded until Flush (deferred_list.h). Traces/probes read back
+      // per draw and take the synchronous path.
+      pipeline = AsyncPipeline(key, rec, vs_h, ps_h, solid);
+      pipeline_hold = pipeline;  // a placeholder must outlive a Flush in the middle of this draw
     } else {
       const auto t0 = Clock::now();
       nvrhi::GraphicsPipelineHandle p = CreatePipelineFrom(rec, vs_h, ps_h);
@@ -2089,20 +2737,31 @@ struct GameRenderer::Impl {
     // NDC from the guest viewport in guest pixels (independent of render scaling); host viewport and scissor in host
     // pixels (at factor 1 the same values as before).
     ViewportSetup vp = ComputeViewport(d, size_from->gw, size_from->gh);
-    if (size_from->sx != 1.0f || size_from->sy != 1.0f) {
+    if (size_from->sx != 1.0f || size_from->sy != 1.0f || Shaped()) {
       vp.viewport.minX = 0.0f, vp.viewport.maxX = float(size_from->width);
       vp.viewport.minY = 0.0f, vp.viewport.maxY = float(size_from->height);
       vp.scissor = nvrhi::Rect(ScaleEdge(vp.scissor.minX, size_from->sx), ScaleEdge(vp.scissor.maxX, size_from->sx),
                                ScaleEdge(vp.scissor.minY, size_from->sy), ScaleEdge(vp.scissor.maxY, size_from->sy));
     }
     // Hor+: 2D over a wide 3D picture after its post processing into the 16:9 middle.
-    if (cur_wide != 1.0f && HorPlusNarrow(r, d, vs, ps, colors[0], depth, depth_control, color_mask)) {
-      const float cx = float(size_from->width) * 0.5f, k = 1.0f / cur_wide;
-      vp.viewport.minX = cx - cx * k;
-      vp.viewport.maxX = cx + cx * k;
-      auto nx = [&](int32_t x) { return int32_t(std::lround(cx + (float(x) - cx) * k)); };
-      vp.scissor.minX = nx(vp.scissor.minX);
-      vp.scissor.maxX = nx(vp.scissor.maxX);
+    // Vert+ likewise into the 16:9 band in the middle (narrower in y).
+    if (Shaped() && HorPlusNarrow(r, d, vs, ps, colors[0], depth, depth_control, color_mask)) {
+      if (cur_wide != 1.0f) {
+        const float cx = float(size_from->width) * 0.5f, k = 1.0f / cur_wide;
+        vp.viewport.minX = cx - cx * k;
+        vp.viewport.maxX = cx + cx * k;
+        auto nx = [&](int32_t x) { return int32_t(std::lround(cx + (float(x) - cx) * k)); };
+        vp.scissor.minX = nx(vp.scissor.minX);
+        vp.scissor.maxX = nx(vp.scissor.maxX);
+      }
+      if (cur_tall != 1.0f) {
+        const float cy = float(size_from->height) * 0.5f, k = 1.0f / cur_tall;
+        vp.viewport.minY = cy - cy * k;
+        vp.viewport.maxY = cy + cy * k;
+        auto ny = [&](int32_t y) { return int32_t(std::lround(cy + (float(y) - cy) * k)); };
+        vp.scissor.minY = ny(vp.scissor.minY);
+        vp.scissor.maxY = ny(vp.scissor.maxY);
+      }
     }
     for (uint32_t k = 0; k < 3; ++k) dc.ndcScale[k] = vp.ndc_scale[k], dc.ndcOffset[k] = vp.ndc_offset[k];
     TranslatedLayout::AdjustNdcForApi(api, dc);
@@ -2110,6 +2769,14 @@ struct GameRenderer::Impl {
     if (color_control & 8) {
       dc.alphaFunc = (color_control & 7) + 1;
       dc.alphaRef = d.f32(F::rb_alpha_ref);
+    }
+    if (color_control & 0x10) {
+      // RB_COLORCONTROL ALPHA_TO_MASK_ENABLE (bit 4): coverage from alpha, not emulated (the draw is drawn without
+      // it). Diagnostics only: counted and the first draws logged (none seen at the start of 8 levels, issue #1).
+      ++a2m_draws;
+      if (a2m_logged++ < 8)
+        Log("renderer: alpha-to-mask draw (RB_COLORCONTROL %08X, frame %llu, PS %016llX), not emulated", color_control,
+            (unsigned long long)frame, ps ? (unsigned long long)ps->container_hash : 0ull);
     }
     if (solid) {
       const uint32_t col = sw.solid_color;
@@ -2134,14 +2801,25 @@ struct GameRenderer::Impl {
     auto fast_block = [&](F field, std::array<float, 1024>& out, std::array<uint8_t, 4096>& raw, bool& valid) {
       const uint8_t* p = d.at(field);
       if (!p) return false;
-      if (valid && std::memcmp(p, raw.data(), raw.size()) == 0) return ++fast_const_skips, false;
-      std::memcpy(raw.data(), p, raw.size());
+      // Only the changed span (64-byte steps from both ends) is copied and converted; outside it raw and out
+      // already hold these bytes. FCP_RENDER_CONST_SPAN=0: whole block on every change.
+      size_t lo = 0, hi = raw.size();
+      if (valid) {
+        constexpr size_t kStep = 64;
+        while (lo < hi && std::memcmp(p + lo, raw.data() + lo, kStep) == 0) lo += kStep;
+        if (lo == hi) return ++fast_const_skips, false;
+        while (hi > lo + kStep && std::memcmp(p + hi - kStep, raw.data() + hi - kStep, kStep) == 0) hi -= kStep;
+        if (!const_span) lo = 0, hi = raw.size();
+      }
+      std::memcpy(raw.data() + lo, p + lo, hi - lo);
       valid = true;
-      for (uint32_t i = 0; i < 1024; ++i) {
-        const uint32_t u = LoadBE32(raw.data() + i * 4);
+      for (size_t i = lo / 4; i < hi / 4; ++i) {
+        uint32_t u;
+        std::memcpy(&u, raw.data() + i * 4, 4);
+        u = __builtin_bswap32(u);
         std::memcpy(&out[i], &u, 4);
       }
-      ++fast_const_converts;
+      ++fast_const_converts, const_span_bytes += hi - lo;
       return true;
     };
     if (fast_consts) {
@@ -2184,7 +2862,23 @@ struct GameRenderer::Impl {
     if (scale_epoch != cl_epoch || std::memcmp(&scale_c, &last_scale_c, sizeof(scale_c)) != 0)
       tl.WriteScaleConstants(c, scale_c), last_scale_c = scale_c, scale_epoch = cl_epoch;
 
-    nvrhi::GraphicsState gs;
+    // One GraphicsState for all draws: its constructor zero-fills ~1 KB of fixed-size arrays (viewports, scissors,
+    // vertex buffers, bindings); resetting the sizes and the fields set below gives the same state.
+    nvrhi::GraphicsState& gs = draw_gs;
+    gs.viewport.viewports.resize(0);
+    gs.viewport.scissorRects.resize(0);
+    gs.bindings.resize(0);
+    gs.vertexBuffers.resize(0);
+    gs.indexBuffer = nvrhi::IndexBufferBinding();
+    gs.indirectParams = gs.indirectCountBuffer = nullptr;
+    if (pipeline_hold && !(dlist && dlist->recording())) {
+      // The list was flushed during this draw (ring full): the placeholder's job is done, use its pipeline.
+      if (auto* pp = dynamic_cast<PendingPipeline*>(pipeline)) {
+        pool.Wait(pp->job());
+        pipeline = pp->job()->result;
+        if (!pipeline) return Skip("pipeline failed");
+      }
+    }
     gs.pipeline = pipeline;
     gs.framebuffer = fb;
     gs.viewport.addViewport(vp.viewport);
@@ -2238,8 +2932,23 @@ struct GameRenderer::Impl {
       } else if (expand == Expand::kFan) {
         for (uint32_t i = 1; i + 1 < r.count; ++i) scratch_indices.insert(scratch_indices.end(), {index(0), index(i), index(i + 1)});
       } else {
+        // Same values as index(i), as straight loops the compiler vectorizes.
         scratch_indices.resize(r.count);
-        for (uint32_t i = 0; i < r.count; ++i) scratch_indices[i] = index(i);
+        uint32_t* out = scratch_indices.data();
+        if (ib.index32) {
+          for (uint32_t i = 0; i < r.count; ++i) {
+            uint32_t v;
+            std::memcpy(&v, src + size_t(i) * 4, 4);
+            out[i] = __builtin_bswap32(v);
+          }
+        } else {
+          for (uint32_t i = 0; i < r.count; ++i) {
+            uint16_t v;
+            std::memcpy(&v, src + size_t(i) * 2, 2);
+            v = __builtin_bswap16(v);
+            out[i] = v == 0xFFFF ? 0xFFFFFFFFu : v;
+          }
+        }
       }
       const uint64_t bytes = scratch_indices.size() * 4;
       if (Tracing() && scratch_indices.size() >= 3) {
@@ -2450,9 +3159,17 @@ struct GameRenderer::Impl {
     y0 = ScaleEdge(y0, src->sy), y1 = ScaleEdge(y1, src->sy);
     nvrhi::ICommandList* c = CL();
     if (src->single) {
-      // MSAA target: first average the samples (like the 360's resolve), then copy as usual.
-      c->resolveTexture(src->single, nvrhi::AllSubresources, src->tex, nvrhi::AllSubresources);
-      c->setTextureState(src->single, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+      // MSAA target: first average the samples (like the 360's resolve), then copy as usual. Not again when nothing
+      // was drawn into or cleared on the target since the last one (several rectangles from one target):
+      // FCP_RENDER_MSAA_RESOLVE_ONCE=0 resolves every time.
+      if (!msaa_resolve_once || src->single_at != src->writes) {
+        c->resolveTexture(src->single, nvrhi::AllSubresources, src->tex, nvrhi::AllSubresources);
+        c->setTextureState(src->single, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        src->single_at = src->writes;
+        ++msaa_resolves;
+      } else {
+        ++msaa_resolves_skipped;
+      }
     }
     nvrhi::FramebufferHandle fb = dev->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(dst->tex));
     if (!src->single) c->setTextureState(src->tex, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
@@ -2648,11 +3365,11 @@ struct GameRenderer::Impl {
     for (uint32_t i = 0; i < 4; ++i) {
       if (!(flags & (1u << i))) continue;
       if (Target* t = GetTarget(d.u32(F::render_targets, i), false))
-        c->clearTextureFloat(t->tex, nvrhi::AllSubresources, nvrhi::Color(color[0], color[1], color[2], color[3]));
+        ++t->writes, c->clearTextureFloat(t->tex, nvrhi::AllSubresources, nvrhi::Color(color[0], color[1], color[2], color[3]));
     }
     if (flags & 0x30) {
       if (Target* t = GetTarget(d.u32(F::depth_stencil), true))
-        c->clearDepthStencilTexture(t->tex, nvrhi::AllSubresources, (flags & 0x10) != 0, z, (flags & 0x20) != 0, uint8_t(stencil));
+        ++t->writes, c->clearDepthStencilTexture(t->tex, nvrhi::AllSubresources, (flags & 0x10) != 0, z, (flags & 0x20) != 0, uint8_t(stencil));
     }
     ++frame_clears;
     Counters::Get().clears++;
@@ -2687,15 +3404,23 @@ struct GameRenderer::Impl {
       k_min_dist = 1e30f;
     }
     Flush();
+    if (opt.pipeline_async) AdoptFinished();
     DiagRewatch();
     // Diagnostics FCP_DIAG_RESCALE=<frame>,<factor>: factor change as after a resize (scale = auto).
     if (diag_rescale_frame && frame == diag_rescale_frame) wanted_scale = diag_rescale_to;
     // Hor+: show this picture in the wide shape when it had a 3D view with post processing.
-    front_wide = cur_wide != 1.0f && frame_3d && post_3d;
+    // Vert+ likewise (the tall shape).
+    front_wide = Shaped() && frame_3d && post_3d;
+    front_aspect = (16.0f / 9.0f) * cur_wide / cur_tall;
     if (front_wide) ++wide_frames;
     frame_3d = post_3d = false;
     view_surface = 0;
-    if (wanted_scale != cur_scale || wanted_wide != cur_wide) ApplyScale(wanted_scale, wanted_wide);
+    {
+      float nsx = 1.0f, nsy = 1.0f;
+      FactorsFor(wanted_scale, wanted_wide, wanted_tall, nsx, nsy);
+      if (wanted_scale != cur_scale || wanted_wide != cur_wide || wanted_tall != cur_tall || nsx != cur_sx || nsy != cur_sy)
+        ApplyScale(wanted_scale, wanted_wide, wanted_tall);
+    }
     if (opt.slow_frame_ms > 0) {
       // Slow frames (FCP_TRACE_HITCHES): the renderer's share of the frame since the last swap.
       Counters& cn = Counters::Get();
@@ -2721,6 +3446,7 @@ struct GameRenderer::Impl {
     ++frame;
     // retire after three frames
     retired.erase(std::remove_if(retired.begin(), retired.end(), [&](const auto& e) { return e.first + 3 < frame; }), retired.end());
+    RecycleSlots();
     MaybeDump();
     if (opt.stats_every && frame % opt.stats_every == 0) {
       const double s = std::chrono::duration<double>(Clock::now() - stats_since).count();
@@ -2739,16 +3465,53 @@ struct GameRenderer::Impl {
           (unsigned long long)st.translated, (unsigned long long)st.failed, pipelines.size(),
           (unsigned long long)frame_new_pipelines, targets.size(), resolved.size(),
           textures.size(), reasons.c_str());
+      {
+        // Bindless tables: slots in use / capacity, requests refused because a table was full.
+        std::string tables;
+        static const char* const kNames[] = {"2D", "3D", "cube", "array", "samplers", "buffers"};
+        uint64_t refused = 0;
+        for (uint32_t i = 0; i < uint32_t(Table::kCount); ++i) {
+          char part[64];
+          std::snprintf(part, sizeof(part), "%s%s %u/%u", i ? ", " : "", kNames[i], tl.used(Table(i)), tl.capacity(Table(i)));
+          tables += part;
+          refused += tl.refused(Table(i));
+        }
+        std::string refused_by;
+        for (uint32_t i = 0; i < uint32_t(Table::kCount); ++i)
+          if (tl.refused(Table(i))) refused_by += std::string(" ") + kNames[i] + "=" + std::to_string(tl.refused(Table(i)));
+        std::unordered_set<uint32_t> bases;
+        for (const auto& [k, t] : textures) bases.insert(res::TextureFetch::FromWords(k.w.data()).BaseAddress());
+        Log("renderer: tables %s; textures %zu (%zu base addresses), buffers %zu, samplers %zu, refused %llu%s; recycled: "
+            "%llu textures, %llu buffers; alpha-to-mask draws %llu",
+            tables.c_str(), textures.size(), bases.size(), buffers.size(), samplers.size(), (unsigned long long)refused,
+            refused_by.c_str(), (unsigned long long)evicted_textures, (unsigned long long)evicted_buffers,
+            (unsigned long long)a2m_draws);
+      }
+      if (st.queued)
+        Log("renderer: async shaders: %llu translated on workers (%.0f ms), draws waited %.1f ms", (unsigned long long)st.queued,
+            st.translate_ms, st.wait_ms);
+      if (opt.pipeline_async && async_jobs)
+        Log("renderer: async pipelines: %llu jobs, %llu deferred lists (%llu ops, %llu KB copied, %llu ended early), render "
+            "thread waited %.1f ms, creation %.1f ms on %u threads (%llu by waiting threads); prewarm %llu/%llu, pending %zu, "
+            "not ready in time %llu",
+            (unsigned long long)async_jobs, (unsigned long long)async_lists, (unsigned long long)async_replayed_ops,
+            (unsigned long long)(async_replayed_bytes >> 10), (unsigned long long)async_materialize_early, async_wait_us / 1000.0,
+            async_create_us / 1000.0, pool.threads(), (unsigned long long)pool.jobs_helped(), (unsigned long long)prewarm_done,
+            (unsigned long long)prewarm_jobs, pending.size(), (unsigned long long)async_late);
       if (Watching())
         Log("renderer: write watch: %llu checks without writes skipped, %llu hashed, %llu textures changing constantly (hash per frame)",
             (unsigned long long)watch_skips, (unsigned long long)watch_checks, (unsigned long long)watch_volatile);
-      Log("renderer: constant versions per frame at most VS %u PS %u Draw %u (ring %u); raw data unchanged %llu, converted %llu",
+      Log("renderer: constant versions per frame at most VS %u PS %u Draw %u (ring %u); raw data unchanged %llu, converted %llu "
+          "(%.0f bytes each)",
           cb_max[0], cb_max[1], cb_max[2], tl.constant_versions(), (unsigned long long)fast_const_skips,
-          (unsigned long long)fast_const_converts);
-      fast_const_skips = fast_const_converts = 0;
-      if (cur_wide != 1.0f) {
-        Log("renderer: Hor+ %.4f: %llu wide frames of %u, 2D centred %llu, full width %llu, box unknown %llu",
-            cur_wide, (unsigned long long)wide_frames, opt.stats_every, (unsigned long long)narrow_draws, (unsigned long long)full_draws,
+          (unsigned long long)fast_const_converts, fast_const_converts ? double(const_span_bytes) / fast_const_converts : 0.0);
+      fast_const_skips = fast_const_converts = const_span_bytes = 0;
+      Log("renderer: MSAA resolves %llu, not repeated (target unchanged) %llu", (unsigned long long)msaa_resolves,
+          (unsigned long long)msaa_resolves_skipped);
+      msaa_resolves = msaa_resolves_skipped = 0;
+      if (Shaped()) {
+        Log("renderer: %s %.4f: %llu wide frames of %u, 2D centred %llu, full width %llu, box unknown %llu",
+            cur_wide != 1.0f ? "Hor+" : "Vert+", cur_wide != 1.0f ? cur_wide : cur_tall, (unsigned long long)wide_frames, opt.stats_every, (unsigned long long)narrow_draws, (unsigned long long)full_draws,
             (unsigned long long)unknown_boxes);
         wide_frames = narrow_draws = full_draws = unknown_boxes = 0;
       }
@@ -2854,8 +3617,10 @@ struct GameRenderer::Impl {
     back_fbs.clear();
     if (host->Resize(resize_w, resize_h)) {
       Log("renderer: Swapchain %ux%u", host->swapchain_width(), host->swapchain_height());
-      if (opt.scale_auto) wanted_scale = AutoScale(host->swapchain_height());  // applied at the next swap
+      out_w = host->swapchain_width(), out_h = host->swapchain_height();  // native resolution
       wanted_wide = WideFor(host->swapchain_width(), host->swapchain_height());   // Hor+ likewise
+      wanted_tall = TallFor(host->swapchain_width(), host->swapchain_height());   // Vert+ likewise
+      if (opt.scale_auto) wanted_scale = AutoScale(host->swapchain_height(), wanted_tall);  // applied at the next swap
     }
   }
 
@@ -2920,7 +3685,9 @@ struct GameRenderer::Impl {
       // Aspect ratio of the frame, centred (bars instead of distortion).
       const float bw = float(back->getDesc().width), bh = float(back->getDesc().height);
       // Hor+: a picture with a 3D view in the host texture's shape (wide), all others in the guest shape (16:9).
-      const float aspect = front_wide && front_h ? float(front_w) / float(front_h)
+      // Vert+ likewise (tall). A fixed render resolution may have another shape than the picture: the picture's.
+      const float aspect = front_wide && opt.resolution_mode == 2 ? front_aspect
+                           : front_wide && front_h ? float(front_w) / float(front_h)
                            : front_gh            ? float(front_gw) / float(front_gh)
                            : front_h             ? float(front_w) / float(front_h)
                                                  : 16.0f / 9.0f;
@@ -2972,6 +3739,15 @@ std::unique_ptr<GameRenderer> GameRenderer::Create(const GameRendererOptions& op
   so.cache_dir = options.shader_cache;
   so.dxc_path = options.dxc_path;
   so.accept_stale_pack = Switches::Get().shader_pack_stale_ok;
+  if (options.shader_async) {
+    so.translate_threads = options.pipeline_threads ? options.pipeline_threads : AutoPipelineThreads();
+    Impl* mi = &m;
+    so.on_translated = [mi](const ShaderEntry& e, double ms) {
+      mi->Log("renderer: Shader %016llX %s %.1f ms (worker)%s%s", (unsigned long long)e.container_hash, ShaderSourceName(e.source), ms,
+              e.source == ShaderSource::kFailed ? " error: " : "", e.source == ShaderSource::kFailed ? e.error.c_str() : "");
+      mi->NotifyShader(e.container_hash);  // prewarm records that waited for this shader
+    };
+  }
   std::string note;
   if (!m.shaders.Open(so, error, &note)) return nullptr;
   m.shaders_open = true;
@@ -3060,6 +3836,7 @@ bool GameRenderer::BeginPresent() {
     const bool ok = m.BeginPresent();
     m.present_hold_us += UsBetween(t0, Clock::now());
     ++m.presents_in_window;
+    m.present_swap = m.total_swaps;
     return ok;
   }
   // Split: resize under the lock, then wait for the GPU (frames ahead) and acquire the swapchain image without the
@@ -3084,11 +3861,13 @@ bool GameRenderer::BeginPresent() {
   if (!acquired) return false;
   const bool ok = m.BeginPresent();
   m.present_hold_us += UsBetween(t2, Clock::now());
+  m.present_swap = m.total_swaps;
   return ok;
 }
 
 void GameRenderer::EndPresent() {
   Impl& m = *impl_;
+  m.pacer.BeforePresent();  // display pacing: holds the present (only), without the renderer lock
   Impl::TimedLock lock(m, kSitePresent);
   if (!m.host || !m.back) return;
   if (!m.present_dump.empty()) {
@@ -3104,6 +3883,7 @@ void GameRenderer::EndPresent() {
   }
   const auto t0 = Clock::now();
   m.host->Present();
+  m.pacer.AfterPresent(m.present_swap);
   m.back = nullptr;
   ++m.total_presents;
   m.present_hold_us += UsBetween(t0, Clock::now());
@@ -3180,24 +3960,71 @@ void GameRenderer::SetScale(float scale, bool scale_auto) {
   Impl& m = *impl_;
   m.opt.scale = std::clamp(scale, 0.5f, 4.0f);
   m.opt.scale_auto = scale_auto;
-  m.wanted_scale = scale_auto && m.host && m.host->has_swapchain() ? Impl::AutoScale(m.host->swapchain_height()) : m.opt.scale;
-  m.Log("renderer: render scale requested %s%.3f (settings menu, from the next swap)", scale_auto ? "auto = " : "",
-        m.wanted_scale);
+  m.wanted_scale = scale_auto && m.host && m.host->has_swapchain() ? Impl::AutoScale(m.host->swapchain_height(), m.wanted_tall)
+                                                                   : m.opt.scale;
+  m.Log("renderer: render scale requested %s%.3f (settings menu, from the next swap)%s", scale_auto ? "auto = " : "",
+        m.wanted_scale, m.opt.resolution_mode ? "; [graphics] resolution is set and decides" : "");
+}
+
+void GameRenderer::SetResolution(uint32_t mode, uint32_t w, uint32_t h) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  Impl& m = *impl_;
+  m.opt.resolution_mode = mode <= 2 ? mode : 0;
+  m.opt.res_w = w, m.opt.res_h = h;
+  float sx = 1.0f, sy = 1.0f;
+  m.FactorsFor(m.wanted_scale, m.wanted_wide, m.wanted_tall, sx, sy);
+  m.Log("renderer: render resolution requested %s -> screen targets %ux%u (settings menu, from the next swap)",
+        mode == 1 ? "native" : mode == 2 ? "fixed" : "from the scale", HostSize(1280, sx), HostSize(720, sy));
 }
 
 float GameRenderer::Wide() const { return impl_ ? impl_->wide_published.load() : 1.0f; }
+float GameRenderer::Tall() const { return impl_ ? impl_->tall_published.load() : 1.0f; }
+
+void GameRenderer::OnLevelLoading(const std::string& level) {
+  if (!impl_) return;
+  Impl& m = *impl_;
+  const std::string g = GroupName(level);
+  {
+    std::lock_guard lock(m.collect_mutex);
+    m.collect_group = g;
+  }
+  uint32_t mask = 0;
+  size_t moved = 0, fed = 0;
+  {
+    std::lock_guard lock(m.feed_mutex);
+    for (size_t i = 0; i < m.group_names.size(); ++i)
+      if (m.group_names[i] == g) mask = 1u << i;
+    if (mask) {
+      auto mid = std::stable_partition(m.feed.begin(), m.feed.end(), [mask](const ShippedRec& s) { return (s.groups & mask) != 0; });
+      fed = size_t(mid - m.feed.begin());
+    }
+  }
+  if (!mask || !m.opt.pipeline_async) return;
+  std::lock_guard lock(m.mutex);
+  m.loading_mask = mask;
+  moved = m.pool.PrioritizeBackground(mask);
+  m.Log("renderer: prewarm: level %s loading, %zu queued pipelines of it moved ahead (%zu not queued yet), %zu queued in all",
+        g.c_str(), moved, fed, m.pool.background_queued());
+}
 
 void GameRenderer::Shutdown() {
   if (!impl_) return;
   impl_->prewarm_stop = true;
+  {
+    std::lock_guard fl(impl_->feed_mutex);
+    impl_->feed_cv.notify_all();
+  }
   if (impl_->prewarm.joinable()) impl_->prewarm.join();
   std::lock_guard lock(impl_->mutex);
   Impl& m = *impl_;
   if (!m.host || m.shut_down) return;
+  m.pacer.Stop();  // no waits on the display from here on
   m.shut_down = true;
   m.ready = false;
   m.failed = true;  // no new devices after shutdown
   if (m.cl_open) m.Flush();
+  m.pool.Stop();  // queued prewarm jobs are dropped; running ones finish
+  m.pending.clear();
   m.host->WaitIdle();
   m.host->SavePipelineCache();
   m.Log("renderer: end. %s", m.ShutdownSummary().c_str());
@@ -3355,8 +4182,12 @@ void GameRenderer::OnShaderCreated(const ShaderCreatedRecord& r) {
   const auto t0 = Clock::now();
   const ShaderEntry* e = impl_->shaders.OnShaderCreated(r.object, r.container_data, r.max_size);
   Counters::Get().shaders_created++;
+  if (e && !e->pending.load(std::memory_order_acquire)) impl_->NotifyShader(e->container_hash);
   std::lock_guard lock(impl_->mutex);
-  if (e)
+  if (e && e->pending.load(std::memory_order_acquire))
+    impl_->Log("renderer: Shader %s %08X -> %016llX queued for a worker %.1f ms", r.kind == kVertexShader ? "VS" : "PS", r.object,
+               (unsigned long long)e->container_hash, MsSince(t0));
+  else if (e)
     impl_->Log("renderer: Shader %s %08X -> %016llX %s %.1f ms%s%s", r.kind == kVertexShader ? "VS" : "PS", r.object,
                (unsigned long long)e->container_hash, ShaderSourceName(e->source), MsSince(t0),
                e->source == ShaderSource::kFailed ? " error: " : "", e->source == ShaderSource::kFailed ? e->error.c_str() : "");
@@ -3376,10 +4207,12 @@ void GameRenderer::OnSwap(const SwapRecord& r) {
   Impl& m = *impl_;
   uint64_t wait_for = 0;
   HostDevice* host = nullptr;
+  uint64_t swap = 0;
   {
     Impl::TimedLock lock(m, kSiteSwap);
     if (!m.ready) return;
     m.Swap(r);
+    swap = m.total_swaps;
     // Back pressure (split present only): fence after this swap; the wait, without the lock, is for the swap
     // frames_ahead before it.
     if (m.opt.present_unlocked && m.opt.frames_ahead && m.host) {
@@ -3396,6 +4229,10 @@ void GameRenderer::OnSwap(const SwapRecord& r) {
     m.swap_wait_us += UsBetween(t0, Clock::now());  // only the render thread writes and reads (swap)
     ++m.swap_waits;
   }
+  m.pacer.AfterSwap(swap);  // display pacing: the game waits for the display, not for its own clock
 }
+
+bool GameRenderer::DisplayPacingActive() const { return impl_ && impl_->pacer.active(); }
+double GameRenderer::DisplayFrameMs() const { return impl_ ? impl_->pacer.frame_ms() : 0.0; }
 
 }  // namespace fcp::nr

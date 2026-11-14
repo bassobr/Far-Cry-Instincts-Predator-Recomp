@@ -7,8 +7,8 @@
 
 #include "kernel/xam/export.h"
 
-#define REX_EXPORT_ROW_kFunction(ordinal, text, symbol) symbol(::PPCContext& __restrict, u8*)
-#define REX_EXPORT_ROW_kVariable(ordinal, text, symbol) symbol(::PPCContext& __restrict, u8*)
+#define REX_EXPORT_ROW_kFunction(ordinal, text, symbol) symbol(REX_CTX_NOESCAPE ::PPCContext& __restrict, u8*) REX_GUEST_CC
+#define REX_EXPORT_ROW_kVariable(ordinal, text, symbol) symbol(REX_CTX_NOESCAPE ::PPCContext& __restrict, u8*) REX_GUEST_CC
 
 extern "C" {
 void
@@ -16,7 +16,7 @@ void
 #include "xboxkrnl/export_table.inc"
 #include "xbdm/export_table.inc"
 #include "export_table_post.inc"
-    ReXExportDeclEnd(::PPCContext& __restrict, u8*);
+    ReXExportDeclEnd(REX_CTX_NOESCAPE ::PPCContext& __restrict, u8*) REX_GUEST_CC;
 }
 
 #undef REX_EXPORT_ROW_kFunction

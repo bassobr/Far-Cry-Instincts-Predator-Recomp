@@ -406,14 +406,14 @@ void Verify(PPCContext& ctx, uint8_t* base, const Call& c, const Entry& fresh, c
 void Compile(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   Configure();
   if (g_mode == Mode::kOff) {
-    original(ctx, base);
+    fcp::guest::CallHostFrame(original, ctx, base);  // context copies on this frame (guest_call.h)
     return;
   }
   const Clock::time_point t0 = Clock::now();
   Call c;
   if (!BuildKey(ctx, base, c)) {
     ++g_uncacheable;
-    original(ctx, base);
+    fcp::guest::CallHostFrame(original, ctx, base);  // context copies on this frame (guest_call.h)
     return;
   }
   Entry cached;
@@ -433,7 +433,7 @@ void Compile(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
     FCPLOG("shader compile cache: rebuild failed for {} ({}), running the original", c.key, c.label);
     ctx = entry_ctx;
   }
-  original(ctx, base);
+  fcp::guest::CallHostFrame(original, ctx, base);  // context copies on this frame (guest_call.h)
   const uint64_t us = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - t0).count());
   g_miss_us += us;
   ++g_misses;

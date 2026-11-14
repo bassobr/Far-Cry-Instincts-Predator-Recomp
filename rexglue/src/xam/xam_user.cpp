@@ -286,6 +286,27 @@ u32 XamUserWriteProfileSettings_entry([[maybe_unused]] u32 title_id, u32 user_in
     const rex::xam::X_USER_PROFILE_SETTING& setting = settings[n];
 
     auto setting_type = static_cast<rex::xam::UserProfile::Setting::Type>(setting.data.type);
+    // FCP (UPSTREAM 340): a title specific setting (0x63E83FFF/FFE/FFD) is binary by its ID on the console;
+    // Far Cry Instincts Predator never sets the type byte, so it is whatever the stack held: measured 0, 64,
+    // 112, 130 and 255. 255 (kUnset) skipped the write and 1..5/7 hit the stub branch, so a profile save
+    // after "Resume Game" and the first of the two saves before a level change were lost. The type of such a
+    // setting now always comes from the ID. FCP_PROFILE_TITLE_TYPE_FROM_ID=0 restores the byte check.
+    static const bool title_type_from_id = [] {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+      const char* v = std::getenv("FCP_PROFILE_TITLE_TYPE_FROM_ID");  // read only
+#pragma clang diagnostic pop
+      return !(v && v[0] == '0');
+    }();
+    const u32 written_id = static_cast<u32>(setting.setting_id);
+    const u32 written_id_type = (written_id >> 28) & 0xF;
+    if (title_type_from_id && (written_id & 0x3F00) == 0x3F00 && written_id_type >= 1 && written_id_type <= 7) {
+      if (setting.data.type != written_id_type) {
+        REXXAM_DEBUG("XamUserWriteProfileSettings: title setting {:08X} type byte {}, type {} from the ID",
+                     written_id, setting.data.type, written_id_type);
+      }
+      setting_type = static_cast<rex::xam::UserProfile::Setting::Type>(written_id_type);
+    }
     if (setting_type == rex::xam::UserProfile::Setting::Type::kUnset) {
       continue;
     }

@@ -26,7 +26,9 @@
 #include "fcp/input_script.h"
 #include "fcp/log.h"
 #include "fcp/relaunch.h"
+#include "fcp/render_bridge.h"
 #include "fcp/state_trace.h"
+#include "fcp/thread_profile.h"
 #include "fcp/watchdog.h"
 #include "fcp_addresses.h"
 
@@ -62,6 +64,8 @@ struct Counters {
 Counters g_frame_counters;
 std::string g_frame_commands;  // commands dispatched since the last frame start (hitch reason)
 uint64_t g_hitches = 0;
+uint64_t g_main_cycles = 0;       // QueryThreadCycleTime of the main thread at the last frame start
+std::FILE* g_frames_csv = nullptr;  // FCP_TRACE_FRAMES
 
 // FCP_TRACE_COMMANDS
 std::FILE* g_commands_csv = nullptr;
@@ -110,25 +114,54 @@ Counters ReadCounters() {
 
 void Hitches() {
   const Clock::time_point now = Clock::now();
-  if (g_hitch_s <= 0.0) {
+  if (g_hitch_s <= 0.0 && !g_frames_csv) {
     return;
   }
-  const Counters c = ReadCounters();
+  ULONG64 cycles = 0;
+  QueryThreadCycleTime(GetCurrentThread(), &cycles);
   if (g_have_last_frame) {
     const double frame_s = std::chrono::duration<double>(now - g_last_frame_start).count();
-    if (frame_s > g_hitch_s) {
+    const bool hitch = g_hitch_s > 0.0 && frame_s > g_hitch_s;
+    // Main thread: CPU time in the frame (thread cycles, TSC rate) and time inside imports by category.
+    const double cpu_ms = fcp::imports::TicksToMs(cycles - g_main_cycles);
+    const fcp::imports::ThreadFrame im = fcp::imports::TakeThreadFrame(hitch);
+    if (hitch) {
       ++g_hitches;
+      const Counters c = ReadCounters();
+      std::string main;
+      if (fcp::imports::Timing()) {
+        main = std::format(" | main cpu {:.1f} ms, in imports {:.1f} ms (wait {:.1f} file {:.1f} mem {:.1f} audio "
+                           "{:.1f} sync {:.1f} video {:.1f} other {:.1f}), off-cpu outside imports >= {:.1f} ms | "
+                           "longest {} {:.1f} ms lr {:08X} r3 {:08X} owner {:08X} | top {}",
+                           cpu_ms, im.total_ms, im.cat_ms[0], im.cat_ms[1], im.cat_ms[2], im.cat_ms[3], im.cat_ms[4],
+                           im.cat_ms[5], im.cat_ms[6],
+                           // wall - cpu - import time: a lower bound (the import time holds CPU time of its own)
+                           std::max(0.0, frame_s * 1000.0 - cpu_ms - im.total_ms), im.longest, im.longest_ms,
+                           im.longest_lr, im.longest_r3, im.longest_owner, im.top);
+      }
       FCPLOG("hitch: frame {} took {:.1f} ms (game dt {:.1f} ms, game {:.3f} s, level {:.3f} s) | reads +{} "
-             "opens +{} shader compiles +{} phys allocs +{} waits +{}{}",
+             "opens +{} shader compiles +{} phys allocs +{} waits +{}{}{}",
              g_frame.load(), frame_s * 1000.0, g_dt.load() * 1000.0, g_game.load(), LevelSeconds(),
              c.reads - g_frame_counters.reads, c.opens - g_frame_counters.opens,
              c.shaders - g_frame_counters.shaders, c.allocs - g_frame_counters.allocs,
-             c.waits - g_frame_counters.waits,
+             c.waits - g_frame_counters.waits, main,
              g_frame_commands.empty() ? std::string() : " | commands: " + g_frame_commands);
+      fcp::profile::OnHitch(g_last_frame_start, now, g_frame.load());
     }
+    if (g_frames_csv) {
+      std::fprintf(g_frames_csv, "%llu,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%s,%.3f,%08X\n",
+                   static_cast<unsigned long long>(g_frame.load()), WallSeconds(), LevelSeconds(), frame_s * 1000.0,
+                   g_dt.load() * 1000.0, cpu_ms, im.total_ms, im.cat_ms[0], im.cat_ms[1], im.cat_ms[2], im.cat_ms[3],
+                   im.cat_ms[4], im.cat_ms[5] + im.cat_ms[6], im.longest, im.longest_ms, im.longest_lr);
+    }
+  } else {
+    fcp::imports::TakeThreadFrame(false);
   }
-  g_frame_counters = c;
+  if (g_hitch_s > 0.0) {
+    g_frame_counters = ReadCounters();
+  }
   g_frame_commands.clear();
+  g_main_cycles = cycles;
   g_last_frame_start = now;
   g_have_last_frame = true;
 }
@@ -173,6 +206,18 @@ void Configure() {
     }
     g_hitch_s = double(ms) / 1000.0;
     FCPLOG("FCP_TRACE_HITCHES: frames over {} ms", ms);
+  }
+  if (fcp::env::Flag("FCP_TRACE_FRAMES") && !g_frames_csv) {  // Configure may run twice: open once
+    std::error_code ec;
+    std::filesystem::create_directories(fcp::log::Folder(), ec);
+    const auto path = fcp::log::Folder() / CsvName("frames");
+    g_frames_csv = std::fopen(path.string().c_str(), "w");
+    if (g_frames_csv) {
+      std::setvbuf(g_frames_csv, nullptr, _IOFBF, 1 << 16);
+      std::fprintf(g_frames_csv, "frame,wall_s,level_s,ms,game_dt_ms,cpu_ms,import_ms,wait_ms,file_ms,mem_ms,"
+                                 "audio_ms,sync_ms,other_ms,longest,longest_ms,longest_lr\n");
+      FCPLOG("FCP_TRACE_FRAMES: {}", path.string());
+    }
   }
   if (fcp::env::Flag("FCP_TRACE_COMMANDS")) {
     std::error_code ec;
@@ -236,8 +281,11 @@ void OnDispatchBegin(uint8_t* base, uint32_t command) {
       level = text.substr(at + 6);
       level = level.substr(0, level.find(' '));
     }
-    std::lock_guard lock(g_level_mutex);
-    g_level_name = level;
+    {
+      std::lock_guard lock(g_level_mutex);
+      g_level_name = level;
+    }
+    fcp::render::OnLevelLoading(level);  // pipeline prewarm: this level's pipelines first
   }
   if (g_hitch_s > 0.0) {
     if (!g_frame_commands.empty()) {
@@ -268,6 +316,10 @@ void OnDispatchEnd() {
 
 void Shutdown() {
   fcp::state::Shutdown();
+  if (g_frames_csv) {
+    std::fclose(g_frames_csv);
+    g_frames_csv = nullptr;
+  }
   if (g_commands_csv) {
     std::lock_guard lock(g_commands_mutex);
     std::fclose(g_commands_csv);

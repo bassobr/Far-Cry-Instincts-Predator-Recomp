@@ -22,6 +22,12 @@
 // the width, and the frustum from tan(fov / 2) wider with it. Where fov * wide would pass kMaxFov (32:9 at 90
 // degrees), fov stops there for the frustum and the projection's two scale terms are set afterwards from the vertical
 // angle (only after the matrix at +0x23C was found to be the PerspectiveFovRH of the values the call saw).
+//
+// Vert+ (an output narrower than 16:9, fcp::render::VertPlusTall): the targets are `tall` times taller; aspect is
+// divided by `tall` and fov set so that fov / aspect is the vertical angle 2 atan(tall tan(v / 2)): the projection's
+// x scale stays (the horizontal view of 16:9), its y scale is divided by `tall`. The frustum from tan(fov / 2) stays
+// at least as wide as the projection (computed for 16:10, 3:2 and 4:3 at 10 to 110 degrees, with its height
+// taken as tan(fov / 2) / aspect).
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -129,8 +135,9 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   }
   float fov = GetF(base, cam + kCamFov);
   float aspect = GetF(base, cam + kCamAspect);
-  const float hor = fcp::render::HorPlusWide();  // Hor+: 1 = off
-  if (s.factor != 1.0f || hor != 1.0f) {
+  const float hor = fcp::render::HorPlusWide();     // Hor+: 1 = off
+  const float tall = fcp::render::VertPlusTall();   // Vert+: 1 = off (only one of the two is ever set)
+  if (s.factor != 1.0f || hor != 1.0f || tall != 1.0f) {
     std::lock_guard lock(s.mutex);
     for (const State::Written& w : s.written)
       if (w.wide != 0 && fov == w.wide && aspect == w.wide_aspect && (w.wide != w.game || w.wide_aspect != w.game_aspect)) {
@@ -145,7 +152,7 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   const uint32_t ortho = fcp::guest::U32(base, cam + kCamOrtho);
   // The screen's perspective cameras (16:9 and the like), not square render-to-texture views or ortho ones (FCI's rule).
   const bool screen = ortho == 0 && aspect > 1.2f && aspect < 3.6f && fov > 0.05f && fov < 3.0f;
-  const bool patch = screen && (s.factor != 1.0f || hor != 1.0f);
+  const bool patch = screen && (s.factor != 1.0f || hor != 1.0f || tall != 1.0f);
   float wide = fov, wide_aspect = aspect;
   bool capped = false;
   if (patch) {
@@ -153,12 +160,19 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
     wide = std::min(want, kMaxFov);
     capped = hor != 1.0f && want > kMaxFov;
     wide_aspect = aspect * hor;
+    if (tall != 1.0f) {
+      // Vert+: the same horizontal view, `tall` times the height. The projection's vertical angle fov / aspect
+      // becomes 2 atan(tall tan(v / 2)) with aspect / tall, so its x scale stays and its y scale is 1 / tall.
+      const float v = fov * s.factor / aspect;
+      wide_aspect = aspect / tall;
+      wide = std::min(2.0f * std::atan(tall * std::tan(v * 0.5f)) * wide_aspect, kMaxFov);
+    }
   }
   s.calls.fetch_add(1, std::memory_order_relaxed);
   {
     std::lock_guard lock(s.mutex);
     const uint64_t key = (uint64_t(from) << 32) ^ (uint64_t(uint32_t(aspect * 1000)) << 12) ^ uint32_t(fov * 1000) ^
-                         (uint64_t(uint32_t(hor * 1000)) << 44);
+                         (uint64_t(uint32_t(hor * tall * 1000)) << 44);
     if (s.trace || (s.seen.size() < 32 && std::find(s.seen.begin(), s.seen.end(), key) == s.seen.end())) {
       if (!s.trace) s.seen.push_back(key);
       FCPLOG("fov: camera {:08X} from {:08X}: fov {:.4f} ({:.1f} deg) aspect {:.4f} near {:g} far {:g} second angle {:.4f} "
@@ -184,10 +198,11 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   SetF(base, cam + kCamFov, wide);
   if (wide_aspect != aspect) SetF(base, cam + kCamAspect, wide_aspect);
   original(ctx, base);
-  if (hor != 1.0f && s.layout_logs.fetch_add(1, std::memory_order_relaxed) < 4) {
+  if ((hor != 1.0f || tall != 1.0f) && s.layout_logs.fetch_add(1, std::memory_order_relaxed) < 4) {
     // Diagnostics: the projection the call built, against PerspectiveFovRH(wide / wide_aspect, wide_aspect).
     const float ys_call = 1.0f / std::tan(wide / wide_aspect * 0.5f);
-    FCPLOG("fov: Hor+ {:.4f}: projection x {:.4f} y {:.4f} (expected {:.4f} {:.4f}), vertical {:.1f} deg (game {:.1f}){}", hor,
+    FCPLOG("fov: {} {:.4f}: projection x {:.4f} y {:.4f} (expected {:.4f} {:.4f}), vertical {:.1f} deg (game {:.1f}){}",
+           hor != 1.0f ? "Hor+" : "Vert+", hor != 1.0f ? hor : tall,
            GetF(base, cam + kCamProjection), GetF(base, cam + kCamProjection + 20), ys_call / wide_aspect, ys_call,
            wide / wide_aspect * 57.29578f, fov * s.factor / aspect * 57.29578f, capped ? ", set below" : "");
   }

@@ -26,6 +26,15 @@ struct CallArgs {
   const double* f1 = nullptr;  // non-null: f1 for the call (the caller's f1 is restored afterwards)
 };
 
+/**
+ * Calls a recompiled function through a frame of the host calling convention. Call() keeps a copy of the
+ * context (64 byte aligned) on its stack; LLVM cannot realign such a frame around a direct call of a
+ * preserve_none function (rexglue/UPSTREAM.md, change 292), which clobbers the base pointer.
+ */
+[[gnu::noinline]] inline void CallHostFrame(PPCFunc& f, PPCContext& ctx, uint8_t* base) {
+  f(ctx, base);
+}
+
 /** Calls f(r3, r4, r5) and returns the guest r3. */
 inline uint32_t Call(PPCContext& ctx, uint8_t* base, PPCFunc& f, const CallArgs& args) {
   const PPCContext saved = ctx;
@@ -55,7 +64,7 @@ inline uint32_t Call(PPCContext& ctx, uint8_t* base, PPCFunc& f, const CallArgs&
   if (args.f1) {
     ctx.f1.f64 = *args.f1;
   }
-  f(ctx, base);
+  CallHostFrame(f, ctx, base);
   const uint32_t result = ctx.r3.u32;
   if (args.f1) {
     ctx.f1 = saved.f1;

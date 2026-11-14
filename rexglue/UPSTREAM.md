@@ -284,3 +284,82 @@ Every local change carries a comment starting with `FCP` at the changed place.
     backtick, settings F4, achievements F7) are registered only with `FCP_DEV_OVERLAYS=1`; otherwise the log says
     they are off. Player builds can no longer open them by accident (decision of the maintainer, 2026-11-13). The
     title's own F10 settings menu is unaffected. `FCP_DEV_OVERLAYS=1` restores upstream.
+
+290. **Context parameter of recompiled functions is `noescape`** (`include/rex/ppc/recompiled_code.h` `PPCFunc`,
+    `REX_FUNC`, new `REX_CTX_NOESCAPE`; `include/rex/ppc/call.h` `GuestToHostThunk`; `src/kernel/export.cpp`,
+    `src/kernel/xam/export.cpp`, `src/ppc/kernel_hook.cpp`; templates `codegen/pch_h.inja`, `test/ppc_config_h.inja`):
+    the `PPCContext&` of every recompiled function, export thunk and trap is `__attribute__((noescape))` (LLVM
+    `nocapture`). No guest function keeps the context pointer after it returns (detour frames link it only for the
+    duration of the detour). Together with a higher capture tracking limit in the title's compile flags
+    (`-mllvm -capture-tracking-max-uses-to-explore`, our `src/fcp/game_code_build.cpp`) the optimizer may keep
+    context fields in host registers across calls that do not receive the context (NaN slow paths, MMIO, dispatch
+    lookups) and inside loops; LLVM's default limit (100 uses) treats the context as escaped in every real function.
+    Measured: in 0x820C0BC8 (a 4x4 transform loop) the loop's context loads and stores drop from 84 to 33. The
+    attribute is part of the function type (clang refuses a function without it as a `PPCFunc`), not of the ABI.
+    `-DREX_GUEST_CTX_NOESCAPE=0` removes it.
+
+291. **Plain guest memory accesses with compiler barriers** (`src/codegen/config.{h,cpp}`, `config_keys.cpp`,
+    `codegen_writer.cpp`, `builder/builder_context.h` `UsePlainMemory`, `builder/system.cpp`, `function_graph.cpp`;
+    templates `codegen/pch_h.inja`, `codegen/_stack_access.inja`): new TOML key `plain_memory` (default false). With
+    it the `REX_LOAD_*`/`REX_STORE_*` and `REX_STACK_*` macros access guest memory without `volatile` (types
+    `rex_guest_u16/u32/u64` with `may_alias`), and `REX_GUEST_BARRIER()` (`asm volatile("" ::: "memory")`, no operand,
+    so the `noescape __restrict` context is not affected) stands (a) after every label that a backward branch, a
+    jump table, a switch table or a mid-asm hook jump reaches, plus every label a goto reaches after it was emitted
+    (backward edge in emission order; the emission starts over), and (b) at `sync`, `lwsync`, `eieio` next to the
+    fence. Every cycle of a function passes a barrier, so each loop iteration reads guest memory again (spin waits
+    on other threads stay correct, no side effect free loop for `mustprogress`); calls are barriers by themselves.
+    Between two barriers the optimizer may merge, forward and reorder accesses, which the PowerPC storage model
+    allows without a barrier instruction (same-address loads may merge, loads/stores to different addresses may be
+    reordered; address dependencies stay). The MMIO variants (`REX_MM_*`) stay volatile. Measured: 30,472 barriers in
+    the game; semantic test 41,711 cases unchanged (the test functions use the title configuration).
+    `FCP_CODEGEN_ORIGINAL=plain_memory` at codegen time, or removing the key, restores the volatile accesses.
+
+292. **`preserve_none` calling convention for recompiled functions** (`src/base/CMakeLists.txt` option
+    `REX_GUEST_PRESERVE_NONE`, public definition on rexbase; `include/rex/ppc/recompiled_code.h` `REX_GUEST_CC` on
+    `PPCFunc` and `REX_FUNC`; `include/rex/ppc/call.h`, `src/kernel/export.cpp`, `src/kernel/xam/export.cpp`,
+    `src/ppc/kernel_hook.cpp`): with clang on x86-64 (default on) every recompiled function, hook, export thunk and
+    the trap use `__attribute__((preserve_none))`. A guest call then saves no Win64 callee-saved register (eight GPRs
+    and xmm6-xmm15 in the callee before); across a call only the context and base pointers are live, which the
+    caller keeps in rbp and a stack slot. Host code that calls a `PPCFunc` saves its own registers around the call
+    (from the type). Restriction found: LLVM cannot realign a frame that calls a `preserve_none` function and needs a
+    base pointer (a 64 byte aligned `PPCContext` copy on the stack plus a dynamic stack adjustment: "Stack realignment
+    in presence of dynamic allocas is not supported with this calling convention"); such host functions call through
+    a small noinline function of the host convention (title: `fcp::guest::CallHostFrame`). The value is ABI: the
+    executable and a separately built guest library must agree (our first-start build passes
+    `-DREX_GUEST_PRESERVE_NONE` of the executable; the game code ABI key contains it). `-DREX_GUEST_PRESERVE_NONE=OFF`
+    restores the Win64 convention.
+
+300. **Vblank delivery statistics and an optional priority for the vsync thread**
+    (`src/gpu/xenos/xenos_graphics_driver_base.cpp`, vsync worker in `AttachTitle`): `REX_VSYNC_STATS=1` measures,
+    at every wake-up of the "GPU VSync" thread, how far past its scheduled time a due vertical blank is delivered,
+    logs one line every 10 s (count, mean and maximum lateness, blanks later than 2 and 4 ms) and one line per blank
+    later than 2 ms. `REX_VSYNC_PRIORITY=<n>` sets the thread's priority through `SetCurrentThreadPriority` (Win32
+    values; unset leaves it unchanged). Both are read once when the thread starts; without them the loop is
+    unchanged. Measured on the PC (8 logical CPUs, 60 frames/s, 180 s): mean lateness 0.09-0.11 ms, maximum 1.2 ms,
+    never above 2 ms, so the priority switch stayed off.
+
+301. **SDL3 pads without SDL calls on the guest threads** (`src/hid/sdl3/sdl3_input_driver.cpp`): SDL takes its
+    joystick lock in nearly every gamepad call, the UI thread holds it while `SDL_PumpEvents` updates the pads, and
+    `SDL_RumbleGamepad` writes to the device synchronously. `XamInputGetState`, `XamInputGetCapabilities` and
+    `XamInputSetState` therefore waited on the guest thread (measured under Proton on a Steam Deck: 2-18 ms in a few
+    percent of the frames, rarely 60-200 ms in `XamInputSetState`). Now each pad keeps its joystick instance id (event
+    lookup without SDL) and its capabilities (read when the pad is added, refreshed on the UI thread at most every
+    2 s); `SetDeviceVibration` stores the motor values and the UI thread sends them after its next event pump, outside
+    the driver's mutex (a changed value at once, an unchanged non-zero value again every 20 s so SDL's 65 s duration
+    never runs out). Waking the UI thread for the pump (`SDL_PushEvent` waits for SDL's event locks) is done by a
+    small thread of the driver; the guest thread only signals it. `REX_HID_SDL_SYNC=1` restores the former synchronous
+    calls.
+340. **Profile settings: title settings always take their type from the ID** (`src/xam/xam_user.cpp`
+    `XamUserWriteProfileSettings`): extends 90. A title specific setting (`0x63E83FFF/FFE/FFD`, binary by its ID)
+    now always takes the type from the ID, whatever the type byte holds. Far Cry Instincts Predator never sets the
+    byte; across the project's logs it was 0, 64, 112, 130 and 255. 255 (`kUnset`) skipped the write silently
+    (seen for the profile save at the level start after "Resume Game" and for the first of the two saves before a
+    level change), 1..5 and 7 would have hit the stub branch. Other settings keep the byte check of 90.
+    `FCP_PROFILE_TITLE_TYPE_FROM_ID=0` restores it for title settings too.
+341. **A pattern ending in `.*` also matches names without a dot** (`src/filesystem/wildcard.cpp`
+    `WildcardMatcher`): only the exact pattern `*.*` matched every name; `0*.*` required a literal dot, unlike
+    Windows (`dir 0*.*` lists `00_training`) and, judging by the game, the console. The final dot of such a pattern
+    becomes the DOS dot `"` (a dot or the end of the name). Far Cry Instincts Predator lists its level folders with
+    `Levels\0*.*` .. `Levels\3*.*` for "Load a Map" and `Levels\M*.*` for the multiplayer maps:
+    `NtQueryDirectoryFile` returned `STATUS_NO_SUCH_FILE` and the level selection stayed empty (issue #1). Test
+    case in `tests/unit/filesystem/wildcard_test.cpp`. `FCP_FIND_STAR_DOT_STRICT=1` restores the literal dot.
