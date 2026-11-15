@@ -130,7 +130,11 @@ if (-not $NoVcRuntime) {
     $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
     $redist = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Directory | Where-Object { $_.Name -match '^\d' } |
         Sort-Object { [version]$_.Name } | Select-Object -Last 1
-    $crt = Join-Path $redist.FullName "x64\Microsoft.VC143.CRT"
+    # the folder is named after the toolset (VC143 for VS 2022, newer ones on VS 2026); take the newest that exists
+    $crtDir = Get-ChildItem (Join-Path $redist.FullName "x64") -Directory -Filter "Microsoft.VC*.CRT" |
+        Sort-Object Name | Select-Object -Last 1
+    if (-not $crtDir) { throw "no Microsoft.VC*.CRT folder under $($redist.FullName)\x64" }
+    $crt = $crtDir.FullName
     foreach ($d in "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_atomic_wait.dll") {
         $files[$d] = Join-Path $crt $d
     }
