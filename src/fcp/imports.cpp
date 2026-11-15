@@ -26,6 +26,7 @@
 #include "fcp/sound_trace.h"
 #include "fcp/relaunch.h"
 #include "fcp/log.h"
+#include "fcp/save_guard.h"
 #include "fcp/watchdog.h"
 
 namespace fcp::imports {
@@ -285,7 +286,8 @@ thread_local std::string t_pending;
 // Per import: bit 0 always describe, bit 1 file call, bit 2 input script, bit 3 launch data,
 // bit 4 launch observers, bit 5 sound archive trace (fcp::sound_trace), bit 6 input trace,
 // bit 7 notifications (XNotifyGetNext), bit 8 raw read patch (FCP_TEST_PATCH_RAW), bit 9 keyboard/mouse and
-// the pad connection state (fcp::pc_input), bit 10 the keyboard text (fcp::keyboard_text, before the call).
+// the pad connection state (fcp::pc_input), bit 10 the keyboard text (fcp::keyboard_text, before the call), bit 11
+// the save guard (fcp::save_guard: XamContentCreate/Ex, XamContentClose).
 std::vector<uint16_t> g_flags;
 
 // --- XNotifyGetNext: every dequeued notification is logged (rare). The SDK queues a startup set into
@@ -308,6 +310,7 @@ constexpr uint32_t kErrorNotFound = 0x490;
 
 thread_local uint32_t t_entry_r3 = 0, t_entry_r4 = 0, t_entry_r5 = 0;
 thread_local std::string t_open_name;  // NtCreateFile/NtOpenFile name for the sound trace
+thread_local std::string t_close_root;  // XamContentClose root for the save guard
 
 void ApplyLaunchData(size_t index, PPCContext& ctx, uint8_t* base) {
   if (ctx.r3.u32 != kErrorNotFound) {
@@ -428,6 +431,9 @@ void Configure() {
     if (Is(i, "XNotifyGetNext")) {
       g_flags[i] |= 128;
     }
+    if (Is(i, "XamContentCreate") || Is(i, "XamContentCreateEx") || Is(i, "XamContentClose")) {
+      g_flags[i] |= 2048;  // save guard
+    }
     if (fcp::sound_trace::Enabled() && (Is(i, "NtCreateFile") || Is(i, "NtOpenFile") ||
                                         Is(i, "NtReadFile") || Is(i, "NtClose") ||
                                         Is(i, "NtSetInformationFile"))) {
@@ -535,6 +541,17 @@ bool EnterImpl(size_t index, PPCContext& ctx, uint8_t* base) {
   if (flags & 1024) {
     fcp::keyboard_text::OnShowKeyboard(ctx, base);  // FCP_KEYBOARD_TEXT, before the SDK reads r5
   }
+  if (flags & 2048) {
+    // save guard (fcp/save_guard.h): XamContentCreate(Ex)(user, root r4, XCONTENT_DATA* r5, flags r6, ...),
+    // XamContentClose(root r3, ...); XCONTENT_DATA: type +4, file name CHAR[42] at +0x108
+    using namespace fcp::guest;
+    if (Is(index, "XamContentClose")) {
+      t_close_root = CString(base, ctx.r3.u32, 32);
+    } else if (Readable(base, ctx.r5.u32, 0x108 + 42)) {
+      fcp::save_guard::OnCreate(CString(base, ctx.r4.u32, 32), U32(base, ctx.r5.u32 + 4),
+                                CString(base, ctx.r5.u32 + 0x108, 42), ctx.r6.u32);
+    }
+  }
   if ((flags & 512) && Is(index, "XamInputSetState")) {
     // Rumble strength and focus pause (fcp::pc_input), before the SDK reads the vibration (r5).
     fcp::pc_input::BeforeSetState(ctx, base, ctx.r3.u32, ctx.r5.u32);
@@ -542,7 +559,7 @@ bool EnterImpl(size_t index, PPCContext& ctx, uint8_t* base) {
   if (flags & 16) {
     ObserveLaunch(index, ctx, base);  // XamLoaderLaunchTitle does not return: act before the call
   }
-  return describe || first || (flags & (12 | 128 | 256 | 512)) || observe;
+  return describe || first || (flags & (12 | 128 | 256 | 512 | 2048)) || observe;
 }
 }  // namespace
 
@@ -581,6 +598,13 @@ void Leave(size_t index, PPCContext& ctx, uint8_t* base) {
   }
   if (flags & 8) {
     ApplyLaunchData(index, ctx, base);
+  }
+  if (flags & 2048) {
+    if (Is(index, "XamContentClose")) {
+      fcp::save_guard::OnClose(t_close_root, ctx.r3.u32);
+    } else {
+      fcp::save_guard::OnCreateDone(ctx.r3.u32);
+    }
   }
   if (flags & 128) {
     ObserveNotification(ctx, base);

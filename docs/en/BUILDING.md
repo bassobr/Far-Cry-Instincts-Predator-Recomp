@@ -177,6 +177,10 @@ list, `-Coverage <file> -In <folder>` counts the records of a run the list lacks
 | `tools\level_transitions.ps1 -Campaign instincts\|evolution` | plays a campaign as a chain of real level transitions (the player is placed into each level's end trigger) up to the credits |
 | `tools\stability.ps1` | menu, two levels and two restarts in one chain; checks all logs and the Windows event log |
 | `tools\perf_measure.ps1 -Level 21_dunea -Fps 120` | frame rate and CPU per frame over several runs |
+| `powershell -File tools\check_game_data.ps1` | no game data among the tracked files: disc images and files from them, XEX, recompiled or generated code, build output, binary files above 256 KB except the allowed ones (rules in `tools\game_data_rules.ps1`) |
+
+The CI workflow `.github/workflows/ci.yml` runs on every push and pull request without a disc image: the game data
+check, the `dist` target (as `tools\dist.cmd release`) and the renderer tests without the disc step.
 
 The run scripts use `FCP_*` switches for scripted input, traces and dumps; see [TESTING.md](TESTING.md). Frame
 dumps and logs are derived from the game: they stay under `out\` and the user folder and must not be committed.

@@ -25,6 +25,7 @@
 #include "fcp/d3d_hooks.h"
 #include "fcp/devstart.h"
 #include "fcp/relaunch.h"
+#include "fcp/save_guard.h"
 #include "fcp/virtual_pads.h"
 #include "fcp/engine_hooks.h"
 #include "fcp/env.h"
@@ -92,6 +93,7 @@ void StartLog() {
   fcp::paths::LogSummary();
   fcp::paths::Migrate();
   fcp::settings::Load();  // predator.toml -> FCP_* switches the environment leaves open
+  fcp::save_guard::Startup();  // saves checked (and repaired) before the title sees them, backups
 }
 
 }  // namespace
@@ -217,6 +219,8 @@ class PredatorApp : public rex::app::TitleApp {
 
   // First step of the shutdown (window still there): a close request cancels a pending relaunch.
   void OnShutdownBegin() override {
+    // window closed, Exit Game, the end after a relaunch's hand-over: a save in progress first (the title still runs)
+    fcp::save_guard::WaitForSave("program ends");
     fcp::relaunch::CancelIfPending("shutdown requested before the hand-over");
     fcp::settings::DetachUI();
   }

@@ -1,6 +1,7 @@
 # PC measurement lock shared by parallel measurement jobs (dot-source after shared_root.ps1). Rules (2026-11-14):
-#  - <shared root>\out\pc-measure.lock: whoever runs predator.exe for a measurement or a PGO training holds it
-#    (content: owner ID and start time), at most ~20 min, then releases it.
+#  - <shared root>\out\pc-measure.lock: whoever runs predator.exe for any reason (measurement, test, PGO training,
+#    first start with its game code build) or a parallel compile of the game code holds it (content: owner ID and
+#    start time), at most ~20 min, then releases it. Building predator.exe itself (ninja) does not need it.
 #  - <shared root>\out\pc-measure.queue is a FIFO, one waiting owner per line. Whoever has to wait appends its line;
 #    only the owner in the first line (or anyone, while the queue is empty) may take the free lock, and removes its
 #    line when it does. Whoever releases the lock must not take it again while a foreign line stands first.

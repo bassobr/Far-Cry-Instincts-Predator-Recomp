@@ -4,6 +4,30 @@ All notable changes of Far Cry Instincts Predator Recomp. Versions follow `VERSI
 Statements about behaviour are measurements from test runs on a Windows PC unless marked otherwise; see the
 [README](README.md) and [docs/en](docs/en) for the details.
 
+## 0.2.0 (2026-11-15)
+
+### Added
+
+- **Save protection** (README "Saves"): a save is written beside the old one and replaces it only when complete, so a
+  crash or a forced end in the middle of a save keeps the previous save; a backup after every save (newest three in
+  `save_backup\`); a check at every start that moves a damaged or unfinished save to `save_damaged\` and puts the
+  newest good backup in its place; `save:` lines in the log. `FCP_SAVE_GUARD=0` turns it off.
+- **The end waits for a save:** closing the window and *Exit Game* in the F10 menu wait up to 5 s for a save in
+  progress, also from the pause menu.
+- **Disc image found automatically:** with `[game] image` empty or not fitting, the first start looks for the image
+  next to `predator.exe`, in its `assets` folder, in the user folder and a few other usual places, checks it and
+  stores its path in `predator.toml`. Without a hit a window lists the places it looked in.
+- **CI on every push and pull request** (`.github/workflows/ci.yml`): a game data check of every tracked file
+  (`tools\check_game_data.ps1`: no disc image or files from it, no XEX, no recompiled or generated code, no build
+  output, no binary file above 256 KB except the PGO profile, the pipeline list and the SDK's test fixtures) and the
+  build of `predator.exe`, the SDK and the release folder without a disc image, followed by the renderer's own tests.
+  The public export applies the same game data rules (`tools/game_data_rules.ps1`).
+
+### Fixed
+
+- **`tools\get_deps.ps1` works again on a second run** (or on dependencies restored from a cache): it read the
+  copies it had made of libmspack's symlink targets as link paths and stopped with an error.
+
 ## 0.1.2 (2026-11-14)
 
 ### Added
@@ -63,7 +87,6 @@ Statements about behaviour are measurements from test runs on a Windows PC unles
   gave 9.1 / 36.9 / 54.0 at 45). `FCP_FALL_MODEL=linear` restores the previous estimate.
 - **Stick turn ramp at 45 frames/s:** 1 s of full stick turned 0.4 % less than at 30 (frames of 22 ms cross the
   console's 33 ms frames); now 250.0-250.3 degrees as at 30, 60, 90 and 120. `FCP_TURN_MODEL=floor` restores it.
-
 - **Renderer tables can no longer run full:** every texture and vertex buffer kept its slot in a fixed table of 4096
   entries for good; once a table was full, everything loaded afterwards was drawn without its texture or with broken
   geometry. Entries unused for 600 frames are now recycled when a table is three quarters full, and textures refused

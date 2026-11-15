@@ -79,6 +79,10 @@ Local changes of the frozen SDK copy (`rexglue/UPSTREAM.md`):
 | `FCP_IDLE_PAD=1` | the SDK's idle pad: player 1 is always connected even without any controller, keyboard or mouse |
 | `FCP_PAD_BACKGROUND=1` | controller events also without window focus |
 | `FCP_USER_MIGRATE=0` | no one-time copy of saves from `<exe>\user` into a new user folder |
+| `FCP_SAVE_GUARD=0` | save protection off (no atomic replacement, backups, repair or wait at the end; the start check is still logged) |
+| `FCP_SAVE_ATOMIC=0` | SDK change 330 off: a replaced save is deleted first and written in place (upstream) |
+| `FCP_IMAGE_SEARCH=0` | no search for the disc image when `[game] image` is empty or does not fit |
+| `FCP_TEST_SAVE_END=<n>:<kill\|close\|menu\|restart>[:<ms>]` | test: end the program `<ms>` after the n-th save of the process started (kill = as a crash, close = window closed, menu = F10 menu opened, then Exit Game, restart = F10 Apply); `FCP_TEST_SAVE_END_GENS` selects relaunch generations |
 | `FCP_LOG_DEBUGGER=1` | SDK log output also to an attached debugger (off in this port) |
 | `FCP_GPU_DRIVER=<name>` | another SDK GPU driver instead of the null driver (not used by the port) |
 

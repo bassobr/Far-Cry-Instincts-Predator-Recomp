@@ -24,6 +24,7 @@
 #include "fcp/log.h"
 #include "fcp/progress_window.h"
 #include "fcp/user_paths.h"
+#include "fcp/user_settings.h"
 #include "fcp_game_code_abi.h"
 
 namespace fcp::game_code {
@@ -324,6 +325,55 @@ bool BuildFromDisc(const fs::path& image, const fs::path& dll) {
   return false;
 }
 
+// The disc image when predator.toml names none or one that does not fit (first start of a release): looked for in
+// the usual places (first_start::FindImage), the hit is stored as [game] image and set as FCP_GAME_ISO for this
+// process. Not when FCP_GAME_ISO comes from outside the file (tests) or with FCP_IMAGE_SEARCH=0. False: nothing
+// fits and the player was told where the program looked (the program ends).
+bool FindImageIfNeeded(fs::path& image, std::string& image_sha256, std::string& image_why) {
+  const bool fits = !image_sha256.empty() && _stricmp(image_sha256.c_str(), FCP_DISC_XEX_SHA256) == 0;
+  if (fits) return true;
+  const bool from_outside = !image.empty() && !fcp::settings::FromFile("FCP_GAME_ISO");
+  if (from_outside) return true;  // the environment decides (tests); the messages below say what is wrong
+  if (!fcp::env::Flag("FCP_IMAGE_SEARCH", true)) {
+    FCPLOG("game code: no search for the disc image (FCP_IMAGE_SEARCH=0)");
+    return true;
+  }
+  const auto t0 = NowMs();
+  const first_start::ImageSearch found = first_start::FindImage(FCP_DISC_XEX_SHA256, Folder() / "disc_search.txt");
+  std::string places;
+  for (const fs::path& p : found.places) places += (places.empty() ? "" : ", ") + U8(p);
+  FCPLOG("game code: disc image search in {} ms, {} places: {}", NowMs() - t0, found.places.size(), places);
+  for (const std::string& r : found.rejected) FCPLOG("game code: disc image search: not used: {}", r);
+  if (!found.found.empty()) {
+    const std::string was = image.empty() ? std::string("empty") : "\"" + U8(image) + "\" (" + (image_why.empty() ? "another default.xex" : image_why) + ")";
+    image = found.found;
+    image_why.clear();
+    image_sha256 = first_start::XexSha256(image, Folder() / "disc_check.txt", image_why);
+    SetEnvironmentVariableW(L"FCP_GAME_ISO", image.wstring().c_str());
+    const std::string stored = fcp::settings::Store("game", "image", U8(image));
+    FCPLOG("game code: disc image found: {} (default.xex SHA-256 {}); [game] image was {}, {}", U8(image), image_sha256,
+           was, stored.empty() ? "now stored in " + U8(fcp::settings::File()) : "storing it FAILED: " + stored);
+    return true;
+  }
+  if (!image.empty()) return true;  // the configured image stays; the messages below say why it does not fit
+  std::error_code ec;
+  if (fs::exists(fcp::paths::Root() / "rexglue.toml", ec)) {
+    FCPLOG("game code: no disc image found; rexglue.toml may set title.game_root (as before)");
+    return true;
+  }
+  std::wstring list;
+  for (const fs::path& p : found.places) list += L"\n  " + p.wstring();
+  std::wstring rejected;
+  if (!found.rejected.empty()) {
+    rejected = std::format(L"\n\n{} image(s) found that are not the supported disc version (see predator.log).",
+                           found.rejected.size());
+  }
+  Message(L"The game disc image (.iso or the extracted disc folder with default.xex) was not found. Looked in:" + list +
+          rejected + L"\n\nPut the image next to predator.exe or into its \"assets\" folder, or set its path in " +
+          (fcp::paths::Root() / "predator.toml").wstring() + L" ([game] image = \"...\").");
+  return false;
+}
+
 }  // namespace
 
 #if FCP_STATIC_GAME_CODE
@@ -356,7 +406,7 @@ const rex::ppc::PPCImage* Prepare() {
       return nullptr;
     }
   }
-  const fs::path image = first_start::ImagePath();
+  fs::path image = first_start::ImagePath();
   std::string image_sha256, image_why;
   if (!image.empty()) {
     image_sha256 = first_start::XexSha256(image, Folder() / "disc_check.txt", image_why);
@@ -364,6 +414,7 @@ const rex::ppc::PPCImage* Prepare() {
   } else {
     FCPLOG("game code: no disc image set (FCP_GAME_ISO / [game] image in predator.toml)");
   }
+  if (!FindImageIfNeeded(image, image_sha256, image_why)) return nullptr;
   // One build at a time: a second copy started meanwhile waits for it, then finds the DLL fitting.
   HANDLE lock = CreateMutexW(nullptr, FALSE, L"Far-Cry-Instincts-Predator-Recomp-GameCode");
   WaitForSingleObject(lock, INFINITE);

@@ -156,6 +156,22 @@ u32 CreateAndMountContent(MappedString root_name, MappedVoid content_data_ptr,
               license_mask_ptr](u32& extended_error, u32& length) -> kernel::X_RESULT {
     kernel::X_RESULT result = kernel::X_ERROR_INVALID_PARAMETER;
     DispositionState disposition = DispositionState::kUnknown;
+    // FCP: change 330 (UPSTREAM.md). CREATE_ALWAYS and TRUNCATE_EXISTING on a host folder package that exists
+    // write into a new folder that replaces the old package only when the title closes it; a process that ends in
+    // the middle of a save keeps the previous save. FCP_SAVE_ATOMIC=0 / FCP_SAVE_GUARD=0: delete first (upstream).
+    bool replace = false;
+    const auto try_replace = [&] {
+      if (!detail::AtomicReplaceEnabled() || !content_manager->HasContent(xuid, content_data)) {
+        return false;
+      }
+      if (auto replaced = content_manager->ReplaceContent(root_name, xuid, content_data); replaced) {
+        return true;
+      } else if (replaced.error().category != ErrorCategory::kNotImplemented) {
+        REXXAM_WARN("XamContentCreate: {} cannot be replaced atomically ({}), deleted and created instead",
+                    root_name, replaced.error().message);
+      }
+      return false;
+    };
     switch (flags & 0xF) {
       // CREATE_NEW
       case 1:
@@ -170,6 +186,11 @@ u32 CreateAndMountContent(MappedString root_name, MappedVoid content_data_ptr,
         // Titles may reuse a root name without closing it, so close the mount first.
         if (content_manager->CloseContent(root_name)) {
           REXXAM_DEBUG("XamContentCreate: closed the open {} before recreating it", root_name);
+        }
+        if (try_replace()) {
+          replace = true;
+          disposition = DispositionState::kCreate;
+          break;
         }
         if (content_manager->HasContent(xuid, content_data) &&
             !content_manager->DeleteContent(xuid, content_data)) {
@@ -202,7 +223,10 @@ u32 CreateAndMountContent(MappedString root_name, MappedVoid content_data_ptr,
           if (content_manager->CloseContent(root_name)) {
             REXXAM_DEBUG("XamContentCreate: closed the open {} before truncating it", root_name);
           }
-          if (!content_manager->DeleteContent(xuid, content_data)) {
+          if (try_replace()) {
+            replace = true;
+            disposition = DispositionState::kCreate;
+          } else if (!content_manager->DeleteContent(xuid, content_data)) {
             result = kernel::X_ERROR_ACCESS_DENIED;
           } else {
             disposition = DispositionState::kCreate;
@@ -216,9 +240,15 @@ u32 CreateAndMountContent(MappedString root_name, MappedVoid content_data_ptr,
 
     u32 content_license = 0;
     if (disposition == DispositionState::kCreate) {
-      result = kernel::ToXResult(content_manager->CreateContent(root_name, xuid, content_data));
+      result = replace ? kernel::X_ERROR_SUCCESS
+                       : kernel::ToXResult(content_manager->CreateContent(root_name, xuid, content_data));
       if (result == kernel::X_ERROR_SUCCESS) {
-        if (auto written = content_manager->WriteContentHeaderFile(xuid, content_data); !written) {
+        if (auto written = content_manager->WriteContentHeaderFile(xuid, content_data);
+            !written && replace) {
+          // FCP: change 330: the previous header stays and still describes the package
+          REXXAM_WARN("XamContentCreate: header file of {} not renewed, {}", root_name,
+                      written.error().message);
+        } else if (!written) {
           REXXAM_WARN("XamContentCreate: header file of {} not written, {}", root_name,
                       written.error().message);
           result = kernel::ToXResult(written);

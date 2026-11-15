@@ -7,6 +7,7 @@
 #include "fcp/first_start.h"
 
 #include <windows.h>
+#include <shlobj.h>
 
 #include <algorithm>
 #include <cctype>
@@ -293,6 +294,88 @@ std::string XexSha256(const fs::path& image, const fs::path& cache, std::string&
   fs::create_directories(cache.parent_path(), ec);
   std::ofstream(cache) << key << "\n" << h << "\n";
   return h;
+}
+
+namespace {
+
+fs::path KnownFolder(const KNOWNFOLDERID& id) {
+  fs::path result;
+  PWSTR path = nullptr;
+  if (SUCCEEDED(SHGetKnownFolderPath(id, 0, nullptr, &path))) result.assign(path);
+  CoTaskMemFree(path);
+  return result;
+}
+
+bool IsIso(const fs::path& p) { return Lower(U8(p.extension())) == ".iso"; }
+
+bool HasXex(const fs::path& dir) {
+  std::error_code ec;
+  return fs::is_regular_file(dir / "default.xex", ec);
+}
+
+// The candidates of one place: its .iso files, the place itself with default.xex, its folders with default.xex.
+std::vector<fs::path> Candidates(const fs::path& place) {
+  std::vector<fs::path> out;
+  std::error_code ec;
+  if (HasXex(place)) out.push_back(place);
+  for (auto it = fs::directory_iterator(place, fs::directory_options::skip_permission_denied, ec);
+       !ec && it != fs::directory_iterator(); it.increment(ec)) {
+    std::error_code e2;
+    const fs::path& p = it->path();
+    if (it->is_regular_file(e2) && IsIso(p)) out.push_back(p);
+    else if (it->is_directory(e2) && HasXex(p)) out.push_back(p);
+  }
+  // names with "predator" first, then by name
+  std::stable_sort(out.begin(), out.end(), [](const fs::path& a, const fs::path& b) {
+    const bool pa = Lower(U8(a.filename())).find("predator") != std::string::npos;
+    const bool pb = Lower(U8(b.filename())).find("predator") != std::string::npos;
+    if (pa != pb) return pa;
+    return Lower(U8(a.filename())) < Lower(U8(b.filename()));
+  });
+  return out;
+}
+
+}  // namespace
+
+ImageSearch FindImage(const std::string& expected_sha256, const fs::path& cache) {
+  ImageSearch r;
+  const fs::path exe = rex::platform::GetExecutableFolder();
+  std::vector<fs::path> places = {exe, exe / "assets", fcp::paths::Root(), fcp::paths::Root() / "assets"};
+  if (exe.has_parent_path() && exe.parent_path() != exe) {
+    places.push_back(exe.parent_path());
+    places.push_back(exe.parent_path() / "assets");
+  }
+  for (const KNOWNFOLDERID* id : {&FOLDERID_Downloads, &FOLDERID_Desktop, &FOLDERID_Documents}) {
+    if (fs::path p = KnownFolder(*id); !p.empty()) places.push_back(p);
+  }
+  constexpr size_t kMaxCandidates = 32;  // a folder full of other images: stop after so many
+  size_t tried = 0;
+  for (const fs::path& place : places) {
+    std::error_code ec;
+    if (!fs::is_directory(place, ec)) continue;
+    const fs::path canon = fs::weakly_canonical(place, ec);
+    bool seen = false;
+    for (const fs::path& p : r.places) seen = seen || fs::weakly_canonical(p, ec) == canon;
+    if (seen) continue;
+    r.places.push_back(place);
+    for (const fs::path& c : Candidates(place)) {
+      if (tried++ >= kMaxCandidates) {
+        r.rejected.push_back(std::format("{}: not tried, {} candidates tried already", U8(c), kMaxCandidates));
+        return r;
+      }
+      std::string why;
+      const std::string sha = XexSha256(c, cache, why);
+      if (sha.empty()) {
+        r.rejected.push_back(std::format("{}: {}", U8(c), why));
+      } else if (_stricmp(sha.c_str(), expected_sha256.c_str()) != 0) {
+        r.rejected.push_back(std::format("{}: another default.xex (SHA-256 {})", U8(c), sha));
+      } else {
+        r.found = c;
+        return r;
+      }
+    }
+  }
+  return r;
 }
 
 std::string PackTarget() {

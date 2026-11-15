@@ -1016,6 +1016,8 @@ struct ScriptItem {
   bool done = false;
 };
 std::vector<ScriptItem> g_script;
+std::mutex g_test_mutex;
+std::vector<std::string> g_test_actions;  // TestActions: from other threads, taken over by RunScript
 
 void PostKey(const std::string& name) {
   if (!g_ui) return;
@@ -1052,6 +1054,11 @@ uint16_t PadBits(const std::string& list) {
 
 void RunScript() {
   const double now = Now();
+  {
+    std::lock_guard lock(g_test_mutex);
+    for (const std::string& a : g_test_actions) g_script.push_back({now, a});
+    g_test_actions.clear();
+  }
   for (ScriptItem& it : g_script) {
     if (it.done || now < it.at) continue;
     it.done = true;
@@ -1285,6 +1292,13 @@ void Detach() {
 }
 
 bool BlocksInput() { return g_open.load(std::memory_order_relaxed); }
+
+void TestActions(const std::string& actions) {
+  std::lock_guard lock(g_test_mutex);
+  std::stringstream ss(actions);
+  for (std::string item; std::getline(ss, item, ',');)
+    if (!Trim(item).empty()) g_test_actions.push_back(Trim(item));
+}
 
 uint16_t PadButtonsToHide(uint16_t buttons) {
   if (!g_enabled) return 0;

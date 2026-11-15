@@ -53,6 +53,9 @@ Result in `out\dist\`: `Far-Cry-Instincts-Predator-Recomp-v<version>-win64\` and
 
 ## 5. Tag and CI
 
+- The workflow `.github/workflows/ci.yml` must be green on the commit: it runs on every push and pull request,
+  checks that no game data is tracked (`tools\check_game_data.ps1`), builds the `dist` target without a disc image
+  and runs the renderer tests.
 - Commit, then create the tag `v<VERSION>` on that commit and push the commit and the tag.
 - The workflow `.github/workflows/release.yml` runs on the tag: it checks that the tag matches `VERSION`, builds the
   `dist` target without a disc image, checks the package and the source archive, attests the zips and creates a

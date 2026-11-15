@@ -11,7 +11,9 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
+#include <thread>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -103,9 +105,76 @@ void ContentPackage::LoadPackageLicenseMask(const std::filesystem::path& header_
   file.read(reinterpret_cast<char*>(&license_), sizeof(license_));
 }
 
+namespace detail {
+
+bool IsReplacementFolderName(std::string_view name) {
+  const auto ends = [name](std::string_view suffix) {
+    return name.size() > suffix.size() &&
+           rex::string::utf8_equal_case(name.substr(name.size() - suffix.size()), suffix);
+  };
+  return ends(kStagingSuffix) || ends(kReadySuffix) || ends(kPreviousSuffix);
+}
+
+bool AtomicReplaceEnabled() {
+  static const bool enabled = [] {
+    const auto off = [](const char* name) {
+      const std::optional<std::string> v = rex::platform::GetEnvironmentValue(name);
+      return v && !v->empty() && (*v)[0] == '0';
+    };
+    return !off("FCP_SAVE_ATOMIC") && !off("FCP_SAVE_GUARD");
+  }();
+  return enabled;
+}
+
+}  // namespace detail
+
 namespace {
 
 constexpr std::string_view kGameUserContentDirName = "profile";
+
+std::filesystem::path WithSuffix(std::filesystem::path path, std::string_view suffix) {
+  path += rex::string::to_path(suffix);
+  return path;
+}
+
+// FCP: change 330: a rename that a short lived handle (a virus scanner, the indexer) may block for a moment.
+bool RenameRetry(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec) {
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    ec.clear();
+    std::filesystem::rename(from, to, ec);
+    if (!ec) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  }
+  return false;
+}
+
+// FCP: change 330: <final>.saving (closed) becomes <final>; see detail::kStagingSuffix.
+Result<void> CommitReplacement(const std::filesystem::path& staging, const std::filesystem::path& final_path) {
+  const std::filesystem::path ready = WithSuffix(final_path, detail::kReadySuffix);
+  const std::filesystem::path old = WithSuffix(final_path, detail::kPreviousSuffix);
+  std::error_code ec;
+  std::filesystem::remove_all(ready, ec);
+  if (!RenameRetry(staging, ready, ec)) {
+    return Err(ErrorCategory::kIO, std::format("cannot rename '{}' to '{}': {}", rex::string::PathToUTF8(staging),
+                                               rex::string::PathToUTF8(ready), ec.message()));
+  }
+  std::filesystem::remove_all(old, ec);
+  if (std::filesystem::exists(final_path, ec) && !RenameRetry(final_path, old, ec)) {
+    return Err(ErrorCategory::kIO,
+               std::format("cannot move the previous '{}' aside: {} (the new content waits in '{}')",
+                           rex::string::PathToUTF8(final_path), ec.message(), rex::string::PathToUTF8(ready)));
+  }
+  if (!RenameRetry(ready, final_path, ec)) {
+    std::error_code back;
+    std::filesystem::rename(old, final_path, back);
+    return Err(ErrorCategory::kIO, std::format("cannot rename '{}' to '{}': {}", rex::string::PathToUTF8(ready),
+                                               rex::string::PathToUTF8(final_path), ec.message()));
+  }
+  std::filesystem::remove_all(old, ec);
+  return Ok();
+}
 
 }  // namespace
 
@@ -184,6 +253,9 @@ std::vector<kernel::XCONTENT_AGGREGATE_DATA> ContentManager::ListContent(
       continue;
     }
     const std::filesystem::path name = child.path().filename();
+    if (detail::IsReplacementFolderName(rex::string::PathToUTF8(name))) {
+      continue;  // FCP: change 330, a replacement in progress or cut, no content of its own
+    }
     if (!IsContentEnabled(title_id, content_type, rex::string::PathToUTF8(name))) {
       continue;
     }
@@ -320,6 +392,55 @@ Result<void> ContentManager::CreateContent(const std::string_view root_name, u64
   return Ok();
 }
 
+Result<void> ContentManager::ReplaceContent(const std::string_view root_name, u64 xuid,
+                                            const kernel::XCONTENT_AGGREGATE_DATA& data) {
+  {
+    std::lock_guard lock(mutex_);
+    if (open_packages_.count(string::StringKeyIgnoreCase(root_name))) {
+      return Err(kernel::XResultError(kernel::X_ERROR_ALREADY_EXISTS));
+    }
+    if (IsContentOpen(data)) {
+      return Err(kernel::XResultError(kernel::X_ERROR_ACCESS_DENIED));
+    }
+  }
+  const std::filesystem::path final_path = ResolvePackagePath(xuid, data);
+  std::error_code ec;
+  if (!std::filesystem::is_directory(final_path, ec) || FindInPlaceSource(xuid, data)) {
+    return Err(ErrorCategory::kNotImplemented,
+               std::format("'{}' is no host folder package", rex::string::PathToUTF8(final_path)));
+  }
+  const std::filesystem::path staging = WithSuffix(final_path, detail::kStagingSuffix);
+  if (std::filesystem::exists(staging, ec)) {
+    // left by a process that ended in the middle of a replacement after the start check (the check moves such a
+    // folder aside): its content never was complete
+    REXSYS_WARN("content: '{}' from an unfinished replacement is removed", rex::string::PathToUTF8(staging));
+    std::filesystem::remove_all(staging, ec);
+  }
+  if (!std::filesystem::create_directories(staging, ec)) {
+    return Err(kernel::XResultError(kernel::X_ERROR_ACCESS_DENIED));
+  }
+  auto package = std::make_unique<ContentPackage>(title_.file_system, ++device_count_, root_name, data, staging);
+  package->SetReplaces(final_path);
+  {
+    std::lock_guard lock(mutex_);
+    if (open_packages_.count(string::StringKeyIgnoreCase(root_name))) {
+      return Err(kernel::XResultError(kernel::X_ERROR_ALREADY_EXISTS));
+    }
+    open_packages_.emplace(string::StringKeyIgnoreCase::Create(root_name), std::move(package));
+  }
+  return Ok();
+}
+
+std::filesystem::path ContentManager::WritablePackagePath(u64 xuid,
+                                                          const kernel::XCONTENT_AGGREGATE_DATA& data) const {
+  for (const auto& [name, package] : open_packages_) {
+    if (!package->GetReplaces().empty() && package->GetPackageContentData() == data) {
+      return package->GetPackagePath();
+    }
+  }
+  return ResolvePackagePath(xuid, data);
+}
+
 Result<u32> ContentManager::OpenContent(const std::string_view root_name, u64 xuid,
                                         const kernel::XCONTENT_AGGREGATE_DATA& data) {
   {
@@ -364,7 +485,19 @@ Result<void> ContentManager::CloseContent(const std::string_view root_name) {
     open_root_name = it->first.GetView();
   }
   CloseOpenedFilesFromContent(open_root_name);
-  DetachPackage(open_root_name);
+  std::unique_ptr<ContentPackage> package = DetachPackage(open_root_name);
+  if (package && !package->GetReplaces().empty()) {
+    // FCP: change 330: unmount first (the folder is renamed), then the new content takes the old one's place
+    const std::filesystem::path staging = package->GetPackagePath();
+    const std::filesystem::path final_path = package->GetReplaces();
+    package.reset();
+    if (auto committed = CommitReplacement(staging, final_path); !committed) {
+      REXSYS_WARN("content: replacing '{}' failed, {}", rex::string::PathToUTF8(final_path),
+                  committed.error().message);
+      return Err(kernel::XResultError(kernel::X_ERROR_ACCESS_DENIED));
+    }
+    REXSYS_DEBUG("content: '{}' replaced", rex::string::PathToUTF8(final_path));
+  }
   return Ok();
 }
 
@@ -383,8 +516,8 @@ Result<std::vector<u8>> ContentManager::GetContentThumbnail(
 Result<void> ContentManager::SetContentThumbnail(u64 xuid,
                                                  const kernel::XCONTENT_AGGREGATE_DATA& data,
                                                  std::vector<u8> buffer) {
-  auto package_path = ResolvePackagePath(xuid, data);
   std::lock_guard lock(mutex_);
+  auto package_path = WritablePackagePath(xuid, data);  // FCP: change 330: into a replacement while it is open
   std::filesystem::create_directories(package_path);
   if (std::filesystem::exists(package_path)) {
     auto thumb_path = package_path / detail::kThumbnailFileName;
@@ -422,6 +555,10 @@ Result<void> ContentManager::DeleteContent(u64 xuid, const kernel::XCONTENT_AGGR
     }
 
     std::error_code ec2;
+    // FCP: change 330: what a cut replacement of this package left
+    for (std::string_view suffix : {detail::kStagingSuffix, detail::kReadySuffix, detail::kPreviousSuffix}) {
+      std::filesystem::remove_all(WithSuffix(package_path, suffix), ec2);
+    }
     bool header_removed = std::filesystem::remove(header_path, ec2);
     std::filesystem::remove(manifest_path, ec2);
 

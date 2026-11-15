@@ -87,7 +87,13 @@ function Repair-Symlinks([string]$dir) {
     if ($null -eq $item) { continue }
     if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }  # real symlink
     if ($item.PSIsContainer) { continue }  # already replaced by the target directory
-    $target = ([System.IO.File]::ReadAllText($link)).Trim()
+    # already replaced by a copy of the target file (a second run, or a restored CI cache): only the placeholder
+    # has the content of the symlink blob, the path of its target
+    $blob = $line.Split(" ")[1]
+    $now = "$(& git -C $dir hash-object --no-filters -- $rel)".Trim()
+    if ($LASTEXITCODE -ne 0) { throw "git hash-object $rel in $dir failed" }
+    if ($now -ne $blob) { continue }
+    $target =([System.IO.File]::ReadAllText($link)).Trim()
     $src = [System.IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $link) ($target -replace "/", "\")))
     if (Test-Path -LiteralPath $src -PathType Leaf) {
       Copy-Item -LiteralPath $src -Destination $link -Force

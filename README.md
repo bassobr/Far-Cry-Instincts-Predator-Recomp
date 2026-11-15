@@ -73,16 +73,21 @@ not yet verified on real hardware are listed under [Known issues](#known-issues)
 ## Installation and first start
 
 1. Extract the release zip into a folder you can write to (for example `Documents\Games`).
-2. Start `predator.exe` once. It creates the user folder `%LOCALAPPDATA%\Far-Cry-Instincts-Predator-Recomp` with the
-   settings file `predator.toml` and asks you to set your disc image.
-3. Open `predator.toml` and enter the path of your disc image:
+2. Put your disc image (`.iso`) next to `predator.exe` or into a folder `assets` beside it. A folder with the
+   extracted disc (with `default.xex` at its top) works as well.
+3. Start `predator.exe`. It finds the image, checks it and writes its path into `predator.toml` in the user folder
+   `%LOCALAPPDATA%\Far-Cry-Instincts-Predator-Recomp`. Places it looks in, in this order: the folder of
+   `predator.exe`, its `assets` folder, the user folder (and its `assets`), the folder above `predator.exe` (and its
+   `assets`), your Downloads, Desktop and Documents folders (only their top level; no drive is searched as a whole).
+   If several images are there, the one with the supported `default.xex` wins. If none is found, a window lists the
+   places; you can then also enter the path yourself:
 
    ```toml
    [game]
    image = "D:/Games/Far Cry Instincts Predator.iso"
    ```
 
-4. Start `predator.exe` again. A progress window prepares the game for your PC, once:
+4. On this first start a progress window prepares the game for your PC, once:
    - reads `default.xex` from the disc image and checks its SHA-256,
    - translates it to C++ (`compiler\bin\rexglue.exe`),
    - compiles and links it (`compiler\bin\clang.exe`, `compiler\bin\lld-link.exe`) into
@@ -122,7 +127,42 @@ The first start checks `default.xex` in the image against the SHA-256
 releases of the game are not supported.
 
 `[game] image` may also point to a folder with the extracted disc. A relative path is relative to the user folder.
-The environment variable `FCP_GAME_ISO` overrides the setting.
+The environment variable `FCP_GAME_ISO` overrides the setting. When `[game] image` is empty or names an image that is
+missing or does not fit, the start looks for the image as described under
+[Installation and first start](#installation-and-first-start) and stores the one it finds (`FCP_IMAGE_SEARCH=0`
+turns the search off). Both forms of an image are read: a full disc dump (Redump, the game partition at its XGD2
+offset) and a plain XISO (the game partition alone, as from extract-xiso).
+
+## Saves
+
+Saves are in the user folder under `user\` (portable: `user\` next to `predator.exe`):
+
+| Path | Content |
+|---|---|
+| `user\<profile>\555307DC\00000001\<save>\` | a saved game: the game's file and its thumbnail |
+| `user\<profile>\555307DC\Headers\00000001\<save>.header` | its XContent header (name shown in the game) |
+| `user\555307DC\profile\` | the game's profile settings |
+| `save_backup\` | backups of every saved game (below) |
+| `save_damaged\` | damaged or unfinished files moved aside at a start (never deleted) |
+
+The game saves at the start of a level and at every checkpoint (as on the console; there is no free saving).
+
+**Protection** (on by default, `FCP_SAVE_GUARD=0` turns it off):
+
+- A save is written into a new folder beside the old one (`<save>.saving`) and takes the old one's place only when
+  it is complete. A program that ends in the middle of a save (crash, Task Manager, power loss) keeps the previous
+  save.
+- After every save a copy goes to `save_backup\<profile>\555307DC\00000001\<save>\<date-time>\`; the newest three
+  are kept (`FCP_SAVE_BACKUPS=<n>`).
+- At every start each save is checked (files present and not empty, header complete). A damaged save is moved to
+  `save_damaged\<date-time>\` and replaced by its newest good backup; a cut save is finished or undone. `predator.log`
+  has a `save:` line for every check, every save and every backup.
+- Closing the window or *Exit Game* in the F10 menu waits up to 5 s for a save in progress (also while the game is
+  paused; `FCP_SAVE_EXIT_WAIT_MS`).
+
+**Copying saves to another PC:** copy the whole `user\` folder (or a single `<save>` folder together with its
+`.header` file) into the same place of the other user folder, with the game closed. To go back to a backup by hand,
+copy the files of `save_backup\...\<date-time>\content\` into the `<save>` folder.
 
 ## Building from source
 

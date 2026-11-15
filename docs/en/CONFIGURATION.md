@@ -25,7 +25,7 @@ at once or at the next start.
 
 | Key | Variable | Default | Values | Applies |
 |---|---|---|---|---|
-| `image` | `FCP_GAME_ISO` | `""` | path of the disc image (`.iso`) or of a folder with the extracted disc; relative to the user folder | next start |
+| `image` | `FCP_GAME_ISO` | `""` | path of the disc image (`.iso`, full dump or plain XISO) or of a folder with the extracted disc; relative to the user folder. Empty or not fitting: the start looks for the image (next to the EXE, its `assets` folder, the user folder, the folder above the EXE, Downloads/Desktop/Documents at their top level) and stores the one whose `default.xex` fits | next start |
 | `pause_on_focus_loss` | `FCP_PAUSE_ON_FOCUS_LOSS` | `false` | `true`: while the window has no focus the game opens its pause menu (in a level), the sound is muted and vibration stops; back in the window the game stays in its pause menu | at once |
 | `skip_intro` | `FCP_SKIP_INTRO` | `false` | `true`: skip the logo and intro videos at start; story cutscenes stay | at once |
 | `fps_counter` | `FCP_FPS_COUNTER` | `false` | `true`: frame rate and frame time display in a corner | at once |
@@ -211,6 +211,11 @@ measurements and open points: [FRAMERATE.md](FRAMERATE.md).
 | `FCP_SETTINGS_FILE=<path>` or `none` | another settings file, or none (built-in defaults, nothing stored) |
 | `rexglue.toml` in the user folder | optional SDK settings, only read when present |
 | `renderer.toml` beside the EXE | renderer layout; its `backend` is used by `[graphics] backend = "auto"` |
+| `FCP_IMAGE_SEARCH=0` | do not look for the disc image when `[game] image` is empty or does not fit |
+| `FCP_SAVE_GUARD=0` | save protection off: no backups, no repair at the start, no wait for a save at the end, a save replaces the old one by deleting it first (the SDK's way); the check at the start is still logged |
+| `FCP_SAVE_ATOMIC=0` | only the atomic replacement off (the old save is deleted before the new one is written); backups and repair stay |
+| `FCP_SAVE_BACKUPS=<n>` | backup generations kept per saved game in `save_backup\` (default 3, 0 = none) |
+| `FCP_SAVE_EXIT_WAIT_MS=<ms>` | how long closing the window or *Exit Game* waits for a save in progress (default 5000) |
 | `FCP_DEVICE=deck\|ally\|pc` | force the device detection: Steam Deck OLED defaults, ROG Xbox Ally X defaults, or plain PC defaults (see the README sections on handhelds) |
 | `FCP_DECK_FPS45=0` | keep 30 frames/s as the Steam Deck OLED default (from v0.1.2 on it is 45; the LCD model keeps 30) |
 

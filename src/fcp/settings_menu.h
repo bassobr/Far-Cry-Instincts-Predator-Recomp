@@ -27,6 +27,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace rex::ui {
 class IUISystem;
@@ -43,5 +44,9 @@ bool BlocksInput();
 
 /** Pad buttons of a pad state the game must not see (Back and Start of the menu chord). Any thread. */
 uint16_t PadButtonsToHide(uint16_t buttons);
+
+/** Tests (fcp/save_guard.h FCP_TEST_SAVE_END): FCP_TEST_MENU actions ("open,quit"), run on the next frame. Any
+    thread. */
+void TestActions(const std::string& actions);
 
 }  // namespace fcp::menu

@@ -1,0 +1,95 @@
+# Continuous integration of Far Cry Instincts Predator Recomp: every push to a branch and every pull request.
+# The repository holds no game data and CI never gets any. Without a disc image there is no codegen, no
+# predator_code.dll (it is built from the player's disc image on the first start), no semantic test (it reads functions
+# of the game) and no shader pack; everything else is built and checked here.
+#   game-data  tools/check_game_data.ps1 over every tracked file (rules in tools/game_data_rules.ps1, the same the
+#              public export applies): no disc image or files from it, no XEX, no recompiled or generated code, no
+#              shader packs or build output, nothing under assets/, work/ and the other local data folders, no file
+#              above 20 MB and no binary file above 256 KB except the allowed ones (PGO profile and pipeline list with
+#              their headers checked, the SDK's synthetic test fixtures).
+#   build      the steps of the release workflow (docs/en/BUILDING.md: one-time setup, then tools\dist.cmd):
+#              predator.exe, the SDK, the shader tool, rexglue.exe and the release folder with the checks of
+#              tools/dist.ps1, then the renderer's own tests (no game data; the GPU cases skip without a device).
+#              The release zip and the source archive are kept as an artifact for 7 days.
+# Tags are left to release.yml. Action SHAs as in release.yml.
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  game-data:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No game data in the repository
+        shell: pwsh
+        run: tools\check_game_data.ps1
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # vcvars64.bat of the runner's Visual Studio (only the Windows SDK, the linker libraries and Ninja are used; the
+      # compiler is the pinned LLVM) for every later cmd step: tools\dist.cmd and tools\ninja_env.cmd read FCP_VCVARS
+      - name: Visual Studio environment
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vcvars = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find VC\Auxiliary\Build\vcvars64.bat | Select-Object -First 1
+          if (-not $vcvars) { throw "vcvars64.bat not found" }
+          "FCP_VCVARS=$vcvars" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $vswhere -latest -products * -format text | Select-String -Pattern '^(displayName|installationVersion):'
+      - name: Cache the LLVM download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: llvm-download
+          key: llvm-22.1.8-x86_64-pc-windows-msvc
+      - name: LLVM (pinned, checksum verified)
+        run: tools\get_llvm.ps1 -Out toolchain\llvm -Cache llvm-download
+      # The key is the hash of the three scripts, which hold the pins. On a hit the scripts still compare the commit
+      # of each Git checkout and the SHA-256 of each LZMA file and fetch only what is missing or different.
+      - name: Cache the pinned dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/rexglue-deps
+            third_party/renderer-deps
+            third_party/lzma-sdk
+          key: deps-${{ hashFiles('tools/get_deps.ps1', 'tools/get_renderer_deps.ps1', 'tools/get_lzma.ps1') }}
+      - name: Dependencies (pinned commits)
+        run: |
+          tools\get_deps.ps1
+          tools\get_renderer_deps.ps1
+          tools\get_lzma.ps1
+      - name: Python venv for the build steps
+        run: |
+          python -m venv toolchain\venv
+          toolchain\venv\Scripts\python.exe -m pip install --disable-pip-version-check pycryptodome capstone
+      - name: Build predator.exe and the release folder (no disc image, no game code)
+        shell: cmd
+        run: cmd /c tools\dist.cmd release
+      - name: Renderer tests (no game data)
+        shell: cmd
+        run: |
+          cmd /c tools\ninja_env.cmd -C out\build\release predator_renderer_tests predator_renderer_res_tests || exit /b 1
+          out\build\release\bin\predator_renderer_res_tests.exe || exit /b 1
+          out\build\release\bin\predator_renderer_tests.exe || exit /b 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-win64
+          retention-days: 7
+          path: |
+            out/dist/*.zip
+            out/dist/SHA256SUMS

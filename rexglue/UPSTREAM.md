@@ -349,6 +349,18 @@ Every local change carries a comment starting with `FCP` at the changed place.
     never runs out). Waking the UI thread for the pump (`SDL_PushEvent` waits for SDL's event locks) is done by a
     small thread of the driver; the guest thread only signals it. `REX_HID_SDL_SYNC=1` restores the former synchronous
     calls.
+330. **Atomic replacement of host folder content** (`src/xam/content_manager.{h,cpp}`, `src/xam/xam_content.cpp`
+    `CreateAndMountContent`): `XamContentCreate` with CREATE_ALWAYS (2) or TRUNCATE_EXISTING (5) on a host folder
+    package that exists deleted the whole package first (`DeleteContent`, `remove_all`) and let the title write the
+    new one in its place; a process that ended before the title's `XamContentClose` left no save or a half written
+    one. Predator saves this way at every level start and checkpoint. Now `ContentManager::ReplaceContent` mounts an
+    empty `<name>.saving` folder beside the package; `CloseContent` unmounts it and swaps (`.saving` -> `.ready`,
+    old -> `.old`, `.ready` -> `<name>`, `.old` removed; renames retried for 0.5 s against short lived handles).
+    A thumbnail set meanwhile goes into the `.saving` folder; `ListContent` skips the three suffixes; `DeleteContent`
+    also removes them. Packages installed in place (STFS with a manifest source) and new packages keep the old way.
+    What a cut swap leaves is finished or undone by the title's start check (`src/fcp/save_guard.cpp`). If the header
+    cannot be renewed during a replacement, the previous header stays (it still describes the package).
+    `FCP_SAVE_ATOMIC=0` or `FCP_SAVE_GUARD=0` restores upstream.
 340. **Profile settings: title settings always take their type from the ID** (`src/xam/xam_user.cpp`
     `XamUserWriteProfileSettings`): extends 90. A title specific setting (`0x63E83FFF/FFE/FFD`, binary by its ID)
     now always takes the type from the ID, whatever the type byte holds. Far Cry Instincts Predator never sets the

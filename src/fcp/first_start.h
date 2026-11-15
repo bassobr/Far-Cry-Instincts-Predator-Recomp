@@ -22,6 +22,22 @@ bool ReadDiscFile(const std::filesystem::path& image, const std::string& name, s
 /** SHA-256 (hex) of default.xex in the image, remembered in <cache> per image path, size and time. Empty on error. */
 std::string XexSha256(const std::filesystem::path& image, const std::filesystem::path& cache, std::string& why);
 
+/** What FindImage looked at. */
+struct ImageSearch {
+  std::filesystem::path found;                // the first image whose default.xex has the expected SHA-256; empty: none
+  std::vector<std::filesystem::path> places;  // folders looked in, in this order
+  std::vector<std::string> rejected;          // "<path>: <why>" for every candidate that did not fit
+};
+
+/**
+ * Looks for the disc image when predator.toml names none (or one that does not fit): .iso files and folders with
+ * default.xex at their top (the folder itself or one level below) next to the EXE, in its "assets" folder, in the
+ * user folder, in the folder above the EXE (and its "assets"), in the player's Downloads, Desktop and Documents (top
+ * level only). No drive is searched as a whole. The SHA-256 of default.xex decides; names with "predator" are tried
+ * first in each place. FCP_IMAGE_SEARCH=0: no search.
+ */
+ImageSearch FindImage(const std::string& expected_sha256, const std::filesystem::path& cache);
+
 /** Shader pack target of this start: "spirv" (Vulkan) or "dxil" (D3D12), as src/fcp/render_bridge.cpp picks it. */
 std::string PackTarget();
 

@@ -52,6 +52,25 @@ std::filesystem::path ResolveChain(std::filesystem::path path, const Names&... n
   return path;
 }
 
+// FCP: local change 330 (UPSTREAM.md). Replacing a host folder package (CREATE_ALWAYS, TRUNCATE_EXISTING on a
+// package that exists) writes the new content beside the old one and swaps them when the title closes it:
+//   <name>.saving  the new content while the title writes it (the old <name> stays as it was);
+//   <name>.ready   complete, renamed from .saving at the close, before the swap;
+//   <name>.old     the previous content during the swap.
+// A process that ends in the middle leaves the old package or a complete .ready, never a half written package.
+// Folders with these suffixes are not content (ListContent skips them); the title's start check
+// (src/fcp/save_guard.cpp) finishes or undoes a swap that was cut. FCP_SAVE_ATOMIC=0 or FCP_SAVE_GUARD=0: upstream
+// (the old package is deleted first, the new one written in its place).
+inline constexpr std::string_view kStagingSuffix = ".saving";
+inline constexpr std::string_view kReadySuffix = ".ready";
+inline constexpr std::string_view kPreviousSuffix = ".old";
+
+/** True for a folder name of a replacement in progress (the suffixes above). */
+bool IsReplacementFolderName(std::string_view name);
+
+/** FCP_SAVE_ATOMIC and FCP_SAVE_GUARD both not 0. */
+bool AtomicReplaceEnabled();
+
 }  // namespace detail
 
 class ContentPackage {
@@ -69,11 +88,16 @@ class ContentPackage {
 
   u32 GetPackageLicense() const { return license_; }
 
+  /** FCP: change 330: the package replaces this one when it closes (package_path is its .saving folder). */
+  void SetReplaces(const std::filesystem::path& final_path) { replaces_ = final_path; }
+  const std::filesystem::path& GetReplaces() const { return replaces_; }
+
  private:
   filesystem::IFileSystem& file_system_;
   std::string root_name_;
   std::string device_path_;
   std::filesystem::path package_path_;
+  std::filesystem::path replaces_;
   kernel::XCONTENT_AGGREGATE_DATA content_data_;
   u32 license_ = 0;
 };
@@ -125,6 +149,14 @@ class ContentManager final : public rex::xam::IContentManager {
   Result<u32> GetContentDeviceID(std::string_view root_name) const override;
 
   /**
+   * FCP: change 330: opens an empty package that replaces the existing host folder package of data when it is closed
+   * (CloseContent swaps them). Fails with kUnsupported when the package is no host folder of its own (a package
+   * installed in place, or none at all); the caller then deletes and creates as before.
+   */
+  [[nodiscard]] Result<void> ReplaceContent(std::string_view root_name, u64 xuid,
+                                            const kernel::XCONTENT_AGGREGATE_DATA& data);
+
+  /**
    * Returns the XDBF data of the executable, which reports invalid when the executable has no XDBF
    * section.
    */
@@ -169,6 +201,8 @@ class ContentManager final : public rex::xam::IContentManager {
   void NotifyContentChanged();
 
   std::unique_ptr<ContentPackage> DetachPackage(const std::string_view root_name);
+  /** FCP: change 330: the folder a thumbnail of data goes to (the .saving folder while a replacement is open). */
+  std::filesystem::path WritablePackagePath(u64 xuid, const kernel::XCONTENT_AGGREGATE_DATA& data) const;
 
   XAMTitle title_;
   std::atomic<int> device_count_{0};

@@ -70,6 +70,7 @@ target_sources(
           src/fcp/fp_stats.cpp
           src/fcp/level_test.cpp
           src/fcp/user_paths.cpp
+          src/fcp/save_guard.cpp
           src/fcp/user_settings.cpp
           src/fcp/device_preset.cpp
           src/fcp/toml_edit.cpp
@@ -101,3 +102,17 @@ add_custom_command(
 )
 
 include("${CMAKE_SOURCE_DIR}/cmake/fcp_audio_input.cmake")
+
+# Test of the save guard without the game (tests/save_guard): start check, repair, backups, the wait at the end.
+#   cmake --build --preset release --target fcp_save_guard_test
+#   out\build\release\bin\fcp_save_guard_test.exe <empty work folder>
+add_executable(
+  fcp_save_guard_test EXCLUDE_FROM_ALL "${CMAKE_SOURCE_DIR}/tests/save_guard/save_guard_test.cpp"
+                      "${CMAKE_SOURCE_DIR}/src/fcp/save_guard.cpp" "${CMAKE_SOURCE_DIR}/src/fcp/env.cpp"
+                      "${CMAKE_SOURCE_DIR}/src/fcp/hash.cpp"
+)
+target_include_directories(fcp_save_guard_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(fcp_save_guard_test PRIVATE rexbase)  # headers of fcp/devstart.h (rex/ppc)
+target_compile_definitions(fcp_save_guard_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(fcp_save_guard_test PRIVATE bcrypt)
+set_target_properties(fcp_save_guard_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:predator>")
