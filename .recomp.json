@@ -1,0 +1,19 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Far Cry Instincts: Predator",
+  "system": "Xbox 360",
+  "type": "recomp",
+  "original": { "region": "USA, Europe" },
+  "project": "Far Cry Instincts Predator Recomp",
+  "status": "released",
+  "targets": ["Windows", "Steam Deck"],
+  "toolchain": "Rexglue",
+  "approach": "Static recompilation of the game code, built from the player's own copy at first start; native Vulkan/Direct3D 12 renderer",
+  "started": "2026-11-11",
+  "maintainers": [{ "name": "bassobr", "link": "https://github.com/bassobr" }],
+  "links": [
+    { "label": "Releases", "url": "https://github.com/bassobr/Far-Cry-Instincts-Predator-Recomp/releases" },
+    { "label": "Issues", "url": "https://github.com/bassobr/Far-Cry-Instincts-Predator-Recomp/issues" }
+  ],
+  "notes": "Both campaigns (Instincts and Evolution) are playable start to finish. 30 to 120 frames/s with frame-rate corrections, free render resolution, Vert+/Hor+, settings menu, save protection, Steam Deck defaults. No game code or data is shipped."
+}
