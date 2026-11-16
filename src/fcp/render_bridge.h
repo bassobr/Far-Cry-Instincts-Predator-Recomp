@@ -59,6 +59,26 @@ void SetScale(const std::string& value);
 void SetResolution(const std::string& value);
 // [graphics] smaa: SMAA 1x on the final image, from the next present.
 void SetSmaa(bool on);
+// [graphics] colour_blind: off | protanopia | deuteranopia | tritanopia, from the next present.
+void SetColourBlind(const std::string& mode);
+// [graphics] hud_aspect: 16:9 (HUD in the band) | auto (at the picture's edges) | W:H, from the next frame.
+void SetHudAspect(const std::string& value);
+// [graphics] shadow_filter: console | soft, from the next draw.
+void SetShadowFilter(const std::string& value);
+// [graphics] ao: off | ssao | gtao, from the next frame.
+void SetAo(const std::string& value);
+// [display] hdr: off | on | auto, a new swapchain at the next present.
+void SetHdr(const std::string& value);
+// [display] hdr_paper_white, hdr_peak, hdr_boost: read again from the environment (settings::Store sets it), from the
+// next present.
+void SetHdrLevels();
+/** True while the output is HDR10. */
+bool HdrActive();
+/** The game camera's projection (row-major 4x4, camera hook fcp/camera_fov.cpp): the ambient occlusion
+ *  reconstructs view positions from it. Any thread. */
+void SetCameraProjection(const float m[16], float far_plane);
+/** Whether the ambient occlusion needs the camera's projection (ao is or was on). Any thread. */
+bool AoWanted();
 
 // ---- Hor+ ([graphics] aspect, FCP_RENDER_ASPECT) ----
 /** How much wider than 16:9 the screen-sized targets are now (1 = off); the camera (fcp/camera_fov.cpp) widens its
@@ -74,5 +94,14 @@ float VertPlusTall();
 bool DisplayPacingActive();
 /** While display pacing is on: the display's frame period in ms, else 0. Any thread. */
 double DisplayFrameMs();
+/** Settings menu (fcp::framerate::Reconfigure), any thread: the host present waits for the monitor or not (Vulkan:
+ *  the swapchain is made anew with FIFO or mailbox at the next present; Direct3D 12: the sync interval). */
+void SetPresentVsync(bool on);
+/** Settings menu: display pacing target (fcp::framerate::DisplayPacingTarget; 0 = off), at once. Any thread. */
+void SetPaceTarget(double fps);
+/** [display] frame_queue (FCP_RENDER_FRAMES_AHEAD): game swaps that may be outstanding on the GPU, from the next swap. */
+void SetFramesAhead(int frames);
+/** The game window (HWND) once the SDK handed it to the renderer, else null. Any thread. */
+void* WindowHandle();
 
 }  // namespace fcp::render

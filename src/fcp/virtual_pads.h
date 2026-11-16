@@ -6,6 +6,7 @@
 //   FCP_VIRTUAL_PADS=<n>                n pads (1..4), attached after title launch
 //   FCP_VIRTUAL_PAD_SCRIPT=<s>:<step>[+<step>],...   seconds since title launch; steps:
 //       a b x y back guide start ls rs lb rb up down left right   button, held FCP_VIRTUAL_PAD_HOLD_MS (150)
+//       misc1 rpaddle1 lpaddle1 rpaddle2 lpaddle2 touchpad misc2  the further SDL buttons, likewise
 //       lx=<v> ly=<v> rx=<v> ry=<v>    stick -1..1 (y up positive, as XInput), stays until changed
 //       lt=<v> rt=<v>                   trigger 0..1, stays until changed
 //       unplug / plug                   detach / attach the pad again (hot plug)

@@ -123,6 +123,8 @@ foreach ($h in Get-ChildItem $clangInc -Recurse -File) {
 foreach ($doc in "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md") {
     $files[$doc] = Join-Path $root "dist\$doc"
 }
+# the comment of texture_replace in predator.toml and the README point to it
+$files["TEXTURE-PACKS.md"] = Join-Path $root "docs\en\TEXTURE-PACKS.md"
 $files["VERSION"] = Join-Path $root "VERSION"
 foreach ($lic in Get-ChildItem (Join-Path $root "dist\licenses") -File) { $files["licenses\$($lic.Name)"] = $lic.FullName }
 # VC++ runtime (Distributable Code per redist.txt of the Build Tools), so the player needs no Redistributable

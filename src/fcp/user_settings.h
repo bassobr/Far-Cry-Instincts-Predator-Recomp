@@ -4,7 +4,7 @@
 // set in the environment wins over the file (tests); a key the environment leaves open is written into this
 // process's environment, so every module sees one value. Display keys go to the SDK's ui.* settings (file layer).
 // FCP_SETTINGS_FILE=<path> uses another file, FCP_SETTINGS_FILE=none none at all (built-in defaults).
-// Alt+Enter switches between the window and fullscreen and stores the mode in the file.
+// Alt+Enter and F11 switch between the window and fullscreen and store the mode in the file (FCP_F11=0: F11 not).
 #pragma once
 
 #include <filesystem>
@@ -26,7 +26,7 @@ void Load();
 /** Display keys to the SDK (ui.fullscreen, ui.fullscreen_exclusive, ui.window_width/height, ui.monitor). */
 void Apply(rex::SettingsRegistry& settings);
 
-/** Alt+Enter: window <-> fullscreen. */
+/** Alt+Enter, F11: window <-> fullscreen. */
 void AttachUI(rex::ui::IUISystem& ui);
 void DetachUI();
 
@@ -37,6 +37,13 @@ bool FromFile(std::string_view env_name);
 
 /** The value as the file has it (or the default), as text without quotes. */
 std::string Value(std::string_view section, std::string_view key);
+
+/** The default of a key as file text without quotes: the device's (fcp/device_preset.h) when it has one, else the
+ *  built-in one ("Defaults" in the settings menu). Empty for an unknown key. */
+std::string DefaultText(std::string_view section, std::string_view key);
+
+/** The device's name ("Steam Deck OLED", ...) when the default of this key is that device's, else empty. */
+std::string DefaultSource(std::string_view section, std::string_view key);
 
 /** "FCP_X=value" when a variable from outside the file decides this key (it wins over the file), else empty. */
 std::string EnvironmentOverride(std::string_view section, std::string_view key);

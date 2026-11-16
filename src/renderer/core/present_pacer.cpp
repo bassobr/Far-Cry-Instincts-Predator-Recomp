@@ -114,6 +114,22 @@ void PresentPacer::Stop() {
   if (thread_.joinable()) thread_.join();
 }
 
+void PresentPacer::SetTarget(double target_fps) {
+  {
+    std::lock_guard lock(mutex_);
+    if (opt_.target_fps == target_fps) return;
+    char target[32];
+    if (target_fps > 0) std::snprintf(target, sizeof(target), "%.0f fps", target_fps);
+    else std::snprintf(target, sizeof(target), "%s", target_fps < 0 ? "every refresh" : "off");
+    LogLine("renderer: display pacing target %s (settings menu)%s", target,
+            target_fps != 0 && !thread_.joinable() ? " (no display timing: the game paces itself)" : "");
+    opt_.target_fps = target_fps;
+    reported_uneven_ = false;
+    UpdateCadence();  // on, off or another cadence from the refresh measured so far
+  }
+  cv_.notify_all();  // a wait for the display ends when pacing went off
+}
+
 void PresentPacer::Run() {
   std::unique_lock lk(mutex_);
   while (!stop_) {

@@ -147,6 +147,12 @@ uint64_t Fnv1a64(const uint8_t* data, size_t size) {
 }
 
 bool WritePng(const std::string& path, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba) {
+  std::vector<uint8_t> png;
+  return EncodePng(width, height, rgba, png) && WriteFile(path, png);
+}
+
+bool EncodePng(uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba, std::vector<uint8_t>& png) {
+  if (rgba.size() < size_t(width) * height * 4) return false;
   // Filter byte 0 per row, then zlib with stored (uncompressed) deflate blocks: big files, no dependency.
   std::vector<uint8_t> raw;
   raw.reserve(size_t(height) * (width * 4 + 1));
@@ -171,7 +177,7 @@ bool WritePng(const std::string& path, uint32_t width, uint32_t height, const st
     b = (b + a) % 65521;
   }
   PutBE(z, b << 16 | a);
-  std::vector<uint8_t> png = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+  png = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
   std::vector<uint8_t> ihdr;
   PutBE(ihdr, width);
   PutBE(ihdr, height);
@@ -179,7 +185,7 @@ bool WritePng(const std::string& path, uint32_t width, uint32_t height, const st
   Chunk(png, "IHDR", ihdr);
   Chunk(png, "IDAT", z);
   Chunk(png, "IEND", {});
-  return WriteFile(path, png);
+  return true;
 }
 
 uint32_t DxgiFormat(HostFormat f) {
@@ -226,9 +232,14 @@ uint32_t DxgiFormat(HostFormat f) {
 }
 
 bool WriteDds(const std::string& path, const HostTextureData& t) {
+  std::vector<uint8_t> out;
+  return EncodeDds(t, out) && WriteFile(path, out);
+}
+
+bool EncodeDds(const HostTextureData& t, std::vector<uint8_t>& out) {
   const HostTexturePlan& p = t.plan;
   const HostFormatInfo& info = GetHostFormatInfo(p.format);
-  std::vector<uint8_t> out;
+  out.clear();
   auto put = [&](uint32_t v) {
     for (int s = 0; s < 32; s += 8) out.push_back(uint8_t(v >> s));
   };
@@ -269,7 +280,7 @@ bool WriteDds(const std::string& path, const HostTextureData& t) {
                            ((h + info.block_size - 1) / info.block_size) * info.bytes_per_block * d;
       out.insert(out.end(), bytes, 0);
     }
-  return WriteFile(path, out);
+  return true;
 }
 
 std::vector<uint8_t> HostToRgba8(const HostTextureData& t, const HostSubresource& sub, uint32_t z) {

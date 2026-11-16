@@ -51,6 +51,10 @@ class REX_APU_API AudioSettings final : public SettingOwner {
   REX_SETTING(f64, peak_limit, 0.0, "Silence a stream that stays above this peak, 0 is off",
               Range{0.0, 8.0});
   REX_SETTING(u32, max_queued_frames, 8, "Frames a stream may queue", Range{4, 64}, kUntilLaunch);
+  // FCP: change 371 (UPSTREAM.md)
+  REX_SETTING(bool, limiter, false,
+              "Peak limiter after the device downmix with 1.3 ms look-ahead instead of clipping at full "
+              "scale; delays the output by 63 samples");
 };
 
 /**

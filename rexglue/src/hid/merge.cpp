@@ -55,10 +55,11 @@ void MergeInto(rex::hid::PadState& dst, const rex::hid::PadState& src) {
   dst.thumb_ly = LargerMagnitude(dst.thumb_ly, src.thumb_ly);
   dst.thumb_rx = LargerMagnitude(dst.thumb_rx, src.thumb_rx);
   dst.thumb_ry = LargerMagnitude(dst.thumb_ry, src.thumb_ry);
+  dst.extra |= src.extra;
 }
 
 bool IsNeutral(const rex::hid::PadState& state) {
-  if (state.buttons != 0) {
+  if (state.buttons != 0 || state.extra != 0) {
     return false;
   }
   if (state.left_trigger >= kTriggerThreshold || state.right_trigger >= kTriggerThreshold) {

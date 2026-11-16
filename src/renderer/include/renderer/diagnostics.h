@@ -97,6 +97,9 @@ bool WriteImage(const std::string& path, uint32_t width, uint32_t height, const 
                 std::string* error = nullptr);
 // Reads back a texture (RGBA8/BGRA8, mip 0) through a staging texture as RGBA8 (waits for the GPU).
 bool ReadbackRgba8(nvrhi::IDevice* device, nvrhi::ITexture* texture, std::vector<uint8_t>& rgba, std::string* error = nullptr);
+// Reads back a texture with 32 bits per pixel (RGBA8, BGRA8, R10G10B10A2, mip 0) as it is: one word per pixel, rows
+// top first, no channel swap (waits for the GPU). HDR10 dumps (R10G10B10A2: R bits 0-9, G 10-19, B 20-29).
+bool ReadbackRaw32(nvrhi::IDevice* device, nvrhi::ITexture* texture, std::vector<uint32_t>& words, std::string* error = nullptr);
 // Replace "%d" in the dump name with the frame number.
 std::string DumpPath(const std::string& pattern, uint64_t frame);
 

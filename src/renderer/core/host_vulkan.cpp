@@ -136,6 +136,8 @@ class VulkanHost final : public HostDevice {
   bool has_swapchain() const override { return bool(swapchain_); }
   nvrhi::Format back_buffer_format() const override { return back_format_; }
   uint32_t max_samples() const override { return max_samples_; }
+  uint32_t max_allocations() const override { return max_allocations_; }
+  bool pooled_textures() const override { return pooled_textures_; }
   DriverPipelineCache* pipeline_cache() override { return pipeline_cache_.get(); }
   void SavePipelineCache() override {
     if (!pipeline_cache_ || options_.pipeline_cache_path.empty()) return;
@@ -158,6 +160,7 @@ class VulkanHost final : public HostDevice {
     const vk::Semaphore s = acquire_[frame_ % acquire_.size()];
     const vk::Result r = dev_.acquireNextImageKHR(swapchain_, UINT64_MAX, s, nullptr, &index_);
     acquired_ = r == vk::Result::eSuccess || r == vk::Result::eSuboptimalKHR;
+    NoteResult(r, "acquire");
     return acquired_;
   }
   uint64_t SignalFence() override {
@@ -200,6 +203,7 @@ class VulkanHost final : public HostDevice {
     }
     const vk::Semaphore s = acquire_[frame_ % acquire_.size()];
     const vk::Result r = dev_.acquireNextImageKHR(swapchain_, UINT64_MAX, s, nullptr, &index_);
+    NoteResult(r, "acquire");
     if (r != vk::Result::eSuccess && r != vk::Result::eSuboptimalKHR) return nullptr;
     nvrhi_->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics, s, 0);
     return images_[index_];
@@ -230,7 +234,7 @@ class VulkanHost final : public HostDevice {
     const uint64_t id = present_id_ + 1;
     vk::PresentIdKHR pid(1, &id);
     if (present_wait_) info.pNext = &pid;
-    (void)queue_.presentKHR(&info);
+    NoteResult(queue_.presentKHR(&info), "present");
     if (present_wait_) present_id_.store(id, std::memory_order_release);
     device()->runGarbageCollection();
     ++frame_;
@@ -253,9 +257,27 @@ class VulkanHost final : public HostDevice {
 
   uint32_t swapchain_width() const override { return width_; }
   uint32_t swapchain_height() const override { return height_; }
+  bool swapchain_lost() const override { return lost_.load(std::memory_order_relaxed); }
+  bool window_client_size(uint32_t* width, uint32_t* height) const override {
+    RECT rc{};
+    if (!options_.window || !GetClientRect(static_cast<HWND>(options_.window), &rc)) return false;
+    *width = uint32_t(std::max<LONG>(0, rc.right - rc.left));
+    *height = uint32_t(std::max<LONG>(0, rc.bottom - rc.top));
+    return true;
+  }
+  bool hdr_active() const override { return hdr_active_; }
+  std::string hdr_note() const override { return hdr_note_; }
+  bool SetHdr(bool on) override {
+    if (!swapchain_) return false;
+    if (options_.hdr == on && hdr_active_ == on) return hdr_active_;
+    options_.hdr = on;
+    Resize(width_, height_);  // a new swapchain in the format of the new mode
+    return hdr_active_;
+  }
 
   bool Resize(uint32_t width, uint32_t height) override {
     if (!swapchain_ || !width || !height) return false;
+    lost_ = false;
     device()->waitForIdle();
     std::unique_lock swap_lock(swapchain_mutex_);  // no WaitPresented on the old swapchain from here on
     images_.clear();
@@ -279,6 +301,12 @@ class VulkanHost final : public HostDevice {
     return ok;
   }
 
+  bool SetVsync(bool on) override {
+    if (options_.vsync == on) return true;
+    options_.vsync = on;
+    return !swapchain_ || Resize(width_, height_);  // the same size, the present mode of options_.vsync
+  }
+
  private:
   bool InitInner(std::string* error) {
     library_ = LoadLibraryW(L"vulkan-1.dll");
@@ -291,6 +319,10 @@ class VulkanHost final : public HostDevice {
     const auto layers = vk::enumerateInstanceLayerProperties();
     std::vector<const char*> exts;
     if (options_.window) exts.push_back(VK_KHR_SURFACE_EXTENSION_NAME), exts.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+    // HDR10 ([display] hdr): the surface lists HDR colour spaces only with VK_EXT_swapchain_colorspace. Enabled when
+    // there is one, also with hdr off (switchable at run time); the SDR choice below still takes SRGB_NONLINEAR only.
+    colorspace_ext_ = options_.window && HasExtension(instance_exts, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+    if (colorspace_ext_) exts.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
     std::vector<const char*> enabled_layers;
     bool debug_utils = false;
     if (options_.debug) {
@@ -353,6 +385,17 @@ class VulkanHost final : public HostDevice {
       max_samples_ = 1;
       for (uint32_t s : {2u, 4u, 8u})
         if (both & vk::SampleCountFlags(vk::SampleCountFlagBits(s))) max_samples_ = s;
+    }
+    {
+      // GitHub issue #1: NVRHI gives every texture and buffer its own vkAllocateMemory; the driver allows only
+      // maxMemoryAllocationCount of them (4096 on some drivers). Logged with the device-local memory.
+      max_allocations_ = props.limits.maxMemoryAllocationCount;
+      const auto mem = phys_.getMemoryProperties();
+      uint64_t local = 0;
+      for (uint32_t i = 0; i < mem.memoryHeapCount; ++i)
+        if (mem.memoryHeaps[i].flags & vk::MemoryHeapFlagBits::eDeviceLocal) local = std::max<uint64_t>(local, mem.memoryHeaps[i].size);
+      LogLine("[vulkan] memory: device-local heap %llu MiB, at most %u allocations (maxMemoryAllocationCount)",
+              (unsigned long long)(local >> 20), max_allocations_);
     }
 
     // Features: what the translated shaders (bindless, SPIR-V 1.5) and NVRHI (Vulkan 1.3) need.
@@ -467,6 +510,20 @@ class VulkanHost final : public HostDevice {
         Counters::Get().driver_cache_loaded = load == DriverPipelineCache::Load::kLoaded;
       }
     }
+    {
+      // Guest textures in pooled 64 MiB device-local blocks (King Kong task 313 in the vendored NVRHI) instead of one
+      // vkAllocateMemory each, so a long session stays below maxMemoryAllocationCount (GitHub issue #1).
+      // Automatic: pooled when the driver allows at most 65536 allocations (NVIDIA drivers have reported 4096 on
+      // Windows; driver 621 on the RTX 4070 Ti SUPER reports 4294967295, measured); FCP_RENDER_VK_TEXTURE_POOL=1
+      // always, =0 never (one allocation per texture, as before).
+      const char* pool = std::getenv("FCP_RENDER_VK_TEXTURE_POOL");
+      const bool forced = pool && *pool;
+      pooled_textures_ = forced ? std::strcmp(pool, "0") != 0 : (max_allocations_ && max_allocations_ <= 65536);
+      if (pooled_textures_) desc.pooledTextureBlockSize = 64ull << 20;
+      LogLine("[vulkan] guest textures: %s (%s; FCP_RENDER_VK_TEXTURE_POOL=0/1)",
+              pooled_textures_ ? "pooled in 64 MiB blocks" : "one allocation each",
+              forced ? "set by FCP_RENDER_VK_TEXTURE_POOL" : "automatic: pooled when at most 65536 allocations are allowed");
+    }
     nvrhi_ = nvrhi::vulkan::createDevice(desc);
     if (!nvrhi_) return error && (*error = "nvrhi::vulkan::createDevice failed", false);
     if (options_.debug) validation_ = nvrhi::validation::createValidationLayer(nvrhi_);
@@ -491,12 +548,48 @@ class VulkanHost final : public HostDevice {
     const auto caps = phys_.getSurfaceCapabilitiesKHR(surface_);
     const auto formats = phys_.getSurfaceFormatsKHR(surface_);
     vk::SurfaceFormatKHR chosen = formats.front();
+    bool sdr_found = false;
+    // SDR: the first 8-bit UNORM format in SRGB_NONLINEAR (without VK_EXT_swapchain_colorspace every format is), as
+    // before the HDR10 option.
     for (const auto& f : formats)
-      if (f.format == vk::Format::eB8G8R8A8Unorm || f.format == vk::Format::eR8G8B8A8Unorm) {
+      if ((f.format == vk::Format::eB8G8R8A8Unorm || f.format == vk::Format::eR8G8B8A8Unorm) &&
+          f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
         chosen = f;
+        sdr_found = true;
         break;
       }
+    if (!sdr_found)
+      for (const auto& f : formats)
+        if (f.format == vk::Format::eB8G8R8A8Unorm || f.format == vk::Format::eR8G8B8A8Unorm) {
+          chosen = f;
+          break;
+        }
     back_format_ = chosen.format == vk::Format::eB8G8R8A8Unorm ? nvrhi::Format::BGRA8_UNORM : nvrhi::Format::RGBA8_UNORM;
+    hdr_active_ = false;
+    hdr_note_.clear();
+    if (options_.hdr) {
+      // HDR10: A2B10G10R10 (NVRHI's R10G10B10A2_UNORM) in HDR10_ST2084.
+      bool hdr_found = false;
+      std::string list;
+      for (const auto& f : formats) {
+        list += std::string(list.empty() ? "" : ", ") + vk::to_string(f.format) + "/" + vk::to_string(f.colorSpace);
+        if (!hdr_found && f.format == vk::Format::eA2B10G10R10UnormPack32 && f.colorSpace == vk::ColorSpaceKHR::eHdr10St2084EXT) {
+          chosen = f;
+          hdr_found = true;
+        }
+      }
+      if (!hdr_logged_) {
+        LogLine("[vulkan] surface formats (VK_EXT_swapchain_colorspace %s): %s", colorspace_ext_ ? "on" : "missing", list.c_str());
+        hdr_logged_ = true;
+      }
+      if (hdr_found) {
+        back_format_ = nvrhi::Format::R10G10B10A2_UNORM;
+        hdr_active_ = true;
+      } else {
+        hdr_note_ = colorspace_ext_ ? "the surface offers no A2B10G10R10 format in HDR10_ST2084 (Windows HDR off for this monitor?)"
+                                    : "VK_EXT_swapchain_colorspace missing";
+      }
+    }
     vk::Extent2D extent = caps.currentExtent;
     if (extent.width == UINT32_MAX) extent = vk::Extent2D(options_.width, options_.height);
     width_ = extent.width, height_ = extent.height;
@@ -520,6 +613,12 @@ class VulkanHost final : public HostDevice {
     sci.presentMode = vk::PresentModeKHR::eFifo;
     if (!options_.vsync && has(vk::PresentModeKHR::eMailbox)) sci.presentMode = vk::PresentModeKHR::eMailbox;
     else if (!options_.vsync && has(vk::PresentModeKHR::eImmediate)) sci.presentMode = vk::PresentModeKHR::eImmediate;
+    if (sci.presentMode != present_mode_) {
+      present_mode_ = sci.presentMode;
+      LogLine("[vulkan] swapchain present mode %s", sci.presentMode == vk::PresentModeKHR::eMailbox     ? "mailbox"
+                                                    : sci.presentMode == vk::PresentModeKHR::eImmediate ? "immediate"
+                                                                                                         : "FIFO");
+    }
     sci.clipped = true;
     sci.oldSwapchain = old;
     swapchain_ = dev_.createSwapchainKHR(sci);
@@ -542,12 +641,15 @@ class VulkanHost final : public HostDevice {
   }
 
   HostOptions options_;
+  vk::PresentModeKHR present_mode_ = vk::PresentModeKHR(-1);  // of the swapchain in use (logged when it changes)
   HMODULE library_ = nullptr;
   vk::Instance instance_;
   vk::DebugUtilsMessengerEXT messenger_;
   vk::SurfaceKHR surface_;
   vk::PhysicalDevice phys_;
   uint32_t max_samples_ = 1;
+  uint32_t max_allocations_ = 0;
+  bool pooled_textures_ = false;
   vk::Device dev_;
   vk::Queue queue_;
   uint32_t family_ = 0;
@@ -556,6 +658,9 @@ class VulkanHost final : public HostDevice {
   uint32_t width_ = 0, height_ = 0, index_ = 0;
   uint64_t frame_ = 0;
   bool present_wait_ = false;            // VK_KHR_present_id + VK_KHR_present_wait enabled
+  bool colorspace_ext_ = false;          // VK_EXT_swapchain_colorspace enabled
+  bool hdr_active_ = false, hdr_logged_ = false;
+  std::string hdr_note_;
   std::atomic<uint64_t> present_id_{0};  // id of the latest present
   std::shared_mutex swapchain_mutex_;    // WaitPresented (shared) against Resize (exclusive)
   std::vector<nvrhi::TextureHandle> images_;
@@ -565,6 +670,21 @@ class VulkanHost final : public HostDevice {
   uint64_t timeline_next_ = 0;       // under the caller's lock
   std::array<uint64_t, 2> frame_fences_{};  // fence per present (split present)
   bool acquired_ = false;
+  // VK_ERROR_OUT_OF_DATE_KHR seen since the last Resize (swapchain_lost); present thread only writes it.
+  std::atomic<bool> lost_{false};
+  uint64_t results_logged_ = 0;  // non-success results logged (at most 20)
+  void NoteResult(vk::Result r, const char* where) {
+    if (r == vk::Result::eSuccess || r == vk::Result::eSuboptimalKHR || r == vk::Result::eTimeout ||
+        r == vk::Result::eNotReady)
+      return;
+    const bool out_of_date = r == vk::Result::eErrorOutOfDateKHR;
+    const bool first = out_of_date && !lost_.exchange(true);
+    if ((first || !out_of_date) && results_logged_ < 20) {
+      ++results_logged_;
+      LogLine("[vulkan] %s: %s (swapchain %ux%u, frame %llu)%s", where, vk::to_string(r).c_str(), width_, height_,
+              (unsigned long long)frame_, out_of_date ? ": swapchain no longer fits the window" : "");
+    }
+  }
   uint64_t TimelineValue() const { return timeline_ ? dev_.getSemaphoreCounterValue(timeline_) : ~0ull; }
   nvrhi::CommandListHandle barrier_list_;
   nvrhi::vulkan::DeviceHandle nvrhi_;

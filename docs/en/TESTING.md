@@ -16,7 +16,7 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 
 | Switch | Meaning |
 |---|---|
-| `FCP_START_LEVEL=<level>[:<mission>[:<players>]]` | start a level without the menu, the way the game restarts a level (launch data with `-map <level>`); only generation 0. Level names as on the disc, e.g. `00_training`, `21_dunea` |
+| `FCP_START_LEVEL=<level>[:<mission>[:<players>]]` | start a level without the menu, the way the game restarts a level (launch data with `-map <level>`); only generation 0. Level names as on the disc, e.g. `00_training`, `21_dunea`. `<players>` 2-4 is ignored with a log line: the game's `-lpc<n>` crashed at the level start (measured on `m01_mercycreek`); start a split screen from the menu (Multiplayer -> Splitscreen) instead, `FCP_START_LEVEL_PLAYERS=1` passes it anyway |
 | `FCP_START_PORT=<0..3>` | controller port of that start |
 | `FCP_START_SAVE_PROFILE=0` | the development start does not save the profile (it does by default, as the menu path does before the first level) |
 | `FCP_TEST_COMMAND=<s>:<command>[\|...]` | push a game command at s seconds, e.g. `ReturnToMenu`, `FadeOutRestartStartLevel level=00_training`; `FCP_TEST_COMMAND_GENS=<g,...>\|all` (default 0). Changes the game |
@@ -36,8 +36,9 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 | `FCP_INPUT_SCRIPT_CLOCK=wall\|level` | `wall` (default): seconds since the title launch; `level`: game time since the level start (stops while paused, the same at every frame rate) |
 | `FCP_INPUT_SCRIPT_GENS=<g,...>\|all` | relaunch generations that run the script (default 0) |
 | `FCP_KEY_SCRIPT=<entry>,...` | keyboard and mouse through the real binding path: `<t>[-<t_end>]:<key>[+<key>...]` holds keys (names as in `[bindings]`), `<t>[-<t_end>]:mx=<n>` / `my=<n>` moves the mouse by n counts spread over the interval; same clock as `FCP_INPUT_SCRIPT_CLOCK`, generations `FCP_KEY_SCRIPT_GENS` |
-| `FCP_VIRTUAL_PADS=<n>` | n virtual SDL 3 controllers (1-4), so the whole path SDL -> SDK -> `XamInputGetState` is tested; `FCP_VIRTUAL_PAD_SCRIPT=<s>:<step>[+<step>],...` with buttons, `lx=`/`ly=`/`rx=`/`ry=`/`lt=`/`rt=` values, `unplug`/`plug`, prefix `p<k>.` for pad k; `FCP_VIRTUAL_PAD_ID=<vid>:<pid>`, `FCP_VIRTUAL_PAD_HOLD_MS` |
-| `FCP_TEST_MENU=<t>:<action>,...` | drive the F10 menu: `open`, `close`, `toggle`, `tab=<name>`, `dump=<file.png>`, `set=<section>.<key>=<value>`, `input=<section>.<key>=<literal>`, `post=<key>`, `pad=<buttons>`; `FCP_TEST_MENU_GENS` |
+| `FCP_VIRTUAL_PADS=<n>` | n virtual SDL 3 controllers (1-4), so the whole path SDL -> SDK -> `XamInputGetState` is tested; `FCP_VIRTUAL_PAD_SCRIPT=<s>:<step>[+<step>],...` with buttons (also `misc1`, `rpaddle1`, `lpaddle1`, `rpaddle2`, `lpaddle2`, `touchpad`, `misc2`), `lx=`/`ly=`/`rx=`/`ry=`/`lt=`/`rt=` values, `unplug`/`plug`, prefix `p<k>.` for pad k; `FCP_VIRTUAL_PAD_ID=<vid>:<pid>`, `FCP_VIRTUAL_PAD_HOLD_MS` |
+| `FCP_TEST_MENU=<t>:<action>,...` | drive the F10 menu: `open`, `close`, `toggle`, `tab=<name>`, `dump=<file.png>`, `set=<section>.<key>=<value>`, `input=<section>.<key>=<literal>`, `post=<key>` (`f10`, `f11`, `escape`, ...), `pad=<buttons>`, `scroll=<0..1>`, `defaults[=<tab>]` (as a click on
+Defaults: the page shown or that tab), Controller page: `padbind=<button>:<source>`, `padadd=<button>:<source>`, `padclear=<button>`, `paddefault=<button>`, `padreset`, `padcapture=<button>`, `padcaptureadd=<button>` (waits for a pad button, e.g. from `FCP_VIRTUAL_PAD_SCRIPT`); `FCP_TEST_MENU_GENS` |
 | `FCP_TEST_FOCUS=<t>:<s>,...` | simulated focus loss at t for s seconds |
 | `FCP_TEST_ALT_ENTER=<s>[,<s>...]` | Alt+Enter posted to the own window (arrives only with focus); `FCP_TEST_ALT_ENTER_GENS`; `FCP_TEST_ALT_ENTER_DIRECT=1` runs the Alt+Enter action on the UI thread instead (no focus needed, skips the key path) |
 
@@ -51,10 +52,10 @@ Dumps and traces are derived from the game: keep them out of the repository and 
 | `FCP_TRACE_FRAMES=1` | every frame as CSV (`logs/frames.csv`): duration, main-thread CPU, time inside imports by kind (wait, file, memory, audio, sync), longest import call; with it or `FCP_TRACE_HITCHES` every import call is timed per thread (`FCP_TRACE_IMPORT_TIME=0` off) and hitch lines carry that breakdown |
 | `REX_VSYNC_STATS=1` | how late the SDK vblank thread delivers each blank (line every 10 s, one per blank over 2 ms); `REX_VSYNC_PRIORITY=<n>` sets that thread's Win32 priority (experiment, unset = unchanged) |
 | `FCP_TRACE_LAND=1`, `FCP_TRACE_TIMERS=1`, `FCP_TRACE_AI=1` | landing speed per landing; corrected (and held) script timers; count of thinking turns of computer-controlled characters |
-| `FCP_TRACE_BOAT=1`, `FCP_TRACE_WHEELS=1`, `FCP_TRACE_DROWNING=1` | boat physics steps and speed; wheel force calls per vehicle; every "under water" answer |
+| `FCP_TRACE_BOAT=1`, `FCP_TRACE_WHEELS=1`, `FCP_TRACE_DROWNING=1` | boat physics steps and speed; per wheeled vehicle and second its physics steps, wheel contact and wheel impulse calls, position and speed (`FCP_TRACE_WHEELS=2`: also every drive action, pedal and steering, at most 6000 lines); every "under water" answer |
 | `FCP_TRACE_LIVING=<x>,<y>\|player` | one line per physics step for the first living entity within 2 m of (x, y), or the local player (needs `FCP_TRACE_STATE`) |
 | `FCP_TRACE_PATH=1`, `FCP_TRACE_FIRE=1`, `FCP_TRACE_EVENTS=<from>-<to>` | path following of the traced entity; every fire test of the local player; every script event in a level time window with the guest call chain |
-| `FCP_TRACE_LOOK=<n>`, `FCP_TRACE_RUMBLE=<n>`, `FCP_TRACE_CAMERA=1`, `FCP_TRACE_WIDE=1` | look input (stick, game values, mouse, zoom); rumble; camera setup; each new kind of 2D draw over a wide 3D picture |
+| `FCP_TRACE_LOOK=<n>`, `FCP_TRACE_RUMBLE=<n>`, `FCP_TRACE_CAMERA=1`, `FCP_TRACE_WIDE=1` | look input (stick, game values, mouse, zoom); rumble; camera setup; each new kind of 2D draw over a wide 3D picture (decision `middle`/`wide`/`mask`, HUD anchor, `(covered)` after the pause menu's dimming) |
 | `FCP_TRACE_IMPORTS=1\|2`, `FCP_TRACE_FILES=1` | kernel/XAM imports (2 = every call, very much); every file opened by the game |
 | `FCP_TRACE_D3D=<frame>[,<count>]` | every D3D hook call of these frames with registers and decoded arguments |
 | `FCP_TRACE_DRAWS=1`, `FCP_RENDER_TRACE=<first>[,<count>]` | renderer draw log |

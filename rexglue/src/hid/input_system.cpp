@@ -78,6 +78,7 @@ struct InputSystem::State {
   std::array<u32, detail::kMaxUsers> packet{};
   std::array<rex::hid::PadState, detail::kMaxUsers> last_state{};
   std::array<u64, detail::kMaxUsers> last_signature{};
+  std::array<std::atomic<u32>, detail::kMaxUsers> last_extra{};  // GetLastExtraButtons (Predator change)
   std::atomic<i32> ui_blocks{0};
 
   std::atomic<bool> focused{true};
@@ -243,6 +244,9 @@ Result<rex::hid::PadState> InputSystem::State::ReadRawLocked(u32 user) {
 Result<InputSystem::PadReading> InputSystem::State::ReadUserLocked(u32 user) {
   auto raw = ReadRawLocked(user);
   if (!raw) {
+    if (user < detail::kMaxUsers) {
+      last_extra[user].store(0, std::memory_order_relaxed);
+    }
     return std::unexpected(raw.error());
   }
   rex::hid::PadState state = *raw;
@@ -258,10 +262,13 @@ Result<InputSystem::PadReading> InputSystem::State::ReadUserLocked(u32 user) {
         (signature ^ ((static_cast<u64>(key.source) << 32) ^ key.id.value)) * 0x100000001B3ull;
   }
   const rex::hid::PadState& before = last_state[user];
+  // extra: the application may bind those buttons onto the title's (Predator change), so they count as a change
   const bool same = before.buttons == state.buttons && before.left_trigger == state.left_trigger &&
                     before.right_trigger == state.right_trigger &&
                     before.thumb_lx == state.thumb_lx && before.thumb_ly == state.thumb_ly &&
-                    before.thumb_rx == state.thumb_rx && before.thumb_ry == state.thumb_ry;
+                    before.thumb_rx == state.thumb_rx && before.thumb_ry == state.thumb_ry &&
+                    before.extra == state.extra;
+  last_extra[user].store(state.extra, std::memory_order_relaxed);
   if (!same || last_signature[user] != signature) {
     ++packet[user];
     last_state[user] = state;
@@ -736,6 +743,41 @@ PointerMode InputSystem::GetPointerModeToApply() const {
     return PointerMode::kLocked;
   }
   return state.requested_mode.load(std::memory_order_relaxed);
+}
+
+std::vector<IInputSystem::PadListing> InputSystem::ListPads() {
+  State& state = *state_;
+  std::vector<ConnectionEvent> events;
+  std::vector<PadListing> out;
+  {
+    std::lock_guard lock(state.mutex);
+    if (state.started) {
+      state.RefreshDevicesLocked(events);
+      for (const detail::Device& device : state.devices) {
+        if (device.synthetic) {
+          continue;
+        }
+        PadListing listing;
+        for (u32 user = 0; user < detail::kMaxUsers; ++user) {
+          if (std::ranges::find(state.users[user], device.key) != state.users[user].end()) {
+            listing.user = user;
+            break;
+          }
+        }
+        listing.name = device.pad.name;
+        listing.info = device.pad.info;
+        listing.driver = std::string(state.sources[device.key.source]->GetName());
+        out.push_back(std::move(listing));
+      }
+    }
+  }
+  state.Fire(events);
+  std::ranges::stable_sort(out, [](const PadListing& a, const PadListing& b) { return a.user < b.user; });
+  return out;
+}
+
+u32 InputSystem::GetLastExtraButtons(u32 user) const {
+  return user < detail::kMaxUsers ? state_->last_extra[user].load(std::memory_order_relaxed) : 0;
 }
 
 ScopeGuard InputSystem::SetPointerModeListener(MoveOnlyFunction<void()> listener) {

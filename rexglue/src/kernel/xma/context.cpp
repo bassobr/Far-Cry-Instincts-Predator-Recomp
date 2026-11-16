@@ -20,6 +20,12 @@
 #include "kernel/xma/context.h"
 #include "kernel/xma/decoder.h"
 #include "kernel/xma/fcp_xma_stats.h"  // FCP: change 31
+#include <rex/fcp_speech.h>             // FCP: change 370
+#include <rex/platform/process.h>       // FCP: change 370, FCP_TRACE_XMA_INPUT
+#include <atomic>
+#include <cstdlib>
+#include <format>
+#include <string>
 #include "kernel/xma/packet.h"
 #include <rex/platform/perf.h>
 #include <rex/logging/log_category.h>
@@ -655,8 +661,46 @@ void XMAContext::Decode(XMA_CONTEXT_DATA* data) {
   PreparePacket(packet_info.current_frame_size, padding_start);
   const bool decoded = DecodePacket(av_context_, av_packet_, av_frame_);
   if (decoded) {
+    // FCP: change 370, speech volume: the gain on a frame whose input lies in memory the title
+    // marked as speech (rex/fcp_speech.h); 1 everywhere else and by default.
+    u32 fcp_phase = 0;
+    const fcp_speech::DataKind fcp_kind = fcp_speech::KindOf(current_input_buffer, &fcp_phase);
+    GetFcpXmaStats().frames_by_kind[static_cast<u8>(fcp_kind)].fetch_add(1, std::memory_order_relaxed);
+    if (fcp_kind != fcp_speech::DataKind::kUnknown) {
+      GetFcpXmaStats().frames_by_phase[fcp_phase / fcp_speech::kPhaseStep].fetch_add(1, std::memory_order_relaxed);
+    }
+    {
+      // FCP_TRACE_XMA_INPUT=<n>: the first bytes of the first n input buffers (diagnostics of change 370)
+      static const int trace_limit = [] {
+        const auto v = rex::platform::GetEnvironmentValue("FCP_TRACE_XMA_INPUT");
+        return v ? std::atoi(v->c_str()) : 0;
+      }();
+      static std::atomic<int> traced{0};
+      const u32 address = data->GetCurrentInputBufferAddress();
+      if (trace_limit > 0 && address != fcp_traced_input_ && traced.load(std::memory_order_relaxed) < trace_limit) {
+        fcp_traced_input_ = address;
+        traced.fetch_add(1, std::memory_order_relaxed);
+        std::string hex;
+        for (int i = 0; i < 48; ++i) hex += std::format("{:02X}", current_input_buffer[i]);
+        REXAPU_INFO("fcp xma input: context {} buffer {:08X} packets {} kind {} bytes {}", GetID(), address,
+                    data->GetCurrentInputBufferPacketCount(), static_cast<int>(fcp_kind), hex);
+      }
+    }
+    const f32 fcp_gain = fcp_kind == fcp_speech::DataKind::kSpeech ? fcp_speech::Gain() : 1.0f;
     ConvertFrame(reinterpret_cast<const u8**>(&av_frame_->data), static_cast<bool>(data->is_stereo),
-                 decoded_frame_.data());
+                 decoded_frame_.data(), fcp_gain);
+    {
+      // FCP: change 370, level of the output by kind (int16 as written, big endian)
+      const u32 n = kSamplesPerFrame << data->is_stereo;
+      const u8* p = decoded_frame_.data();
+      f64 sum = 0.0;
+      for (u32 k = 0; k < n; ++k) {
+        const f64 v = static_cast<i16>(u16(p[2 * k] << 8 | p[2 * k + 1])) / 32768.0;
+        sum += v * v;
+      }
+      GetFcpXmaStats().energy_by_kind[static_cast<u8>(fcp_kind)].fetch_add(sum, std::memory_order_relaxed);
+      GetFcpXmaStats().samples_by_kind[static_cast<u8>(fcp_kind)].fetch_add(n, std::memory_order_relaxed);
+    }
 
     const size_t pad_bytes = kDecoderStartPadding * kBytesPerSample << data->is_stereo;
     const size_t carry_bytes = (kBytesPerFrameChannel << data->is_stereo) - pad_bytes;
@@ -715,13 +759,15 @@ void XMAContext::Decode(XMA_CONTEXT_DATA* data) {
   data->input_buffer_read_offset = next_input_offset;
 }
 
-void XMAContext::ConvertFrame(const u8** samples, bool is_two_channel, u8* output_buffer) {
+void XMAContext::ConvertFrame(const u8** samples, bool is_two_channel, u8* output_buffer,
+                              f32 gain) {
   constexpr f32 kScale = (1 << 15) - 1;
   auto out = reinterpret_cast<i16*>(output_buffer);
 
   static_assert(kSamplesPerFrame % 8 == 0);
   const auto in_channel_0 = reinterpret_cast<const f32*>(samples[0]);
-  const simde__m128 scale_mm = simde_mm_set1_ps(kScale);
+  // FCP: change 370, gain 1 keeps the scale (and every sample) as before
+  const simde__m128 scale_mm = simde_mm_set1_ps(gain == 1.0f ? kScale : kScale * gain);
   if (is_two_channel) {
     const auto in_channel_1 = reinterpret_cast<const f32*>(samples[1]);
     const simde__m128i shufmask =

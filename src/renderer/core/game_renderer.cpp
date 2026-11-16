@@ -39,9 +39,14 @@
 #include "kk/resources/texture_convert.h"
 #include "kk/resources/xenos.h"
 #include "deferred_list.h"
+#include "display_hdr.h"
+#include "hdr_pass.h"
 #include "overlay_pass.h"
 #include "pipeline_pool.h"
 #include "smaa_pass.h"
+#include "colour_blind.h"
+#include "ao_pass.h"
+#include "texture_pack.h"
 #include "renderer/builtin_shaders.h"
 #include "renderer/diagnostics.h"
 #include "renderer/guest_device.h"
@@ -216,6 +221,16 @@ struct GuestTex {
   bool volatile_data = false;  // changes constantly: hash every frame, do not watch
   uint64_t last_change_frame = ~0ull;
   int replace_kind = -1;       // TextureReplaceSource::Classify (button glyphs), -1: never replaced
+  // Texture packs (core/texture_pack.h), only while dumping or replacing: the texture's name (0: not taken part).
+  uint64_t pack_key = 0;
+  pack::Kind pack_kind = pack::Kind::kNone;
+  uint64_t dump_at = 0;        // write the dump from this frame on (unchanged until then); 0: none
+  uint32_t rep_rev = 0;        // TexturePack::Revision the replacement was looked up at (0: never)
+  uint32_t rep_gen = 0;        // generation of the replacement file (0: none)
+  uint32_t rep_slot = 0;       // view of the uploaded replacement (0: none yet)
+  Table rep_table = Table::kTex2D;
+  bool rep_failed = false;     // did not load or does not fit: the game's texture
+  float rep_inv_x = 1.0f, rep_inv_y = 1.0f;  // guest texels per replacement texel (kk_GuestSize)
   uint64_t used_frame = 0;     // last frame that bound it (slot recycling)
   uint64_t retry_frame = 0;    // failed only because its table was full: try again from this frame on
 };
@@ -244,6 +259,10 @@ struct Resolved {
   float sx = 1.0f, sy = 1.0f;
   nvrhi::TextureHandle guest_copy;
   bool Scaled() const { return width != gw || height != gh; }
+  // Diagnostics (statistics line `renderer: resolves per target`): resolves into it and binds of it since the last
+  // line (GitHub issue #2: does a shadow map stop being refreshed or bound?).
+  uint32_t interval_resolves = 0, interval_binds = 0;
+  bool depth = false;  // written by a depth resolve (shadow map): [graphics] shadow_filter applies to it
 };
 
 // Host size of a guest dimension at factor s (exactly the guest dimension at 1).
@@ -499,6 +518,8 @@ struct GameRenderer::Impl {
   uint32_t win_w = 0, win_h = 0;
   bool resize_pending = false;
   uint32_t resize_w = 0, resize_h = 0;
+  Clock::time_point lost_retry{};  // next try to make an out-of-date swapchain anew (HandleResize)
+  bool vsync_pending = false;  // SetVsync: the host's present mode changes at the next present (opt.vsync)
 
   nvrhi::CommandListHandle cl, present_cl;
   bool cl_open = false;
@@ -507,6 +528,11 @@ struct GameRenderer::Impl {
 
   std::unordered_map<const ShaderEntry*, nvrhi::ShaderHandle> shader_handles;
   nvrhi::ShaderHandle solid_ps, blit_vs, blit_ps, blit_gamma_ps;
+  // [graphics] colour_blind: shader made on first use; the matrix of the mode in force (colour_mode)
+  nvrhi::ShaderHandle blit_colour_ps;
+  bool blit_colour_failed = false;
+  int colour_mode = 0;
+  float colour_matrix[3][4] = {};
   std::unordered_map<uint64_t, uint32_t> samplers;
   std::vector<nvrhi::SamplerHandle> keep_samplers;
   uint32_t linear_clamp = 0;
@@ -545,7 +571,38 @@ struct GameRenderer::Impl {
   std::vector<SlotRelease> slot_releases;
   std::vector<std::pair<uint64_t, nvrhi::BufferHandle>> retired_buffers;
   uint64_t evicted_textures = 0, evicted_buffers = 0, evict_passes = 0;
+  uint64_t stale_resolve_binds = 0, stale_resolve_logged = 0;  // fetch at a resolve target's base, other size
   uint64_t a2m_draws = 0, a2m_logged = 0;  // draws with RB_COLORCONTROL alpha-to-mask (FCP_RENDER_ALPHA_TO_MASK)
+  // GitHub issue #1: device allocations. Vulkan allows maxMemoryAllocationCount of them (4096 on some drivers; NVIDIA
+  // 621 on Windows reports 4294967295, measured) and
+  // NVRHI makes one per texture and buffer; past the limit (or out of memory) a creation fails and was silent (black
+  // texture, zero vertex stream). Now each failure is counted and logged, the entry is tried again later, and unused
+  // entries are evicted (also index buffers) once the estimated count passes 3/4 of the limit.
+  bool alloc_failed = false;     // set by CreateTexture when the device refused the texture
+  uint64_t buf_retry_frame = 0;  // after a refused vertex buffer: no new ones before this frame
+  bool alloc_pressure = false;   // evict regardless of the tables' fill (allocation failure or estimate high)
+  uint64_t alloc_fail_tex = 0, alloc_fail_buf = 0, alloc_fail_idx = 0, evicted_index = 0, alloc_passes = 0;
+  std::vector<nvrhi::BufferHandle> test_allocs;  // FCP_RENDER_TEST_ALLOCS: extra allocations held for good (diagnostics)
+  // Device allocations of this renderer, estimated: own ones per buffer and per texture unless pooled, targets with a
+  // resolve copy, the fixed objects, the test allocations.
+  size_t EstimatedAllocations() const {
+    return buffers.size() + index_buffers.size() + (host && host->pooled_textures() ? textures.size() / 32 : textures.size()) +
+           2 * targets.size() + 2 * resolved.size() + test_allocs.size() + 64;
+  }
+  bool AllocationsPressed() const {
+    const uint32_t limit = alloc_limit_override ? alloc_limit_override : (host ? host->max_allocations() : 0);
+    return limit && EstimatedAllocations() * 4 >= uint64_t(limit) * 3;
+  }
+  uint32_t alloc_limit_override = 0;  // FCP_RENDER_ALLOC_LIMIT (diagnostics: evict as if the limit were this)
+  // FCP_RENDER_TEST_ALLOC_FAIL: refuse guest resources as a full device would (diagnostics)
+  bool SimulatedRefusal() const { return opt.test_alloc_fail && EstimatedAllocations() >= opt.test_alloc_fail; }
+  void AllocFailureLog(const char* what, uint64_t n, const char* detail) {
+    if (n <= 16 || n % 1000 == 0)
+      Log("renderer: %s refused by the device (%s; failure %llu; estimated allocations %zu of %u): drawn without it, %s",
+          what, detail, (unsigned long long)n, EstimatedAllocations(), host ? host->max_allocations() : 0,
+          opt.alloc_evict && slot_recycle ? "unused resources are evicted and it is tried again"
+                                          : "no eviction (FCP_RENDER_ALLOC_EVICT=0 or FCP_RENDER_SLOT_RECYCLE=0)");
+  }
   static constexpr uint64_t kEvictAge = 600;      // frames without a binding before an entry may be evicted
   static constexpr uint64_t kEvictAgeShort = 60;  // when a table stays nearly full after a normal pass
 
@@ -555,18 +612,31 @@ struct GameRenderer::Impl {
   static bool Pressed(uint32_t used, uint32_t capacity, uint32_t num, uint32_t den) { return uint64_t(used) * den >= uint64_t(capacity) * num; }
   bool TablePressed(Table t, uint32_t num, uint32_t den) const { return Pressed(tl.used(t), tl.capacity(t), num, den); }
 
-  // At a swap: evict entries not bound for `age` frames from tables at least 3/4 full.
-  size_t EvictPass(uint64_t age) {
+  // At a swap: evict entries not bound for `age` frames from tables at least 3/4 full (all = every table and the index
+  // buffers: allocation pressure).
+  size_t EvictPass(uint64_t age, bool all = false) {
     bool tex_pressed[4] = {};
     bool any_tex = false;
-    for (uint32_t i = 0; i < 4; ++i) any_tex |= tex_pressed[i] = TablePressed(Table(i), 3, 4);
-    const bool buf_pressed = TablePressed(Table::kBuffers, 3, 4);
+    for (uint32_t i = 0; i < 4; ++i) any_tex |= tex_pressed[i] = all || TablePressed(Table(i), 3, 4);
+    const bool buf_pressed = all || TablePressed(Table::kBuffers, 3, 4);
+    if (all) {
+      for (auto it = index_buffers.begin(); it != index_buffers.end();) {
+        if (it->second.used_frame + age < frame) {
+          if (it->second.buf) retired_buffers.emplace_back(frame, it->second.buf);
+          it = index_buffers.erase(it);
+          ++evicted_index;
+        } else {
+          ++it;
+        }
+      }
+    }
     size_t n = 0;
     if (any_tex) {
       for (auto it = textures.begin(); it != textures.end();) {
         GuestTex& t = it->second;
         if (t.slot && uint32_t(t.table) < 4 && tex_pressed[uint32_t(t.table)] && t.used_frame + age < frame) {
           ReleaseSlot(t.table, t.slot & 0x7FFFFFFFu);
+          DropReplacement(t);
           if (t.tex) retired.emplace_back(frame, t.tex);
           it = textures.erase(it);
           ++evicted_textures, ++n;
@@ -601,12 +671,28 @@ struct GameRenderer::Impl {
     retired_buffers.erase(std::remove_if(retired_buffers.begin(), retired_buffers.end(), [&](const auto& e) { return e.first + 3 < frame; }),
                           retired_buffers.end());
     if (!slot_recycle) return;
-    bool pressed = evict_now;
+    if (frame % 120 == 0 && opt.alloc_evict && AllocationsPressed()) alloc_pressure = true;
+    bool pressed = evict_now || alloc_pressure;
     if (!pressed && frame % 120 == 0)
       for (uint32_t i = 0; i < uint32_t(Table::kCount); ++i)
         if (Table(i) != Table::kSamplers && TablePressed(Table(i), 3, 4)) pressed = true;
     if (!pressed) return;
     evict_now = false;
+    if (alloc_pressure) {
+      // Device allocations near the limit (or one failed): unused entries of every kind go, whatever the tables say.
+      alloc_pressure = false;
+      const size_t before = EstimatedAllocations(), before_idx = index_buffers.size();
+      const uint64_t before_tex = evicted_textures, before_buf = evicted_buffers;
+      EvictPass(kEvictAge, true);
+      if (AllocationsPressed()) EvictPass(kEvictAgeShort, true);
+      ++alloc_passes;
+      if (alloc_passes <= 20 || alloc_passes % 100 == 0)
+        Log("renderer: allocation pass %llu at frame %llu: evicted %llu textures, %llu vertex buffers, %zu index buffers; "
+            "estimated allocations %zu -> %zu of %u", (unsigned long long)alloc_passes, (unsigned long long)frame,
+            (unsigned long long)(evicted_textures - before_tex), (unsigned long long)(evicted_buffers - before_buf),
+            before_idx - index_buffers.size(), before, EstimatedAllocations(), host ? host->max_allocations() : 0);
+      return;
+    }
     const size_t before_tex = textures.size(), before_buf = buffers.size();
     size_t n = EvictPass(kEvictAge);
     bool nearly_full = false;
@@ -636,6 +722,37 @@ struct GameRenderer::Impl {
   std::vector<ReplaceTex> replace_cache;
   uint64_t replace_uploads = 0, replace_binds = 0, replace_classified = 0;
 
+  // Texture packs (core/texture_pack.h; [graphics] texture_dump / texture_replace). Null while both are off: then
+  // nothing below runs (one pointer test per conversion and per binding of a converted texture).
+  std::unique_ptr<pack::TexturePack> tpack;
+  // Uploaded replacements, shared by every fetch constant of the same texture (each has its own view).
+  struct PackTexKey {
+    uint64_t key;
+    uint32_t gen;
+    bool operator==(const PackTexKey&) const = default;
+  };
+  struct PackTexKeyHash {
+    size_t operator()(const PackTexKey& k) const { return size_t(Mix(k.key, k.gen)); }
+  };
+  struct PackTex {
+    nvrhi::TextureHandle tex;
+    std::shared_ptr<const res::HostTextureData> data;  // until uploaded
+    size_t next = 0;                                   // next subresource to upload
+    bool done = false;
+    uint32_t views = 0;  // GuestTex entries with a view of it
+    uint32_t width = 0, height = 0;
+    bool cube = false;
+    uint64_t used_frame = 0;
+  };
+  std::unordered_map<PackTexKey, PackTex, PackTexKeyHash> pack_tex;
+  static constexpr uint64_t kDumpSettle = 20;  // frames a texture stays unchanged before it is dumped
+  uint64_t pack_upload_budget = 16u << 20;     // bytes of replacement uploads per frame (FCP_TEXTURE_UPLOAD_MB)
+  uint64_t pack_budget_frame = ~0ull, pack_budget_used = 0;
+  uint64_t pack_dump_frame = ~0ull, pack_dump_bytes = 0;  // re-conversions for dumps in this frame
+  uint64_t pack_keys = 0, pack_skipped = 0, pack_volatile = 0, pack_dumps = 0, pack_binds = 0, pack_uploads = 0;
+  uint64_t pack_upload_bytes = 0, pack_key_us = 0, pack_dump_us = 0, pack_upload_us = 0, pack_frames_upload_capped = 0;
+  uint64_t pack_logged_binds = 0, pack_logged_dumps = 0;
+
   nvrhi::BufferHandle up_ring, index_ring, quad_pattern, fan_pattern;
   uint32_t up_slot = 0;
   uint64_t up_used = 0, index_used = 0;
@@ -658,10 +775,55 @@ struct GameRenderer::Impl {
   nvrhi::FramebufferHandle smaa_in_fb;
   uint32_t smaa_out_slot = 0, smaa_w = 0, smaa_h = 0;
   uint64_t smaa_frames = 0;
+  // --- Ambient occlusion ([graphics] ao; core/ao_pass.h) ------------------------------------------------------
+  // Where it goes in (measured in the frame traces, docs: ambient occlusion report): the 3D world goes with depth
+  // test into one screen-sized colour target and its depth (the tiling target 1280x736). The occlusion is
+  // multiplied in once per 3D view, after its opaque draws (depth test and depth write on, no blending) and before
+  // the first draw into that colour target that blends, the first resolve or clear of that target or its depth, or a
+  // draw that writes its depth with another colour target. Projection from the camera hook (SetCameraProjection),
+  // depth mapping from the viewport of the opaque draws. Left out (log, FCP_TRACE_AO) when something does not fit:
+  // no projection yet, the projection's shape not the view's, a projection that is not PerspectiveFovRH.
+  std::unique_ptr<AoPass> ao;
+  bool ao_failed = false;
+  struct AoView {
+    bool pending = false;
+    Target* color = nullptr;
+    Target* depth = nullptr;
+    float vport[6] = {};      // PA_CL_VPORT of the opaque draws: x scale, x offset, y scale, y offset, z scale, z offset
+    uint32_t vte = 0, clip = 0, opaque = 0, kept = 0;
+    uint32_t window_offset = 0;
+    bool half_pixel = false;  // PA_SU_VTX_CNTL pixel centre: +0.5 (ComputeViewport)
+    uint32_t depth_control = 0;  // RB_DEPTHCONTROL of the first opaque draw (which way the depth runs)
+  } ao_view;
+  std::vector<std::array<float, 4>> ao_done;  // views (guest viewport) that got their occlusion this frame
+  std::mutex proj_mutex;                      // camera hook (any thread) -> render thread; never held with another
+  float proj_m[16] = {};
+  float proj_far = 0;
+  uint64_t proj_count = 0;
+  uint64_t ao_applied = 0, ao_frames = 0, ao_skipped_shape = 0, ao_skipped_proj = 0, ao_dropped = 0;
+  uint64_t ao_applied_at_swap = 0, ao_swaps = 0, ao_opaque_after = 0;
+  std::set<std::string> ao_traced;
+  nvrhi::TimerQueryHandle ao_timer[4];
+  uint32_t ao_timer_next = 0, ao_timer_pending = 0;
+  double ao_ms_sum = 0;
+  uint32_t ao_ms_n = 0;
   bool overlay_failed = false;
   nvrhi::CommandListHandle overlay_cl;
   uint64_t overlay_frames = 0, overlay_draws = 0;
   std::string present_dump;  // RequestPresentDump: at the next EndPresent
+  // --- HDR10 output ([display] hdr; core/hdr_pass.h) ------------------------------------------------------------
+  // With an HDR10 swapchain the SDR present path draws into hdr_sdr (RGBA8, the swapchain's size) instead of the
+  // swapchain; the HDR10 pass maps it into the swapchain, the overlay follows at paper white. Off: nothing of this.
+  DisplayHdrInfo display_hdr;
+  bool hdr_on = false;        // the swapchain is HDR10 and the pass is ready
+  bool hdr_pending = false;   // SetHdr: switch at the next present
+  std::unique_ptr<HdrPass> hdr_pass;
+  bool hdr_pass_failed = false;
+  HdrLevels hdr_levels;
+  nvrhi::TextureHandle hdr_sdr;
+  nvrhi::FramebufferHandle hdr_sdr_fb;
+  float hdr_rect[4] = {};     // the picture inside the swapchain image (x, y, w, h) of the latest present
+  uint64_t hdr_frames = 0;
 
   // --- Occlusion queries (opt.query_mode == 2) -----------------------------------------------------------
   // A guest query can span several command lists (flush after kMaxDrawsPerList); it then has one host slot per
@@ -823,7 +985,20 @@ struct GameRenderer::Impl {
       sx = sy = 1.0f;
     }
   }
-  bool IsScreenTarget(uint32_t w, uint32_t h) const { return w >= opt.scale_min_width && w > h; }
+  bool IsScreenTarget(uint32_t w, uint32_t h) const {
+    return w >= opt.scale_min_width && (w > h || (opt.split_views && IsSplitHalf(w, h)));
+  }
+  // Split screen with 2 players side by side: each view renders into its own 640x720 target (tiling 640x736), then is
+  // resolved into its half of the 1280x720 picture (measured, m20_shantytown). As a screen target it gets the screen's
+  // factors, like the quarters (640x360) of 3 and 4 players and the halves of the horizontal split; else it stayed at
+  // the console's size and was stretched into the wide picture. The camera widens it as well (fcp/camera_fov.cpp).
+  static bool IsSplitHalf(uint32_t w, uint32_t h) { return w == 640 && (h == 720 || h == 736); }
+  // The targets of a split screen's views: halves (640x720, 1280x360), quarters (640x360); 368 and 736 are the
+  // tiling heights of 360 and 720.
+  static bool IsSplitTarget(uint32_t w, uint32_t h) {
+    return (w == 640 && (h == 720 || h == 736 || h == 360 || h == 368)) || (w == 1280 && (h == 360 || h == 368));
+  }
+  static uint32_t SplitViewHeight(uint32_t h) { return h == 368 ? 360 : h == 736 ? 720 : h; }
 
   // --- Hor+ -------------------------------------------------------------------------------------------------
   // Anamorphic: screen-sized targets are cur_wide times wider on the host, the guest coordinates stay (1280 wide).
@@ -847,6 +1022,41 @@ struct GameRenderer::Impl {
   float front_aspect = 16.0f / 9.0f;  // its shape (fixed resolution: the targets may have another one)
   uint64_t wide_frames = 0, narrow_draws = 0, full_draws = 0, unknown_boxes = 0;
   std::set<uint64_t> wide_traced;  // FCP_TRACE_WIDE: kinds already logged
+  // HUD at the edges and screen masks (HorPlusNarrow, Draw). Decision for the draw HorPlusNarrow last returned true for:
+  struct HudDecision {
+    bool known = false;  // box read
+    bool mask = false;   // screen mask: narrowed whole, not cut to the band, sides filled
+    int ax = 0, ay = 0;  // anchor: -1 left/top, 0 band, +1 right/bottom
+    float box[4] = {};   // guest pixels x0, y0, x1, y1
+    int view = -1;       // split screen: the view the draw belongs to (-1: the screen)
+    float vr[4] = {};    // that view's rectangle (guest pixels), else the whole target
+  } hud;
+  struct MaskSpan {
+    float box[4];
+    uint32_t count;
+    int view = -1;  // split screen: the view it covers (index into views_*; -1: the screen)
+  };
+  // Split screen (GameRendererOptions::split_views): the views of this and the last frame, in guest pixels of the
+  // screen target (x0, y0, x1, y1), from the viewports of the 3D draws that are a part of the target. With one view
+  // (single player) none is listed and everything works about the screen as before.
+  struct SplitView {
+    float r[4];
+  };
+  SplitView views_now[4] = {}, views_last[4] = {};
+  int n_views_now = 0, n_views_last = 0;
+  uint64_t stat_split_frames = 0, stat_view_hud = 0, stat_view_masks = 0, stat_window_offset = 0;
+  std::set<uint64_t> views_logged;
+  MaskSpan masks_now[8] = {}, masks_last[8] = {};  // screen masks of this and the last frame (nesting, HUD anchors)
+  int n_masks_now = 0, n_masks_last = 0;
+  struct HudRow {
+    float top, bottom;
+  };
+  HudRow rows_now[16] = {}, rows_last[16] = {};  // rows of the message column (hints) of this and the last frame
+  int n_rows_now = 0, n_rows_last = 0;
+  bool hud_cover = false;  // this frame: a quad of the HUD covered the screen (pause menu's dimming): the rest stays
+  uint64_t hud_vs_now = 0, hud_vs_last = 0;  // vertex shader of the band's 2D draws (this and the last frame)
+  std::set<uint64_t> masks_logged;           // kinds of screen masks already in the log
+  uint64_t stat_masks = 0, stat_fills = 0, stat_anchored = 0, stat_covered = 0;
   // Aspect of the 3D picture -> factor over 16:9 (1: off). Up to 1 % above 16:9 counts as 16:9.
   float PictureAspect(uint32_t swap_w, uint32_t swap_h) const {
     return opt.aspect > 0.0f ? opt.aspect : (swap_w && swap_h ? float(swap_w) / float(swap_h) : 16.0f / 9.0f);
@@ -893,6 +1103,7 @@ struct GameRenderer::Impl {
   fcshaders::ScaleConstants scale_c{}, last_scale_c{};
   uint64_t scale_epoch = 0;
   float tex_inv_x = 1.0f, tex_inv_y = 1.0f;  // from Texture(): guest/host of the last returned texture
+  bool tex_depth = false;                    // from Texture(): the last returned texture is a depth resolve
 
   // Scales a rectangle edge (guest pixels -> host pixels).
   static int32_t ScaleEdge(int32_t v, float s) { return s == 1.0f ? v : int32_t(std::lround(double(v) * s)); }
@@ -1545,6 +1756,12 @@ struct GameRenderer::Impl {
     ho.debug = opt.debug;
     ho.split_present = opt.present_unlocked;
     ho.pipeline_cache_path = opt.api == HostApi::kVulkan ? opt.driver_pipeline_cache : std::string();
+    if (window) {
+      // [display] hdr: what the monitor reports (read only), then whether the swapchain becomes HDR10.
+      display_hdr = QueryDisplayHdr(window);
+      LogDisplayHdr("start");
+      ho.hdr = WantHdr();
+    }
     const auto t0 = Clock::now();
     host = CreateHostDevice(ho, error);
     if (!host) return false;
@@ -1577,6 +1794,9 @@ struct GameRenderer::Impl {
         opt.aspect > 0.0f ? "fixed" : "auto (output)", cur_wide, cur_tall, HostSize(1280, cur_sx), HostSize(720, cur_sy),
         opt.resolution_mode == 1 ? "resolution native" : opt.resolution_mode == 2 ? "resolution fixed" : "from the scale",
         Shaped() ? "" : " - 16:9: bars as before");
+    Log("renderer: HUD layout %s (hud_aspect %.4f), screen masks %s, split screen views %s", opt.hud_aspect <= 0.0f ? "auto (the picture's edges)"
+        : std::fabs(opt.hud_aspect - 16.0f / 9.0f) < 1e-3f ? "16:9 (band, as before)" : "box", opt.hud_aspect,
+        opt.screen_masks ? "on" : "off (FCP_RENDER_SCREEN_MASK=0)", opt.split_views ? "on" : "off (FCP_RENDER_SPLIT_VIEW=0)");
     char an[16];
     std::snprintf(an, sizeof(an), "%ux", opt.aniso);
     if (opt.msaa && opt.msaa_samples > 1) {
@@ -1587,10 +1807,61 @@ struct GameRenderer::Impl {
     if (!opt.msaa) std::snprintf(ms, sizeof(ms), "off");
     else if (!screen_samples) std::snprintf(ms, sizeof(ms), "like the console");
     else std::snprintf(ms, sizeof(ms), "screen targets %ux (requested %u, device up to %u)", screen_samples, opt.msaa_samples, host->max_samples());
-    Log("renderer: graphics: scale %s%.3f (screen targets from guest width %u), shadows %.3f, anisotropy %s, MSAA %s, SMAA %s",
+    Log("renderer: graphics: scale %s%.3f (screen targets from guest width %u), shadows %.3f, anisotropy %s, MSAA %s, SMAA %s, "
+        "AO %s (resolution %s, strength %.2f%s)",
         opt.scale_auto ? "auto = " : "", cur_scale, opt.scale_min_width, opt.shadow_scale, opt.aniso > 1 ? an : "as the game",
-        ms, opt.smaa ? "on" : "off");
-    return InitObjects(error);
+        ms, opt.smaa ? "on" : "off", opt.ao == 2 ? "GTAO" : opt.ao ? "SSAO" : "off",
+        opt.ao_resolution == 1 ? "full" : opt.ao_resolution == 2 ? "half" : "auto", opt.ao_strength,
+        opt.ao_debug ? ", FCP_AO_DEBUG" : "");
+    if (!InitObjects(error)) return false;
+    if (host->has_swapchain()) SettleHdr(ho.hdr, "start");
+    return true;
+  }
+
+  // --- HDR10 output ----------------------------------------------------------------------------------------
+  bool WantHdr() const { return opt.hdr == 1 || (opt.hdr == 2 && display_hdr.enabled); }
+
+  void LogDisplayHdr(const char* when) {
+    const DisplayHdrInfo& d = display_hdr;
+    Log("renderer: display HDR %s (%s: DXGI output %s, %u bits, peak %.0f nits, full frame %.0f, min %.4f, Windows SDR "
+        "white %.0f nits); [display] hdr = %s",
+        d.enabled ? "on" : "off", when, d.found ? d.device.c_str() : "not found", d.bits, d.max_nits, d.max_full_frame_nits,
+        d.min_nits, d.sdr_white_nits, opt.hdr == 1 ? "on" : opt.hdr == 2 ? "auto" : "off");
+  }
+
+  void UpdateHdrLevels() {
+    hdr_levels = HdrLevelsFor(opt.hdr_paper_white, opt.hdr_peak, opt.hdr_boost, display_hdr.sdr_white_nits, display_hdr.max_nits,
+                              opt.hdr_gamma);
+    hdr_levels.test_pattern = opt.hdr_test_pattern ? 1u : 0u;
+  }
+
+  // After the swapchain was made or switched: the pass for HDR10, else back to SDR; one log line either way.
+  void SettleHdr(bool wanted, const char* when) {
+    if (host->hdr_active() && !hdr_pass && !hdr_pass_failed) {
+      auto pass = std::make_unique<HdrPass>();
+      std::string e;
+      if (pass->Init(dev, opt.api, &e)) hdr_pass = std::move(pass);
+      else hdr_pass_failed = true, Log("renderer: HDR10 pass not available: %s", e.c_str());
+    }
+    if (host->hdr_active() && !hdr_pass) {
+      back_fbs.clear();
+      host->SetHdr(false);
+    }
+    hdr_on = host->hdr_active() && hdr_pass;
+    UpdateHdrLevels();
+    if (hdr_on) {
+      Log("renderer: HDR10 output (%s): swapchain R10G10B10A2, PQ / BT.2020; paper white %.0f nits, peak %.0f nits, "
+          "highlight gain x%.2f, gamma %.2f%s%s",
+          when, hdr_levels.paper_white, hdr_levels.peak, hdr_levels.gain, hdr_levels.gamma,
+          display_hdr.enabled ? "" : " - Windows HDR is off for this monitor: Windows shows the picture converted to SDR",
+          hdr_levels.test_pattern ? ", FCP_HDR_TEST_PATTERN" : "");
+    } else if (wanted) {
+      Log("renderer: HDR10 not available (%s): %s; SDR as before", when,
+          !host->hdr_note().empty() ? host->hdr_note().c_str() : hdr_pass_failed ? "no HDR10 pass" : "?");
+    } else {
+      Log("renderer: output SDR (%s)%s", when,
+          opt.hdr == 2 ? ", [display] hdr = auto and Windows HDR off for this monitor" : "");
+    }
   }
 
   bool InitObjects(std::string* error) {
@@ -1603,6 +1874,26 @@ struct GameRenderer::Impl {
     if (!tl.Init(dev, caps, error)) return false;
     slot_recycle = opt.slot_recycle;
     if (!slot_recycle) Log("renderer: FCP_RENDER_SLOT_RECYCLE=0: bindless slots are never reused (old behaviour)");
+    alloc_limit_override = opt.alloc_limit;
+    if (opt.test_allocs) {
+      // Diagnostics: the allocation count of a long session from the start (one small buffer = one allocation).
+      nvrhi::BufferDesc d;
+      d.byteSize = 256;
+      d.initialState = nvrhi::ResourceStates::ShaderResource;
+      d.keepInitialState = true;
+      d.debugName = "test allocation";
+      uint32_t failed = 0;
+      for (uint32_t i = 0; i < opt.test_allocs; ++i) {
+        nvrhi::BufferHandle b = dev->createBuffer(d);
+        if (b) test_allocs.push_back(b);
+        else ++failed;
+      }
+      Log("renderer: FCP_RENDER_TEST_ALLOCS=%u: %zu extra allocations held, %u refused (device limit %u)", opt.test_allocs,
+          test_allocs.size(), failed, host->max_allocations());
+    }
+    Log("renderer: device allocations: limit %u%s, guest textures %s, eviction at 3/4 of it %s", host->max_allocations(),
+        host->max_allocations() ? "" : " (none)", host->pooled_textures() ? "pooled" : "one allocation each",
+        !opt.alloc_evict ? "off (FCP_RENDER_ALLOC_EVICT=0)" : !slot_recycle ? "off (FCP_RENDER_SLOT_RECYCLE=0)" : "on");
     std::string e;
     solid_ps = CreateBuiltinShader(dev, opt.api, BuiltinShader::kSolidPS, &e);
     blit_vs = CreateBuiltinShader(dev, opt.api, BuiltinShader::kBlitVS, &e);
@@ -1671,6 +1962,18 @@ struct GameRenderer::Impl {
     }
     if (const char* tw = std::getenv("FCP_RENDER_TEXTURE_WORKERS"); !tw || std::string(tw) != "0")
       tex_workers = std::make_unique<res::TextureConversionWorkers>(std::min(3u, AutoPipelineThreads()));
+    if (!opt.texture_dump_dir.empty() || !opt.texture_replace_dir.empty()) {
+      pack::Options po;
+      po.dump = !opt.texture_dump_dir.empty();
+      po.replace = !opt.texture_replace_dir.empty();
+      po.dump_dir = std::filesystem::path(std::u8string(opt.texture_dump_dir.begin(), opt.texture_dump_dir.end()));
+      po.replace_dir = std::filesystem::path(std::u8string(opt.texture_replace_dir.begin(), opt.texture_replace_dir.end()));
+      po.log = opt.log;
+      pack_upload_budget = uint64_t(std::max<uint32_t>(opt.texture_upload_mb, 1)) << 20;
+      tpack = std::make_unique<pack::TexturePack>(po);
+      Log("renderer: texture pack: dump %s, replace %s, uploads up to %u MB per frame", po.dump ? "on" : "off",
+          po.replace ? "on" : "off", unsigned(pack_upload_budget >> 20));
+    }
     StartPrewarm();
     return true;
   }
@@ -1843,6 +2146,32 @@ struct GameRenderer::Impl {
     return h;
   }
 
+  // Pooled texture memory (FCP_RENDER_VK_TEXTURE_POOL) is not zeroed like a dedicated allocation: subresources the
+  // conversion leaves unwritten get zeros (as in King Kong's ZeroUnwrittenSubresources, task 304).
+  void ZeroUnwritten(nvrhi::ICommandList* c, nvrhi::ITexture* tex, const res::HostTextureData& data) {
+    const nvrhi::TextureDesc& d = tex->getDesc();
+    const bool volume = d.dimension == nvrhi::TextureDimension::Texture3D;
+    const uint32_t layers = volume ? 1u : std::max(d.arraySize, 1u);
+    if (data.subresources.size() >= size_t(d.mipLevels) * layers) return;
+    const nvrhi::FormatInfo& f = nvrhi::getFormatInfo(d.format);
+    const uint32_t block = std::max<uint32_t>(f.blockSize, 1);
+    std::vector<uint8_t> zeros;
+    for (uint32_t layer = 0; layer < layers; ++layer)
+      for (uint32_t level = 0; level < d.mipLevels; ++level) {
+        bool written = false;
+        for (const res::HostSubresource& s : data.subresources) written = written || (s.level == level && s.layer == layer);
+        if (written) continue;
+        const uint32_t w = std::max(d.width >> level, 1u), h = std::max(d.height >> level, 1u);
+        const uint32_t depth = volume ? std::max(d.depth >> level, 1u) : 1u;
+        const size_t row = size_t((w + block - 1) / block) * f.bytesPerBlock;
+        const size_t slice = row * ((h + block - 1) / block);
+        if (zeros.size() < slice * depth) zeros.resize(slice * depth, 0);
+        c->writeTexture(tex, layer, level, zeros.data(), row, slice);
+        ++zeroed_subresources;
+      }
+  }
+  uint64_t zeroed_subresources = 0;
+
   bool CreateTexture(GuestTex& t, const res::HostTextureData& data, nvrhi::ICommandList* c, bool rewrite) {
     const res::HostTexturePlan& p = data.plan;
     nvrhi::TextureDesc d;
@@ -1868,8 +2197,9 @@ struct GameRenderer::Impl {
       d.initialState = nvrhi::ResourceStates::ShaderResource;
       d.keepInitialState = true;
       d.debugName = "guest texture";
-      nvrhi::TextureHandle nt = dev->createTexture(d);
-      if (!nt) return false;
+      d.allowPlacedMemory = true;  // Vulkan: a range of a pooled block (host_vulkan, FCP_RENDER_VK_TEXTURE_POOL)
+      nvrhi::TextureHandle nt = SimulatedRefusal() ? nullptr : dev->createTexture(d);
+      if (!nt) return alloc_failed = true, false;
       if (t.tex) retired.emplace_back(frame, t.tex);
       const auto mapping = res::ToNvrhiMapping(p.view_swizzle);
       if (rewrite && t.slot && t.table == table) {
@@ -1886,6 +2216,7 @@ struct GameRenderer::Impl {
     }
     for (const res::HostSubresource& s : data.subresources)
       c->writeTexture(t.tex, s.layer, s.level, data.bytes.data() + s.offset, s.row_pitch, s.depth_pitch);
+    if (!same && host && host->pooled_textures()) ZeroUnwritten(c, t.tex, data);
     c->setTextureState(t.tex, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
     t.plan = p;
     return true;
@@ -1975,20 +2306,235 @@ struct GameRenderer::Impl {
     return entry->slot;
   }
 
+  // --- Texture packs (core/texture_pack.h) ------------------------------------------------------------------
+  // After every conversion (new or rewritten texture): the name, a dump in kDumpSettle frames, a new look-up of the
+  // replacement. Textures the game keeps rewriting (video) take no part.
+  void PackConverted(GuestTex& t, const res::TextureFetch& f, const res::HostTextureData& data) {
+    const auto t0 = Clock::now();
+    DropReplacement(t);
+    t.pack_key = 0, t.pack_kind = pack::Kind::kNone, t.dump_at = 0;
+    t.rep_rev = 0, t.rep_gen = 0, t.rep_failed = false;
+    if (t.volatile_data) {
+      ++pack_volatile;
+      return;
+    }
+    const char* why = "";
+    const pack::Kind kind = pack::Classify(data.plan, &why);
+    if (kind == pack::Kind::kNone) {
+      ++pack_skipped;
+      Once(std::string("packskip") + why, "renderer: texture pack: textures not dumped or replaced: %s", why);
+      return;
+    }
+    t.pack_kind = kind;
+    t.pack_key = pack::Key(f, phys, data, kind);
+    if (t.pack_key) ++pack_keys;
+    if (t.pack_key && tpack->Dumping() && tpack->WantsDump(t.pack_key)) t.dump_at = frame + kDumpSettle;
+    pack_key_us += uint64_t(MsSince(t0) * 1000);
+  }
+
+  // The texture's replacement view (and its share of the uploaded texture) goes.
+  void DropReplacement(GuestTex& t) {
+    if (!t.rep_slot) return;
+    ReleaseSlot(t.rep_table, t.rep_slot);
+    t.rep_slot = 0;
+    auto it = pack_tex.find(PackTexKey{t.pack_key, t.rep_gen});
+    if (it != pack_tex.end() && it->second.views && --it->second.views == 0) {
+      if (it->second.tex) retired.emplace_back(frame, it->second.tex);
+      pack_tex.erase(it);
+    }
+  }
+
+  // Dump due: converted again from guest memory (unchanged since kDumpSettle frames) and handed to the pack's worker.
+  // At most 32 MB of conversions per frame; the rest follows in the next frames.
+  void PackDump(GuestTex& t, const uint32_t words[6]) {
+    if (pack_dump_frame != frame) pack_dump_frame = frame, pack_dump_bytes = 0;
+    if (pack_dump_bytes >= (32u << 20)) return;
+    const auto t0 = Clock::now();
+    t.dump_at = 0;
+    if (!tpack->WantsDump(t.pack_key)) return;
+    const res::TextureFetch f = res::TextureFetch::FromWords(words);
+    res::HostTextureData data, file;
+    if (!res::ConvertTexture(f, phys, data, nullptr, res::TextureOptions(), tex_workers.get()) ||
+        pack::Key(f, phys, data, t.pack_kind) != t.pack_key || !pack::DumpData(data, t.pack_kind, file))
+      return;
+    pack_dump_bytes += data.bytes.size();
+    const std::string name = pack::DumpName(t.pack_key, f, data.plan, t.pack_kind);
+    const std::string info = pack::DumpInfo(t.pack_key, f, data.plan, t.pack_kind);
+    if (tpack->Dump(t.pack_key, name, info, std::move(file))) {
+      ++pack_dumps;
+      if (pack_logged_dumps++ < 20) Log("renderer: texture pack: dump %s", name.c_str());
+    } else if (tpack->WantsDump(t.pack_key)) {
+      t.dump_at = frame + 30;  // the worker's queue is full
+    }
+    pack_dump_us += uint64_t(MsSince(t0) * 1000);
+  }
+
+  // Binding of a texture with a pack name: dump when due; the replacement's view once it is loaded and uploaded, else
+  // `slot` (the game's texture). Uploads are limited to pack_upload_budget bytes per frame and may take several frames.
+  uint32_t PackSlot(GuestTex& t, const uint32_t words[6], uint32_t slot, nvrhi::ICommandList* c) {
+    if (t.dump_at && frame >= t.dump_at) PackDump(t, words);
+    if (!tpack->Replacing()) return slot;
+    const uint32_t rev = tpack->Revision();
+    if (t.rep_rev != rev) {
+      t.rep_rev = rev;
+      const uint32_t gen = tpack->FileGen(t.pack_key);
+      if (gen != t.rep_gen) {
+        DropReplacement(t);
+        t.rep_gen = gen;
+        t.rep_failed = false;
+      }
+    }
+    if (!t.rep_gen || t.rep_failed) return slot;
+    if (!t.rep_slot && !PackPrepare(t, c)) return slot;
+    tex_inv_x = t.rep_inv_x, tex_inv_y = t.rep_inv_y;
+    ++pack_binds;
+    return t.rep_slot;
+  }
+
+  bool PackPrepare(GuestTex& t, nvrhi::ICommandList* c) {
+    PackTex& r = pack_tex[PackTexKey{t.pack_key, t.rep_gen}];
+    r.used_frame = frame;
+    const bool cube = t.plan.dimension == res::Dimension::kCube;
+    if (!r.tex) {
+      if (!r.data) {
+        std::shared_ptr<const res::HostTextureData> d;
+        switch (tpack->Find(t.pack_key, t.rep_gen, d)) {
+          case pack::TexturePack::Lookup::kNone: t.rep_failed = true; return false;
+          case pack::TexturePack::Lookup::kLoading: return false;
+          case pack::TexturePack::Lookup::kReady: r.data = std::move(d); break;
+        }
+      }
+      const res::HostTexturePlan& p = r.data->plan;
+      if ((p.dimension == res::Dimension::kCube) != cube) {
+        char key[24];
+        std::snprintf(key, sizeof key, "%016llx", (unsigned long long)t.pack_key);
+        Once(std::string("packshape") + key,
+             cube ? "renderer: texture pack: %s is a cube map, the replacement is not (a cube DDS is needed)"
+                  : "renderer: texture pack: %s is a 2D texture, the replacement is a cube map",
+             key);
+        t.rep_failed = true;
+        r.data.reset();
+        return false;
+      }
+      nvrhi::TextureDesc d;
+      d.width = p.width;
+      d.height = p.height;
+      d.mipLevels = p.levels;
+      d.format = res::ToNvrhi(p.format);
+      d.dimension = cube ? nvrhi::TextureDimension::TextureCube : nvrhi::TextureDimension::Texture2D;
+      d.arraySize = cube ? 6 : 1;
+      d.initialState = nvrhi::ResourceStates::ShaderResource;
+      d.keepInitialState = true;
+      d.debugName = "texture pack replacement";
+      r.tex = dev->createTexture(d);
+      if (!r.tex) {
+        t.rep_failed = true;
+        r.data.reset();
+        return false;
+      }
+      r.width = p.width, r.height = p.height, r.cube = cube;
+    }
+    if (!r.done) {
+      if (pack_budget_frame != frame) pack_budget_frame = frame, pack_budget_used = 0;
+      const auto t0 = Clock::now();
+      const std::vector<res::HostSubresource>& subs = r.data->subresources;
+      while (r.next < subs.size()) {
+        const res::HostSubresource& s = subs[r.next];
+        if (pack_budget_used && pack_budget_used + s.size > pack_upload_budget) break;
+        c->writeTexture(r.tex, s.layer, s.level, r.data->bytes.data() + s.offset, s.row_pitch, s.depth_pitch);
+        pack_budget_used += s.size, pack_upload_bytes += s.size;
+        ++r.next;
+      }
+      pack_upload_us += uint64_t(MsSince(t0) * 1000);
+      if (r.next < subs.size()) {
+        ++pack_frames_upload_capped;
+        return false;
+      }
+      c->setTextureState(r.tex, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+      r.done = true;
+      r.data.reset();
+      ++pack_uploads;
+    }
+    const Table table = cube ? Table::kTexCube : Table::kTex2D;
+    const uint16_t swz = pack::ReplacementSwizzle(t.pack_kind, t.plan.view_swizzle);
+    const uint32_t s = tl.AddTextureView(table, r.tex, res::ToNvrhiMapping(swz),
+                                         cube ? nvrhi::TextureDimension::TextureCube : nvrhi::TextureDimension::Texture2D);
+    if (!s) {
+      Once("packfull", "renderer: texture pack: texture table full (%s), the game's texture is drawn meanwhile",
+           slot_recycle ? "evicting unused textures" : "slot recycling off");
+      if (slot_recycle) evict_now = true;
+      return false;
+    }
+    t.rep_slot = s;
+    t.rep_table = table;
+    ++r.views;
+    t.rep_inv_x = float(t.plan.width) / float(r.width);
+    t.rep_inv_y = float(t.plan.height) / float(r.height);
+    if (pack_logged_binds++ < 40)
+      Log("renderer: texture pack: %016llx drawn with its replacement (%ux%u for %ux%u%s)", (unsigned long long)t.pack_key,
+          r.width, r.height, t.plan.width, t.plan.height, cube ? ", cube" : "");
+    return true;
+  }
+
+  // At a swap: the folder watch, and uploaded replacements no view uses any more (half uploaded ones of evicted
+  // textures) after kEvictAge frames.
+  void PackFrame() {
+    tpack->Frame();
+    if (frame % 120) return;
+    for (auto it = pack_tex.begin(); it != pack_tex.end();) {
+      if (!it->second.views && it->second.used_frame + kEvictAge < frame) {
+        if (it->second.tex) retired.emplace_back(frame, it->second.tex);
+        it = pack_tex.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  std::string PackStats() const {
+    char line[512];
+    std::snprintf(line, sizeof line,
+                  "%llu textures named (%.1f ms), %llu not taking part, %llu rewritten constantly; %llu dumps handed over "
+                  "(%.1f ms); %llu replacements uploaded (%llu MB, %.1f ms, %llu times over the frame budget), %llu "
+                  "bindings replaced, %zu replacement textures",
+                  (unsigned long long)pack_keys, pack_key_us / 1000.0, (unsigned long long)pack_skipped,
+                  (unsigned long long)pack_volatile, (unsigned long long)pack_dumps, pack_dump_us / 1000.0,
+                  (unsigned long long)pack_uploads, (unsigned long long)(pack_upload_bytes >> 20), pack_upload_us / 1000.0,
+                  (unsigned long long)pack_frames_upload_capped, (unsigned long long)pack_binds, pack_tex.size());
+    return line;
+  }
+
   uint32_t Texture(const uint32_t words[6], nvrhi::ICommandList* c) {
     GuestTex* g = nullptr;
     const uint32_t slot = TextureOf(words, c, g);
-    if (g && g->replace_kind >= 0 && replace_source && slot) return ReplacedSlot(*g, slot, c);
+    if (g && g->replace_kind >= 0 && replace_source && slot) {
+      // button glyphs first; where the prompt module keeps the game's page (Xbox style), a texture pack may replace it
+      const uint32_t glyphs = ReplacedSlot(*g, slot, c);
+      if (glyphs != slot) return glyphs;
+    }
+    if (g && g->pack_key && slot) return PackSlot(*g, words, slot, c);
     return slot;
   }
 
   uint32_t TextureOf(const uint32_t words[6], nvrhi::ICommandList* c, GuestTex*& out) {
     const res::TextureFetch f = res::TextureFetch::FromWords(words);
     tex_inv_x = tex_inv_y = 1.0f;
+    tex_depth = false;
     if (f.Type() != 2) return 0;
     if (auto it = resolved.find(f.BaseAddress()); it != resolved.end() && f.BaseAddress()) {
       Resolved& r = it->second;
+      if (f.Width() != r.gw || f.Height() != r.gh) {
+        // Diagnostics (issue #1): a fetch at the base of a resolve target with another size, i.e. probably a guest
+        // texture that now lives where a resolve target once was.
+        ++stale_resolve_binds;
+        if (stale_resolve_logged++ < 16)
+          Log("renderer: fetch at resolve target base %08X with another size: fetch %ux%u format %u, target %ux%u "
+              "(resolved in frame %llu, now frame %llu)", f.BaseAddress(), f.Width(), f.Height(), unsigned(f.Format()),
+              r.gw, r.gh, (unsigned long long)r.frame, (unsigned long long)frame);
+      }
       tex_inv_x = 1.0f / r.sx, tex_inv_y = 1.0f / r.sy;  // guest texels per host texel (kk_GuestSize in the shader)
+      ++r.interval_binds;
+      tex_depth = r.depth;
       const uint16_t key = ConstantSwizzleKey(f.Swizzle());
       if (!key) return r.slot;
       if (auto v = r.views.find(key); v != r.views.end()) return v->second;
@@ -2041,7 +2587,21 @@ struct GameRenderer::Impl {
     res::HostTextureData data;
     std::string why;
     table_full = false;
+    alloc_failed = false;
     if (!res::ConvertTexture(f, phys, data, &why, res::TextureOptions(), tex_workers.get()) || !CreateTexture(t, data, c, !inserted)) {
+      if (alloc_failed) {
+        // The device refused the texture (allocation limit or out of memory): logged, unused resources evicted at the
+        // next swap, the texture tried again after a second (FCP_RENDER_ALLOC_EVICT=0: given up as before).
+        char detail[96];
+        std::snprintf(detail, sizeof(detail), "%ux%u, %u levels, format %u", data.plan.width, data.plan.height,
+                      data.plan.levels, unsigned(f.Format()));
+        AllocFailureLog("texture", ++alloc_fail_tex, detail);
+        if (opt.alloc_evict && slot_recycle) {
+          alloc_pressure = true;
+          if (inserted) t.failed = true, t.retry_frame = frame + 60;
+          return 0;
+        }
+      }
       if (table_full) {
         // No free slot: logged once; with slot recycling the next eviction pass frees slots, try again then.
         Once("tablefull", "renderer: texture table full (%s), textures without a slot are drawn with the black fallback",
@@ -2064,6 +2624,7 @@ struct GameRenderer::Impl {
     }
     t.hash = h;
     t.replace_kind = ClassifyForReplace(data);
+    if (tpack) PackConverted(t, f, data);
     tex_convert_us += uint64_t(MsSince(t1) * 1000);
     if ((Tracing() || diag_dump_textures) && !opt.dump_pattern.empty() && data.plan.format == res::HostFormat::RGBA8_UNORM &&
         t.table == Table::kTex2D && data.plan.width >= 256) {
@@ -2089,6 +2650,7 @@ struct GameRenderer::Impl {
     const uint8_t* data = phys.At(physical, bytes);
     if (!data) return 0;
     const uint64_t key = (uint64_t(physical) << 32) | bytes;
+    if (frame < buf_retry_frame && !buffers.count(key)) return 0;  // a creation failed just now (see below)
     auto [it, inserted] = buffers.try_emplace(key);
     GuestBuf& b = it->second;
     b.used_frame = frame;
@@ -2126,8 +2688,18 @@ struct GameRenderer::Impl {
       d.initialState = nvrhi::ResourceStates::ShaderResource;
       d.keepInitialState = true;
       d.debugName = "guest vertex buffer";
-      b.buf = dev->createBuffer(d);
-      if (!b.buf) return 0;
+      b.buf = SimulatedRefusal() ? nullptr : dev->createBuffer(d);
+      if (!b.buf) {
+        // Refused by the device (GitHub issue #1): logged, the entry dropped so the next use tries again (it used to stay
+        // without a buffer and the stream read zeros).
+        char detail[48];
+        std::snprintf(detail, sizeof(detail), "%u bytes", bytes);
+        AllocFailureLog("vertex buffer", ++alloc_fail_buf, detail);
+        buffers.erase(it);
+        buf_retry_frame = frame + 30;  // no new buffer creations for half a second (one failed call per draw costs)
+        if (opt.alloc_evict && slot_recycle) alloc_pressure = true;
+        return 0;
+      }
       b.slot = tl.AddBuffer(b.buf);
       if (!b.slot) {
         Once("buffull", "renderer: vertex buffer table full (%s), draws without a slot lose that vertex stream",
@@ -2159,6 +2731,7 @@ struct GameRenderer::Impl {
     uint64_t hash = 0;
     bool watched = false, volatile_data = false;
     uint64_t last_change_frame = ~0ull;
+    uint64_t used_frame = 0;  // last frame that drew with it (eviction under allocation pressure)
   };
   std::unordered_map<uint64_t, GuestIdx> index_buffers;
   uint64_t idx_hits = 0, idx_converts = 0, idx_volatile = 0, idx_bytes = 0;
@@ -2173,6 +2746,7 @@ struct GameRenderer::Impl {
     const uint64_t key = (uint64_t(ib.physical) << 32) | (uint64_t(ib.index32) << 31) | (ib.size_bytes & 0x7FFFFFFFu);
     auto [it, inserted] = index_buffers.try_emplace(key);
     GuestIdx& e = it->second;
+    e.used_frame = frame;
     if (e.volatile_data) return nullptr;
     const bool dirty = TakeDirtyIn(dirty_pages_idx.get(), ib.physical, n * isize);
     if (!inserted && e.watched && !dirty) return ++idx_hits, e.buf.Get();
@@ -2195,8 +2769,13 @@ struct GameRenderer::Impl {
       d.initialState = nvrhi::ResourceStates::IndexBuffer;
       d.keepInitialState = true;
       d.debugName = "guest index buffer";
-      e.buf = dev->createBuffer(d);
+      e.buf = SimulatedRefusal() ? nullptr : dev->createBuffer(d);
       if (!e.buf) {
+        // Refused by the device: the ring path draws it (as before); counted and logged (GitHub issue #1).
+        char detail[48];
+        std::snprintf(detail, sizeof(detail), "%llu bytes", (unsigned long long)d.byteSize);
+        AllocFailureLog("index buffer", ++alloc_fail_idx, detail);
+        if (opt.alloc_evict && slot_recycle) alloc_pressure = true;
         e.volatile_data = true;  // never try again: old path
         return nullptr;
       }
@@ -2440,43 +3019,270 @@ struct GameRenderer::Impl {
     if (!color || !IsScreenTarget(color->gw, color->gh)) return false;
     const bool depth_test = depth && (depth_control & 2);
     if (depth_test) {
-      if (!frame_3d) frame_3d = true, view_surface = color->surface, view_gw = color->gw;
+      if (!frame_3d) frame_3d = true, view_surface = color->surface, view_gw = color->gw, view_gh = color->gh;
       return false;
     }
     // (Not into the view's own target: after a resolve in the middle of the scene more world draws without depth test
     // go there, measured VS 7AFF2B5C in 21_dunea; the HUD goes into its own target 1280x720.)
-    if (!frame_3d || !post_3d || color->surface == view_surface || color->gw != view_gw || !(color_mask & 0xF)) return false;
+    // Split screen: the views are 640 wide (or 360 high), the HUD of all of them goes into the screen-sized target at the
+    // end of the frame (measured): that one counts as the view's width too.
+    const bool split_hud = opt.split_views && IsSplitTarget(view_gw, view_gh) && color->gw >= 2 * 640 && color->gw > color->gh;
+    if (!frame_3d || !post_3d || color->surface == view_surface || (color->gw != view_gw && !split_hud) || !(color_mask & 0xF))
+      return false;
     float box[4];
     const bool known = DrawBox(r, d, box);
-    bool full = false;
+    // Window offset (PA_SC_WINDOW_OFFSET with PA_SU_SC_MODE_CNTL bit 16): the positions are the screen's, the target
+    // holds only a part of it (measured in the split screen with 4 players: the views on the right draw their post
+    // processing quad at x 639.5..1279.5 into their own 640x360 target with offset -640). Into the target's pixels, so
+    // such a quad counts as covering its target. Not for quads in clip space (-1..1).
+    if (known && opt.split_views && (d.u32(F::pa_su_sc_mode_cntl) & (1u << 16))) {
+      const uint32_t wo = d.u32(F::pa_sc_window_offset);
+      const float wx = float(int32_t(wo << 17) >> 17), wy = float(int32_t((wo >> 16) << 17) >> 17);
+      const bool clip_space = box[0] >= -1.01f && box[2] <= 1.01f && box[1] >= -1.01f && box[3] <= 1.01f;
+      if ((wx != 0.0f || wy != 0.0f) && !clip_space) {
+        box[0] += wx, box[2] += wx, box[1] += wy, box[3] += wy;
+        ++stat_window_offset;
+      }
+    }
+    bool full = false, mask = false;
+    const float w = float(color->gw), h = float(color->gh);
+    // Split screen: the view the draw lies in (its box's centre); its rectangle takes the screen's place for the
+    // decisions below (whole view, mask over the view, anchors at the view's edges). Else the whole target.
+    float vr[4] = {0.0f, 0.0f, w, h};
+    // (only boxes in pixels: a quad in clip space -1..1 has its centre at the screen's corner)
+    const bool pixels = known && (box[2] - box[0] > 2.5f || box[3] - box[1] > 2.5f || box[0] > 1.5f || box[1] > 1.5f);
+    int view = pixels && opt.split_views && ViewOf(box, vr) ? 1 : -1;
+    // A screen mask of a view (binoculars of one player, measured 2 players at 21:9: frame 156 vertices about 593..1297
+    // for the right view) reaches beyond its view: by its centre, if it is one relative to that view (several quads
+    // across the view's width over 0.7 of its height, or over its height and half its width).
+    if (view < 0 && pixels && opt.split_views && opt.screen_masks && r.count > 6) {
+      float lr[4];
+      if (ViewOf(box, lr, false)) {
+        const bool la = box[0] <= lr[0] + 3.0f && box[2] >= lr[2] - 3.0f, lt = box[1] <= lr[1] + 3.0f && box[3] >= lr[3] - 3.0f;
+        if ((la && box[3] - box[1] >= 0.7f * (lr[3] - lr[1])) || (lt && box[2] - box[0] >= 0.5f * (lr[2] - lr[0])))
+          std::copy(lr, lr + 4, vr), view = 1;
+      }
+    }
     if (known) {
-      const float w = float(color->gw), h = float(color->gh);
       const bool single = r.count <= 6;
       const bool clip = single && box[0] <= -0.99f && box[2] >= 0.99f && box[2] - box[0] <= 2.5f && box[1] <= -0.99f &&
                         box[3] >= 0.99f && box[3] - box[1] <= 2.5f;
-      const bool across = box[0] <= 1.0f && box[2] >= w - 1.0f;
-      const bool tall = box[1] <= 1.0f && box[3] >= h - 1.0f;
-      full = clip || (across && (single || tall));
+      bool across = box[0] <= 1.0f && box[2] >= w - 1.0f;
+      bool tall = box[1] <= 1.0f && box[3] >= h - 1.0f;
+      // Split screen: every view renders into its own target (640x720, 640x360/368, measured), and a view on the right
+      // or at the bottom draws its full-view quads (post processing) at its place on the screen, e.g. x 639.5..1279.5
+      // into its 640 wide target. A single quad of the view's size covers its target wherever its positions lie.
+      if (opt.split_views && single && !clip && IsSplitTarget(color->gw, color->gh)) {
+        const float view_h = float(SplitViewHeight(color->gh));
+        if (box[2] - box[0] >= w - 1.5f) across = true;
+        if (box[3] - box[1] >= view_h - 1.5f) tall = true;
+        if ((across || tall) && !(box[0] <= 1.0f && box[2] >= w - 1.0f && box[1] <= 1.0f)) ++stat_window_offset;
+      }
+      const float vw = vr[2] - vr[0], vh = vr[3] - vr[1];
+      const bool v_across = box[0] <= vr[0] + 1.0f && box[2] >= vr[2] - 1.0f;
+      const bool v_tall = box[1] <= vr[1] + 1.0f && box[3] >= vr[3] - 1.0f;
+      full = clip || (across && (single || tall)) || (view >= 0 && v_across && (single || v_tall));
+      // Screen mask (binoculars, scopes; measured in 02_native, HUD shader, alpha blend): several quads across the
+      // width over at least 0.7 of the height (scope side bars 12 vertices, binocular frame 156, both while coming up),
+      // or over the whole height and at least half the width (the scope's circle, 24 vertices, 768x768 about the
+      // centre). Not after the HUD covered the screen (the pause menu's panel goes across the width, 0.67 high).
+      // Split screen: the same within the view.
+      if (opt.screen_masks && !single && !hud_cover &&
+          ((v_across && box[3] - box[1] >= 0.7f * vh) || (v_tall && box[2] - box[0] >= 0.5f * vw)))
+        mask = true, full = false;
+      // The HUD covers the screen (a single quad across it with the band's vertex shader, after the band began): the
+      // pause menu's dimming, fades. From here on this frame stays in the band (menus over the game).
+      if (across && tall && !clip && single && (vs->container_hash == hud_vs_now || vs->container_hash == hud_vs_last))
+        hud_cover = true;
     } else {
       ++unknown_boxes;
     }
     const bool narrow = !full;
     ++(narrow ? narrow_draws : full_draws);
+    hud.known = known, hud.mask = mask, hud.ax = hud.ay = 0;
+    hud.view = narrow ? view : -1;
+    std::copy(vr, vr + 4, hud.vr);
+    if (known) std::copy(box, box + 4, hud.box);
+    if (narrow) hud_vs_now = vs->container_hash;
+    if (narrow && view >= 0) ++(mask ? stat_view_masks : stat_view_hud);
+    if (mask) {
+      ++stat_masks;
+      if (n_masks_now < 8) masks_now[n_masks_now++] = {{box[0], box[1], box[2], box[3]}, r.count, view >= 0 ? ViewKey(vr) : -1};
+    } else if (narrow && known) {
+      HudAnchor(box, vr, hud.ax, hud.ay);
+    }
     if (opt.trace_wide && wide_traced.size() < 4000) {
       const uint64_t key = Mix(Mix(vs->container_hash, ps ? ps->container_hash : 0),
                                (known ? uint64_t(int32_t(box[0]) >> 3 & 0xFFF) << 36 | uint64_t(int32_t(box[2]) >> 3 & 0xFFF) << 24 |
                                             uint64_t(int32_t(box[1]) >> 3 & 0xFFF) << 12 | uint64_t(int32_t(box[3]) >> 3 & 0xFFF)
-                                      : 0xFFFFFFFFFFull) ^ uint64_t(narrow) << 62 ^ uint64_t(r.kind) << 60);
+                                      : 0xFFFFFFFFFFull) ^ uint64_t(narrow) << 62 ^ uint64_t(r.kind) << 60 ^ uint64_t(mask) << 59 ^
+                                   uint64_t(hud.ax + 1) << 56 ^ uint64_t(hud.ay + 1) << 54 ^ uint64_t(hud_cover) << 53);
       if (wide_traced.insert(key).second)
-        Log("renderer: hor+ f%llu %s VS %016llX PS %016llX kind %u prim %u n=%u target %ux%u %08X box %s", (unsigned long long)frame,
-            narrow ? "middle" : "wide", (unsigned long long)vs->container_hash, (unsigned long long)(ps ? ps->container_hash : 0), r.kind,
-            r.primitive, r.count, color->gw, color->gh, color->surface,
+        Log("renderer: hor+ f%llu %s%s VS %016llX PS %016llX kind %u prim %u n=%u target %ux%u %08X box %s anchor %c%c", (unsigned long long)frame,
+            mask ? "mask" : narrow ? "middle" : "wide", hud_cover ? " (covered)" : "", (unsigned long long)vs->container_hash,
+            (unsigned long long)(ps ? ps->container_hash : 0), r.kind, r.primitive, r.count, color->gw, color->gh, color->surface,
             known ? (std::to_string(box[0]) + "," + std::to_string(box[1]) + " .. " + std::to_string(box[2]) + "," + std::to_string(box[3])).c_str()
-                  : "unknown");
+                  : "unknown",
+            "LCR"[hud.ax + 1], "TCB"[hud.ay + 1]);
     }
     return narrow;
   }
-  uint32_t view_gw = 0;
+
+  // HUD at the edges: the anchor of a 2D draw of the band (box in guest pixels of a w x h target). Measured in
+  // 02_native, 05_mines, 10_dead_marshes (FCP_TRACE_WIDE, guest 1280x720):
+  // - left/bottom: radar 113..305 x 462..692 with its blips, health/armour 83..285 x 575..672, stance 237..285;
+  // - right/bottom: ammunition and grenades 954..1184 x 480..713;
+  // - left/top: the message column (hints, "Press [V] to use sniper scope"): lines from x 96..101, wrapped before
+  //   x 460, y 100..350; button glyphs and the text after them are draws of their own (434..469 inside a line);
+  // - centre/top: compass 501..777 x 46..115; centre: crosshair, the ring 313..973 x 113..608, prompts at the bottom
+  //   middle (479..762 x 580..673; centre/bottom).
+  // Rule per draw: a line of the message column starts at 6..10 % of the width in the upper half and ends left of the
+  // middle; it marks its rows (this and the next frame, the order of the pieces varies), and every piece left of the
+  // middle whose centre lies in such a row (at most 10 % of the height) belongs to it: left/top. Else x: wholly left
+  // of 52 % with the centre left of 30 %: left; wholly right of 48 % with the centre right of 70 %: right. y: wholly
+  // above 52 % with the centre above 35 %: top; wholly below 48 % with the centre below 60 %: bottom. Else centre.
+  // Split screen: the same within the view's rectangle vr (x0, y0, x1, y1; single player the whole target).
+  void HudAnchor(const float* box, const float* vr, int& ax, int& ay) {
+    const float w = vr[2] - vr[0], h = vr[3] - vr[1];
+    const float b[4] = {box[0] - vr[0], box[1] - vr[1], box[2] - vr[0], box[3] - vr[1]};
+    const float cx = (b[0] + b[2]) * 0.5f, cy = (b[1] + b[3]) * 0.5f;
+    bool row = false;
+    if (b[0] >= 0.06f * w && b[0] <= 0.1f * w && b[2] <= 0.52f * w && b[3] <= 0.52f * h) {
+      row = true;
+      if (n_rows_now < 16) rows_now[n_rows_now++] = {box[1], box[3]};
+    } else if (b[0] >= 0.06f * w && b[2] <= 0.52f * w && b[3] - b[1] <= 0.1f * h) {
+      const float cy_abs = cy + vr[1];
+      auto in = [&](const HudRow& rw) { return cy_abs >= rw.top - 2.0f && cy_abs <= rw.bottom + 2.0f; };
+      for (int i = 0; i < n_rows_now && !row; ++i) row = in(rows_now[i]);
+      for (int i = 0; i < n_rows_last && !row; ++i) row = in(rows_last[i]);
+    }
+    ax = (row || (b[2] <= 0.52f * w && cx < 0.3f * w)) ? -1 : (b[0] >= 0.48f * w && cx > 0.7f * w) ? 1 : 0;
+    ay = (row || (b[3] <= 0.52f * h && cy < 0.35f * h)) ? -1 : (b[1] >= 0.48f * h && cy > 0.6f * h) ? 1 : 0;
+  }
+  // How far the HUD's box reaches beyond the band ([graphics] hud_aspect), as a factor over 16:9 (1: the band).
+  float HudWide() const {
+    if (cur_wide == 1.0f) return 1.0f;
+    return opt.hud_aspect <= 0.0f ? cur_wide : std::clamp(opt.hud_aspect / (16.0f / 9.0f), 1.0f, cur_wide);
+  }
+  float HudTall() const {
+    if (cur_tall == 1.0f) return 1.0f;
+    return opt.hud_aspect <= 0.0f ? cur_tall : std::clamp((16.0f / 9.0f) / opt.hud_aspect, 1.0f, cur_tall);
+  }
+  // Screen masks: whether another mask of the last frame lay further out on that side (0 left, 1 top, 2 right,
+  // 3 bottom) over this one's rows/columns (the circle inside the scope's bars while it comes up): that one fills it.
+  bool OuterMask(const float* m, uint32_t count, int side, int view = -1) const {
+    for (int i = 0; i < n_masks_last; ++i) {
+      const MaskSpan& o = masks_last[i];
+      if (o.count == count || o.view != view) continue;
+      const bool covers = side == 0 || side == 2 ? o.box[1] <= m[1] + 1.0f && o.box[3] >= m[3] - 1.0f
+                                                 : o.box[0] <= m[0] + 1.0f && o.box[2] >= m[2] - 1.0f;
+      if (!covers) continue;
+      if (side < 2 ? o.box[side] < m[side] - 1.0f : o.box[side] > m[side] + 1.0f) return true;
+    }
+    return false;
+  }
+  // Split screen (measured, m20_shantytown with 2, 3 and 4 players): every view renders and post-processes in its own
+  // target (640x720 halves side by side, 640x360 quarters; the lower ones in a 640x368 target with the picture in rows
+  // 8..368) and is resolved from it into its place in the screen-sized picture (at 0,0 / 640,0 / 0,360 / 640,360).
+  // The HUD of all views follows at the end of the frame in the screen-sized target, each part inside its view. Such a
+  // resolve (the source a view target, the rectangle the view's size, the destination screen-sized) joins this
+  // frame's views, in guest pixels of the screen (x0, y0, x1, y1).
+  void NoteSplitView(const Target* src, const Resolved* dst, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t px,
+                     int32_t py) {
+    if (!IsSplitTarget(src->gw, src->gh) || !IsScreenTarget(dst->gw, dst->gh) || dst->gw < 2 * 640) return;
+    const int32_t w = x1 - x0, h = y1 - y0;
+    if (w != int32_t(src->gw) || h != int32_t(SplitViewHeight(src->gh))) return;
+    const float r[4] = {float(px), float(py), float(px + w), float(py + h)};
+    if (r[2] > float(dst->gw) + 1.0f || r[3] > float(dst->gh) + 1.0f) return;
+    // (each view also resolves its 3D picture to 0,0 of a screen-sized texture for its post processing: with 3 players
+    // the upper right quarter's lands inside the left half; a rectangle that overlaps a known view is not a new one)
+    for (int i = 0; i < n_views_now; ++i) {
+      const float* o = views_now[i].r;
+      if (r[0] < o[2] && o[0] < r[2] && r[1] < o[3] && o[1] < r[3]) return;
+    }
+    if (n_views_now >= 4) return;
+    std::copy(r, r + 4, views_now[n_views_now++].r);
+    const uint64_t key = uint64_t(px & 0xFFFF) << 48 | uint64_t(py & 0xFFFF) << 32 | uint64_t(w & 0xFFFF) << 16 | uint64_t(h & 0xFFFF);
+    if (views_logged.size() < 16 && views_logged.insert(key).second)
+      Log("renderer: split screen f%llu: view %d at %d,%d .. %d,%d (resolved from %08X %ux%u rows %d..%d)", (unsigned long long)frame,
+          n_views_now, px, py, px + w, py + h, src->surface, src->gw, src->gh, y0, y1);
+  }
+  // A view's identity for masks of this and the last frame (its top left corner).
+  static int ViewKey(const float* vr) {
+    return int(std::max(0.0f, vr[0])) << 16 | int(std::max(0.0f, vr[1]));
+  }
+  // Whether a mask of this or the last frame lies in that view (-1: the screen; single player every mask).
+  bool MaskInView(int key) const {
+    for (int i = 0; i < n_masks_now; ++i)
+      if (masks_now[i].view == key || key < 0 || masks_now[i].view < 0) return true;
+    for (int i = 0; i < n_masks_last; ++i)
+      if (masks_last[i].view == key || key < 0 || masks_last[i].view < 0) return true;
+    return false;
+  }
+  // The HUD the views share (team score and time, m20_shantytown): with views side by side it sits at the top in the
+  // middle (traced, 2 players, guest pixels: score 546..640 x 86..119 with a "0" at 608..624 x 55..83, time 600..678 x
+  // 114..163), with four quarters along the line between the upper and the lower views (read from screenshots: score
+  // about 400..520, time about 600..680, rows 340..375). Its pieces lie on either side of a line between the views;
+  // each narrowed about its own view's centre, they came apart (seen at 21:9 and 16:10). Such a piece stays with the
+  // screen's centre: within 100 guest pixels of a line between views that runs the screen's whole height and in the
+  // top 160 rows, or, where four views meet, within 260 pixels of that point across and 25 rows above or below it
+  // (the quarters' own HUD keeps more distance: ammunition at rows 300..340, counters from row 375).
+  static bool SharedHud(const SplitView* list, int n, float cx, float cy) {
+    // Two views one above the other across the whole width (the game's horizontal split, measured 1280x360 and
+    // 1280x368 targets): the shared HUD sits on the line between them (seen at 16:10: score digits above, bars below).
+    for (int i = 0; i < n; ++i)
+      for (int j = 0; j < n; ++j) {
+        const float* a = list[i].r;
+        const float* b = list[j].r;
+        if (i == j || a[3] != b[1] || a[0] > 0.5f || b[0] > 0.5f || a[2] - a[0] < 1000.0f || b[2] - b[0] < 1000.0f) continue;
+        if (std::fabs(cy - a[3]) <= 25.0f && std::fabs(cx - (a[0] + a[2]) * 0.5f) <= 260.0f) return true;
+      }
+    for (int i = 0; i < n; ++i)
+      for (int j = 0; j < n; ++j) {
+        const float* a = list[i].r;
+        const float* b = list[j].r;
+        if (i == j || a[2] != b[0]) continue;  // a left of b: the line x = a[2]
+        const float x = a[2];
+        if (std::fabs(cx - x) > 260.0f) continue;
+        const bool full_height = a[1] <= 0.5f && b[1] <= 0.5f && (a[3] - a[1] > 400.0f || b[3] - b[1] > 400.0f);
+        if (full_height && cy <= 160.0f && std::fabs(cx - x) <= 100.0f) return true;
+        // four views: another pair below or above meets at the same x, so a horizontal line crosses there
+        for (int k = 0; k < n; ++k) {
+          const float* c = list[k].r;
+          if (k == i || k == j) continue;
+          if ((c[0] == a[0] || c[2] == x) && (c[1] == a[3] || c[3] == a[1])) {
+            const float y = c[1] == a[3] ? a[3] : a[1];
+            if (std::fabs(cy - y) <= 25.0f) return true;
+          }
+        }
+      }
+    return false;
+  }
+  // The view (this frame's, else the last frame's) whose rectangle holds the centre of a box; false: none (one view).
+  // strict = false: only the centre decides (a screen mask reaches far beyond its view; the scissor keeps it there).
+  bool ViewOf(const float* box, float out[4], bool strict = true) const {
+    const float cx = (box[0] + box[2]) * 0.5f, cy = (box[1] + box[3]) * 0.5f;
+    for (int pass = 0; pass < 2; ++pass) {
+      const SplitView* list = pass == 0 ? views_now : views_last;
+      const int n = pass == 0 ? n_views_now : n_views_last;
+      if (n < 2) continue;  // a split screen has two views at least (a lone part view is no split)
+      for (int i = 0; i < n; ++i) {
+        const float* r = list[i].r;
+        // (parts reach a little beyond their view; one that lies across views, such as the score and the time in
+        // the middle of the screen, belongs to none: at most a quarter of its size outside)
+        const float ox = std::max(r[0] - box[0], 0.0f) + std::max(box[2] - r[2], 0.0f);
+        const float oy = std::max(r[1] - box[1], 0.0f) + std::max(box[3] - r[3], 0.0f);
+        if (cx >= r[0] && cx < r[2] && cy >= r[1] && cy < r[3]) {
+          if (strict && (ox > 0.25f * (box[2] - box[0]) + 2.0f || oy > 0.25f * (box[3] - box[1]) + 2.0f)) return false;
+          if (strict && SharedHud(list, n, cx, cy)) return false;
+          std::copy(r, r + 4, out);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  uint32_t view_gw = 0, view_gh = 0;
 
   // --- Draw -----------------------------------------------------------------------------------------------
   void Draw(const DrawRecord& r) {
@@ -2599,6 +3405,8 @@ struct GameRenderer::Impl {
     }
     if (!pipeline) return Skip("pipeline failed");
 
+    // Ambient occlusion: goes in here before the first draw after the opaque part of the 3D view (AoView).
+    AoBeforeDraw(d, colors[0], depth, rec.controls[0], rec.masks[0], depth ? depth_control : 0);
     nvrhi::ICommandList* c = CL();
     fcshaders::DrawConstants dc{};
     for (uint32_t i = 0; i < 8; ++i) dc.boolConstants[i] = d.u32(F::bool_constants, i);
@@ -2610,10 +3418,13 @@ struct GameRenderer::Impl {
         dc.textureIndex[t.slot & 31] = Texture(words, c);
         scale_c.texInvScale[t.slot & 31][0] = tex_inv_x;
         scale_c.texInvScale[t.slot & 31][1] = tex_inv_y;
+        // z: shadow filter of the bound texture ([graphics] shadow_filter; only depth resolves, 0 = as the console)
+        scale_c.texInvScale[t.slot & 31][2] = tex_depth ? float(opt.shadow_filter) : 0.0f;
       }
     };
-    // b3 (render scaling): factor of the target; per fetch slot guest/host of the bound texture (otherwise 1).
-    for (auto& s : scale_c.texInvScale) s[0] = s[1] = s[2] = s[3] = 1.0f;
+    // b3 (render scaling): factor of the target; per fetch slot guest/host of the bound texture (otherwise 1), z the
+    // shadow filter (0 = as the console), w unused.
+    for (auto& s : scale_c.texInvScale) s[0] = s[1] = 1.0f, s[2] = 0.0f, s[3] = 1.0f;
     scale_c.renderScale[0] = size_from->sx, scale_c.renderScale[1] = size_from->sy;
     scale_c.renderScale[2] = 1.0f / size_from->sx, scale_c.renderScale[3] = 1.0f / size_from->sy;
     bind_textures(*vs);
@@ -2745,22 +3556,148 @@ struct GameRenderer::Impl {
     }
     // Hor+: 2D over a wide 3D picture after its post processing into the 16:9 middle.
     // Vert+ likewise into the 16:9 band in the middle (narrower in y).
-    if (Shaped() && HorPlusNarrow(r, d, vs, ps, colors[0], depth, depth_control, color_mask)) {
+    // Screen masks: narrowed whole, not cut to the band; the sides beyond it filled after the draw (mask_fills).
+    // HUD at the edges: edge elements moved to the edges of the HUD's box ([graphics] hud_aspect).
+    struct MaskFill {
+      int axis;             // 0 x, 1 y
+      float scale, offset;  // that axis' ndcScale / ndcOffset (before AdjustNdcForApi), viewport: the whole target
+      nvrhi::Rect scissor;
+    };
+    MaskFill mask_fills[4];
+    int n_mask_fills = 0;
+    const bool narrowed = Shaped() && HorPlusNarrow(r, d, vs, ps, colors[0], depth, depth_control, color_mask);
+    if (narrowed) {
+      const nvrhi::Rect whole = vp.scissor;
+      const float tw = float(size_from->width), th = float(size_from->height);
+      // The band's centre: the screen's, or with a split screen the centre of the draw's view (its own band; the view's
+      // rectangle in host pixels hx0..hx1 x hy0..hy1, single player the whole target).
+      const float fx = tw / float(size_from->gw), fy = th / float(size_from->gh);
+      const bool in_view = hud.view >= 0;
+      const float hx0 = in_view ? hud.vr[0] * fx : 0.0f, hx1 = in_view ? hud.vr[2] * fx : tw;
+      const float hy0 = in_view ? hud.vr[1] * fy : 0.0f, hy1 = in_view ? hud.vr[3] * fy : th;
       if (cur_wide != 1.0f) {
-        const float cx = float(size_from->width) * 0.5f, k = 1.0f / cur_wide;
+        const float cx = in_view ? (hx0 + hx1) * 0.5f : tw * 0.5f, k = 1.0f / cur_wide;
         vp.viewport.minX = cx - cx * k;
-        vp.viewport.maxX = cx + cx * k;
+        vp.viewport.maxX = cx + (tw - cx) * k;
         auto nx = [&](int32_t x) { return int32_t(std::lround(cx + (float(x) - cx) * k)); };
         vp.scissor.minX = nx(vp.scissor.minX);
         vp.scissor.maxX = nx(vp.scissor.maxX);
       }
       if (cur_tall != 1.0f) {
-        const float cy = float(size_from->height) * 0.5f, k = 1.0f / cur_tall;
+        const float cy = in_view ? (hy0 + hy1) * 0.5f : th * 0.5f, k = 1.0f / cur_tall;
         vp.viewport.minY = cy - cy * k;
-        vp.viewport.maxY = cy + cy * k;
+        vp.viewport.maxY = cy + (th - cy) * k;
         auto ny = [&](int32_t y) { return int32_t(std::lround(cy + (float(y) - cy) * k)); };
         vp.scissor.minY = ny(vp.scissor.minY);
         vp.scissor.maxY = ny(vp.scissor.maxY);
+      }
+      if (hud.mask) {
+        // Screen mask: the whole draw in the band, also where it reaches beyond it (coming up); each side of the
+        // picture beyond its edge is filled with that edge: the draw once more, stretched kStretch times about a point
+        // 2 guest pixels inside the edge, which lands in the middle of the strip, scissored to the strip (every host
+        // pixel of the strip shows the mask within a fraction of a guest pixel of that point). Vertex shader, constants
+        // and textures unchanged: only the ndc of that axis, viewport and scissor. Idea after FCI's screen masks
+        // (src/gpu/renderer.cpp, own MIT code of the same author, read only); written anew for this renderer.
+        // Split screen: the same within the view (its band, its edges; nothing of it reaches into another view).
+        nvrhi::Rect area = whole;
+        if (in_view) {
+          area.minX = std::max(area.minX, int32_t(std::lround(hx0))), area.maxX = std::min(area.maxX, int32_t(std::lround(hx1)));
+          area.minY = std::max(area.minY, int32_t(std::lround(hy0))), area.maxY = std::min(area.maxY, int32_t(std::lround(hy1)));
+        }
+        vp.scissor = area;
+        if (hud.known) {
+          constexpr float kStretch = 1024.0f;
+          const float vx0 = vp.viewport.minX, vw = vp.viewport.maxX - vp.viewport.minX;
+          const float vy0 = vp.viewport.minY, vh = vp.viewport.maxY - vp.viewport.minY;
+          // (The box is in the target's guest pixels, measured: the band's viewport puts it there. The vertex shader may
+          // transform the positions itself, so the stretch goes onto the clip position: ndc' = A * ndc + B.)
+          const float gw = float(size_from->gw), gh = float(size_from->gh);
+          auto host_x = [&](float x) { return vx0 + x / gw * vw; };
+          auto host_y = [&](float y) { return vy0 + y / gh * vh; };
+          const float* b = hud.box;
+          const int mview = in_view ? ViewKey(hud.vr) : -1;
+          // (single player: hud.vr is the whole target, hx0/hy0 0 and hx1/hy1 the target's size: as before)
+          // (in a split screen's view the binoculars end 2 rows above the view's bottom, measured 16:10: -2..718 of 720)
+          const float tol = in_view ? 3.0f : 1.0f;
+          if (cur_wide != 1.0f && b[0] <= hud.vr[0] + tol && b[2] >= hud.vr[2] - tol)
+            for (int side = 0; side < 2; ++side) {
+              // (split screen: a mask reaching beyond its view shows only inside it, the game's scissor; its edge there is
+              // the view's: measured, the binoculars' frame of the right view at x 593 is transparent outside the view)
+              const float edge = in_view ? std::clamp(b[side * 2], hud.vr[0], hud.vr[2]) : b[side * 2], at = host_x(edge);
+              if ((side == 0 ? at <= hx0 + 0.25f : at >= hx1 - 0.25f) || OuterMask(b, r.count, side * 2, mview)) continue;
+              const float p = side == 0 ? edge + 2.0f : edge - 2.0f, s = side == 0 ? (hx0 + at) * 0.5f : (at + hx1) * 0.5f;
+              MaskFill& f = mask_fills[n_mask_fills++];
+              f.axis = 0;
+              const float A = kStretch * vw / tw, B = 2.0f * s / tw - 1.0f - A * (2.0f * p / gw - 1.0f);
+              f.scale = A * vp.ndc_scale[0], f.offset = A * vp.ndc_offset[0] + B;
+              const int32_t x0 = side == 0 ? area.minX : std::max(area.minX, int32_t(std::floor(at)));
+              const int32_t x1 = side == 0 ? std::min(area.maxX, int32_t(std::ceil(at))) : area.maxX;
+              f.scissor = nvrhi::Rect(x0, x1, area.minY, area.maxY);
+            }
+          if (cur_tall != 1.0f && b[1] <= hud.vr[1] + tol && b[3] >= hud.vr[3] - tol)
+            for (int side = 0; side < 2; ++side) {
+              const float edge = in_view ? std::clamp(b[side * 2 + 1], hud.vr[1], hud.vr[3]) : b[side * 2 + 1], at = host_y(edge);
+              if ((side == 0 ? at <= hy0 + 0.25f : at >= hy1 - 0.25f) || OuterMask(b, r.count, side * 2 + 1, mview)) continue;
+              const float p = side == 0 ? edge + 2.0f : edge - 2.0f, s = side == 0 ? (hy0 + at) * 0.5f : (at + hy1) * 0.5f;
+              MaskFill& f = mask_fills[n_mask_fills++];
+              f.axis = 1;
+              const float A = kStretch * vh / th, B = 1.0f - 2.0f * s / th - A * (1.0f - 2.0f * p / gh);
+              f.scale = A * vp.ndc_scale[1], f.offset = A * vp.ndc_offset[1] + B;
+              const int32_t y0 = side == 0 ? area.minY : std::max(area.minY, int32_t(std::floor(at)));
+              const int32_t y1 = side == 0 ? std::min(area.maxY, int32_t(std::ceil(at))) : area.maxY;
+              f.scissor = nvrhi::Rect(area.minX, area.maxX, y0, y1);
+            }
+          // The mask itself: narrowed in the ndc with the whole target as viewport, so the parts beyond the band (the
+          // circle reaches 24.5 guest pixels above and below the screen, everything while coming up) are not cut off
+          // by the clip volume of a narrowed viewport (measured at 16:10: world showed there). About the band's centre c
+          // in the ndc: ndc' = (ndc - c) / k + c (single player c = 0, as before).
+          if (cur_wide != 1.0f) {
+            vp.viewport.minX = 0.0f, vp.viewport.maxX = tw;
+            const float c = in_view ? (hx0 + hx1) / tw - 1.0f : 0.0f;
+            vp.ndc_scale[0] /= cur_wide;
+            vp.ndc_offset[0] = in_view ? (vp.ndc_offset[0] - c) / cur_wide + c : vp.ndc_offset[0] / cur_wide;
+          }
+          if (cur_tall != 1.0f) {
+            vp.viewport.minY = 0.0f, vp.viewport.maxY = th;
+            const float c = in_view ? 1.0f - (hy0 + hy1) / th : 0.0f;
+            vp.ndc_scale[1] /= cur_tall;
+            vp.ndc_offset[1] = in_view ? (vp.ndc_offset[1] - c) / cur_tall + c : vp.ndc_offset[1] / cur_tall;
+          }
+          if (masks_logged.size() < 32 &&
+              masks_logged.insert(uint64_t(r.count) << 8 | uint64_t(n_mask_fills) | uint64_t(in_view) << 7).second) {
+            char where[96] = "";
+            if (in_view)
+              std::snprintf(where, sizeof(where), ", in the split screen view %.0f,%.0f .. %.0f,%.0f", hud.vr[0], hud.vr[1],
+                            hud.vr[2], hud.vr[3]);
+            Log("renderer: screen mask f%llu: %u vertices, box %.1f,%.1f .. %.1f,%.1f, sides filled %d (%s %.4f)%s",
+                (unsigned long long)frame, r.count, b[0], b[1], b[2], b[3], n_mask_fills, cur_wide != 1.0f ? "Hor+" : "Vert+",
+                cur_wide != 1.0f ? cur_wide : cur_tall, where);
+          }
+        }
+      } else if ((hud.ax || hud.ay) && !hud_cover && !MaskInView(in_view ? ViewKey(hud.vr) : -1)) {
+        // HUD at the edges: moved by the distance between the band's edge and the HUD box's edge (split screen: those
+        // of the draw's view, and only while no mask is up in that view).
+        const float kx = HudWide(), ky = HudTall();
+        bool moved = false;
+        if (hud.ax && kx > 1.0f) {
+          const float shift = float(hud.ax) * (hx1 - hx0) * 0.5f * (kx - 1.0f) / cur_wide;
+          const int32_t is = int32_t(std::lround(shift));
+          vp.viewport.minX += shift, vp.viewport.maxX += shift;
+          vp.scissor.minX = std::clamp(vp.scissor.minX + is, 0, int32_t(tw));
+          vp.scissor.maxX = std::clamp(vp.scissor.maxX + is, 0, int32_t(tw));
+          moved = true;
+        }
+        if (hud.ay && ky > 1.0f) {
+          const float shift = float(hud.ay) * (hy1 - hy0) * 0.5f * (ky - 1.0f) / cur_tall;
+          const int32_t is = int32_t(std::lround(shift));
+          vp.viewport.minY += shift, vp.viewport.maxY += shift;
+          vp.scissor.minY = std::clamp(vp.scissor.minY + is, 0, int32_t(th));
+          vp.scissor.maxY = std::clamp(vp.scissor.maxY + is, 0, int32_t(th));
+          moved = true;
+        }
+        if (moved) ++stat_anchored;
+      } else if ((hud.ax || hud.ay) && hud_cover) {
+        ++stat_covered;
       }
     }
     for (uint32_t k = 0; k < 3; ++k) dc.ndcScale[k] = vp.ndc_scale[k], dc.ndcOffset[k] = vp.ndc_offset[k];
@@ -2989,6 +3926,27 @@ struct GameRenderer::Impl {
     c->setGraphicsState(gs);
     if (indexed) c->drawIndexed(args);
     else c->draw(args);
+    // Screen masks: the sides beyond the mask, each with its stretched edge (above, mask_fills).
+    for (int i = 0; i < n_mask_fills; ++i) {
+      const MaskFill& f = mask_fills[i];
+      fcshaders::DrawConstants fdc = dc;
+      for (uint32_t k = 0; k < 3; ++k) fdc.ndcScale[k] = vp.ndc_scale[k], fdc.ndcOffset[k] = vp.ndc_offset[k];
+      fdc.ndcScale[f.axis] = f.scale, fdc.ndcOffset[f.axis] = f.offset;
+      TranslatedLayout::AdjustNdcForApi(api, fdc);
+      nvrhi::Viewport fv = vp.viewport;
+      if (f.axis == 0) fv.minX = 0.0f, fv.maxX = float(size_from->width);
+      else fv.minY = 0.0f, fv.maxY = float(size_from->height);
+      if (f.scissor.maxX <= f.scissor.minX || f.scissor.maxY <= f.scissor.minY) continue;
+      tl.WriteDrawConstants(c, fdc), last_dc = fdc, ++constant_uploads, ++cb_frame[2];
+      gs.viewport.viewports.resize(0);
+      gs.viewport.scissorRects.resize(0);
+      gs.viewport.addViewport(fv);
+      gs.viewport.addScissorRect(f.scissor);
+      c->setGraphicsState(gs);
+      if (indexed) c->drawIndexed(args);
+      else c->draw(args);
+      ++stat_fills, ++cl_draws;
+    }
     if (opt.probe_x >= 0 && Tracing()) {
       char what[128];
       std::snprintf(what, sizeof(what), "draw %llu VS %016llX PS %016llX", (unsigned long long)frame_draws,
@@ -3018,11 +3976,22 @@ struct GameRenderer::Impl {
           tex += t;
         }
       Log("renderer: T f%llu draw kind %u prim %u n=%u VS %016llX PS %016llX%s target %ux%u rt0 %08X ds %08X blend %08X "
-          "mask %X depth %08X mode %08X alpha %08X ref %g ndc (%g %g %g %g)%s",
+          "mask %X depth %08X mode %08X alpha %08X ref %g ndc (%g %g %g %g) guest %ux%u vport (%g %g %g %g) wo %08X host vp "
+          "%.1f..%.1f x %.1f..%.1f sc %d,%d-%d,%d %s%s",
           (unsigned long long)frame, r.kind, r.primitive, r.count, (unsigned long long)vs->container_hash,
           (unsigned long long)(ps ? ps->container_hash : 0), solid ? " solid" : "", size_from->width, size_from->height,
           d.u32(F::render_targets, 0), d.u32(F::depth_stencil), rec.controls[0], rec.masks[0], depth ? depth_control : 0, mode,
-          color_control, dc.alphaRef, dc.ndcScale[0], dc.ndcOffset[0], dc.ndcScale[1], dc.ndcOffset[1], tex.c_str());
+          color_control, dc.alphaRef, dc.ndcScale[0], dc.ndcOffset[0], dc.ndcScale[1], dc.ndcOffset[1], size_from->gw,
+          size_from->gh, d.f32(F::pa_cl_vport, 0), d.f32(F::pa_cl_vport, 1), d.f32(F::pa_cl_vport, 2), d.f32(F::pa_cl_vport, 3),
+          d.u32(F::pa_sc_window_offset), vp.viewport.minX, vp.viewport.maxX, vp.viewport.minY, vp.viewport.maxY, vp.scissor.minX,
+          vp.scissor.minY, vp.scissor.maxX, vp.scissor.maxY,
+          !Shaped() ? "" : narrowed ? (hud.mask ? "MASK" : hud.view >= 0 ? "BAND-VIEW" : "BAND") : "as-is",
+          (Shaped() && narrowed && hud.known)
+              ? (" box " + std::to_string(int(hud.box[0])) + "," + std::to_string(int(hud.box[1])) + ".." +
+                 std::to_string(int(hud.box[2])) + "," + std::to_string(int(hud.box[3])))
+                    .c_str()
+              : "");
+      if (opt.trace_textures && !tex.empty()) Log("renderer: T f%llu textures%s", (unsigned long long)frame, tex.c_str());
     }
     if (first_draw_logs < 6) {
       ++first_draw_logs;
@@ -3038,15 +4007,222 @@ struct GameRenderer::Impl {
     if (++cl_draws >= kMaxDrawsPerList) Flush();
   }
 
+  // --- Ambient occlusion (AoView) -------------------------------------------------------------------------
+  void AoNote(const std::string& kind, const std::string& text) {
+    if (!ao_traced.insert(kind).second && !opt.ao_trace) return;
+    if (ao_traced.size() > 64 && !opt.ao_trace) return;
+    Log("renderer: ao f%llu: %s", (unsigned long long)frame, text.c_str());
+  }
+
+  static bool AoOpaque(uint32_t blend_control, uint32_t mask, uint32_t depth_control) {
+    return (mask & 7) && !BlendTargetFrom(blend_control, mask).blendEnable && (depth_control & 2) && (depth_control & 4);
+  }
+
+  void AoViewport(const GuestDeviceView& d, float out[6]) const {
+    const uint32_t vte = d.u32(F::pa_cl_vte_cntl);
+    out[0] = (vte & 1) ? d.f32(F::pa_cl_vport, 0) : 1.0f;
+    out[1] = (vte & 2) ? d.f32(F::pa_cl_vport, 1) : 0.0f;
+    out[2] = (vte & 4) ? d.f32(F::pa_cl_vport, 2) : 1.0f;
+    out[3] = (vte & 8) ? d.f32(F::pa_cl_vport, 3) : 0.0f;
+    out[4] = (vte & 16) ? d.f32(F::pa_cl_vport, 4) : 1.0f;
+    out[5] = (vte & 32) ? d.f32(F::pa_cl_vport, 5) : 0.0f;
+  }
+
+  // Before a draw (Draw), with the targets it goes to and its blend, colour mask and depth state.
+  void AoBeforeDraw(const GuestDeviceView& d, Target* color, Target* depth, uint32_t blend_control, uint32_t mask,
+                    uint32_t depth_control) {
+    if (!opt.ao) return;
+    AoView& v = ao_view;
+    const bool screen = color && depth && IsScreenTarget(color->gw, color->gh) && depth->width == color->width &&
+                        depth->height == color->height && depth->host_samples == color->host_samples;
+    const bool opaque = screen && AoOpaque(blend_control, mask, depth_control);
+    float vport[6];
+    AoViewport(d, vport);
+    if (v.pending) {
+      const bool same = color == v.color && depth == v.depth;
+      if (same && opaque) {
+        if (std::memcmp(vport, v.vport, sizeof(vport)) == 0) {
+          ++v.opaque;
+          return;
+        }
+        AoFlush("an opaque draw with another viewport");  // e.g. the next view of a split screen
+      } else if (same) {
+        if (!(mask & 0xF)) {  // no colour: depth only, occlusion query boxes
+          ++v.kept;
+          return;
+        }
+        AoFlush("the first draw that blends or leaves the depth");
+      } else if (depth == v.depth && depth && (depth_control & 6) == 6) {
+        AoFlush("a draw into its depth with another colour target");
+      } else if (color && color == v.color) {
+        AoFlush("a draw into its colour target with another depth");
+      } else {
+        return;  // other targets (shadow maps, reflections): the view goes on after them
+      }
+    }
+    if (!opaque) return;
+    const std::array<float, 4> key{vport[0], vport[1], vport[2], vport[3]};
+    if (std::find(ao_done.begin(), ao_done.end(), key) != ao_done.end()) {
+      ++ao_opaque_after;  // this view had its occlusion: an opaque draw after it (the weapon, late objects) gets none
+      return;
+    }
+    v = AoView{};
+    v.pending = true;
+    v.color = color, v.depth = depth;
+    std::memcpy(v.vport, vport, sizeof(vport));
+    v.vte = d.u32(F::pa_cl_vte_cntl);
+    v.clip = d.u32(F::pa_cl_clip_cntl);
+    v.window_offset = (d.u32(F::pa_su_sc_mode_cntl) & (1u << 16)) ? d.u32(F::pa_sc_window_offset) : 0;
+    v.half_pixel = (d.u32(F::pa_su_vtx_cntl) & 1) == 0;
+    v.opaque = 1;
+    v.depth_control = depth_control;
+  }
+
+  // Before a clear or resolve of `t` (ClearTargets, ResolveRect).
+  void AoBeforeUse(const Target* t, const char* what) {
+    if (ao_view.pending && t && (t == ao_view.color || t == ao_view.depth)) AoFlush(what);
+  }
+
+  void AoFlush(const char* reason) {
+    AoView& v = ao_view;
+    if (!v.pending) return;
+    v.pending = false;
+    ao_done.push_back({v.vport[0], v.vport[1], v.vport[2], v.vport[3]});
+    if (!opt.ao || ao_failed) return;
+    float m[16], far_plane;
+    uint64_t count;
+    {
+      std::lock_guard lock(proj_mutex);
+      std::memcpy(m, proj_m, sizeof(m));
+      far_plane = proj_far;
+      count = proj_count;
+    }
+    Target& c = *v.color;
+    Target& z = *v.depth;
+    // PerspectiveFovRH (row-major as the camera holds it, checked against the camera's planes by the hook): [0] x
+    // scale, [5] y scale, [10] f / (n - f), [11] -1, [14] n f / (n - f), [15] 0. Anything else: left out.
+    if (!count || !(m[0] > 0) || !(m[5] > 0) || m[11] != -1.0f || m[15] != 0.0f || !(m[10] < 0) || !(m[14] < 0) || !(far_plane > 0)) {
+      ++ao_skipped_proj;
+      AoNote("proj", count ? "left out: the camera's projection is not PerspectiveFovRH" : "left out: no camera projection yet");
+      return;
+    }
+    // The viewport in guest pixels: pixel = scale * ndc + offset (+ window offset, + 0.5 without the half pixel
+    // flag: ComputeViewport); y scale negative (y down). Host pixels with the target's factors.
+    const float add_x = float(int32_t(v.window_offset << 17) >> 17) + (v.half_pixel ? 0.5f : 0.0f);
+    const float add_y = float(int32_t((v.window_offset >> 16) << 17) >> 17) + (v.half_pixel ? 0.5f : 0.0f);
+    const float sx = v.vport[0], ox = v.vport[1] + add_x, sy = v.vport[2], oy = v.vport[3] + add_y;
+    const float sz = v.vport[4], oz = v.vport[5];
+    if (!(sx > 4.0f) || !(sy < -4.0f) || sz == 0.0f) {
+      ++ao_skipped_shape;
+      AoNote("vport", "left out: viewport " + std::to_string(sx) + "/" + std::to_string(sy) + "/" + std::to_string(sz) +
+                          " (not a 3D view with y down)");
+      return;
+    }
+    const float view_x = (ox - sx) * c.sx, view_w = 2.0f * sx * c.sx;
+    const float view_y = (oy + sy) * c.sy, view_h = -2.0f * sy * c.sy;
+    // The projection must have the view's shape (otherwise it belongs to another camera, e.g. split screen).
+    const float shape = view_w / view_h, proj_shape = m[5] / m[0];
+    if (std::fabs(shape / proj_shape - 1.0f) > 0.02f) {
+      ++ao_skipped_shape;
+      AoNote("shape", "left out: projection shape " + std::to_string(proj_shape) + " is not the view's " + std::to_string(shape));
+      return;
+    }
+    if (!ao) {
+      auto pass = std::make_unique<AoPass>();
+      std::string error;
+      if (!pass->Init(dev, opt.api, &error)) {
+        ao_failed = true;
+        Log("renderer: ambient occlusion not available: %s", error.c_str());
+        return;
+      }
+      ao = std::move(pass);
+    }
+    AoPass::Params p;
+    p.mode = int(opt.ao);
+    p.depth = z.tex;
+    p.color = c.tex;
+    p.samples = c.host_samples;
+    p.width = c.width, p.height = c.height;
+    p.view_x = view_x, p.view_y = view_y, p.view_w = view_w, p.view_h = view_h;
+    p.left = std::max(0, int32_t(std::floor(view_x))), p.top = std::max(0, int32_t(std::floor(view_y)));
+    p.right = std::min(int32_t(c.width), int32_t(std::ceil(view_x + view_w)));
+    p.bottom = std::min(int32_t(c.height), int32_t(std::ceil(view_y + view_h)));
+    p.x_scale = m[0], p.y_scale = m[5];
+    // stored depth = sz * ndc z + oz (ComputeViewport, every case); view depth = m14 / (ndc z + m10)
+    // (double: the game's near plane is 5 mm, m10 is -1.00001; reversed depth leaves k1 = m10 * -1 - 1, a tiny number)
+    // Which way the depth runs: the opaque draws' depth test (GREATER/GEQUAL = reversed: near is large) against the
+    // viewport's z mapping. Measured in 02_native: GEQUAL, depth cleared to 0, viewport z scale 1 offset 0, so the
+    // reversal is in the game's own matrices (stored = 1 - z / w of the camera's projection). Either way:
+    //   not reversed by the matrix: ndc z = (stored - oz) / sz;  reversed by it: ndc z = 1 - (stored - oz) / sz.
+    const uint32_t zfunc = (v.depth_control >> 4) & 7;
+    const bool greater = zfunc == 4 || zfunc == 6, less = zfunc == 1 || zfunc == 3;
+    if (!greater && !less) {
+      ++ao_skipped_proj;
+      AoNote("zfunc", "left out: depth test " + std::to_string(zfunc) + " (neither less nor greater)");
+      return;
+    }
+    const bool matrix_reversed = greater == (sz > 0);
+    if (!matrix_reversed) {
+      p.k0 = float(double(m[14]) * sz);
+      p.k1 = float(double(m[10]) * sz - double(oz));
+    } else {
+      p.k0 = float(-double(m[14]) * sz);
+      p.k1 = float(-(double(oz) + double(sz) + double(m[10]) * sz));
+    }
+    p.far_plane = far_plane;
+    p.strength = opt.ao_strength;
+    p.half = opt.ao_resolution == 2 || (opt.ao_resolution == 0 && view_h > 720.5f);
+    p.debug = opt.ao_debug;
+    nvrhi::ICommandList* cl = CL();
+    const bool timing = opt.ao_timing && ao_timer_pending < 4;
+    if (timing) {
+      if (!ao_timer[ao_timer_next]) ao_timer[ao_timer_next] = dev->createTimerQuery();
+      cl->beginTimerQuery(ao_timer[ao_timer_next]);
+    }
+    const bool ran = ao->Run(cl, p);
+    if (timing) {
+      cl->endTimerQuery(ao_timer[ao_timer_next]);
+      ao_timer_next = (ao_timer_next + 1) % 4;
+      ++ao_timer_pending;
+    }
+    if (!ran) return;
+    ++c.writes;  // the MSAA copy for a later resolve is out of date
+    ++ao_applied;
+    if (ao_applied <= 3 || opt.ao_trace)
+      Log("renderer: ao f%llu: %s into %08X %ux%u (%u samples) before %s, after %u opaque draws (%u depth-only kept); view "
+          "%.0f,%.0f %.0fx%.0f, projection x %.4f y %.4f near %.3f far %.1f, viewport z %.4f/%.4f, depth test %u (%s), %s "
+          "resolution",
+          (unsigned long long)frame, opt.ao == 2 ? "GTAO" : "SSAO", c.surface, c.width, c.height, c.host_samples, reason,
+          v.opaque, v.kept, view_x, view_y, view_w, view_h, m[0], m[5], m[14] / m[10], p.far_plane, sz, oz, zfunc,
+          matrix_reversed ? "reversed in the game's matrices" : "as the projection", p.half ? "half" : "full");
+    else
+      AoNote(std::string("before ") + reason, std::string("inserted before ") + reason);
+  }
+
+  void AoCollectTiming() {
+    while (ao_timer_pending) {
+      const uint32_t i = (ao_timer_next + 4 - ao_timer_pending) % 4;
+      if (!ao_timer[i] || !dev->pollTimerQuery(ao_timer[i])) break;
+      ao_ms_sum += double(dev->getTimerQueryTime(ao_timer[i])) * 1000.0;
+      dev->resetTimerQuery(ao_timer[i]);
+      --ao_timer_pending;
+      if (++ao_ms_n == 300) {
+        Log("renderer: ao: %.3f ms GPU per pass (average of 300, %s)", ao_ms_sum / ao_ms_n, opt.ao == 2 ? "GTAO" : "SSAO");
+        ao_ms_sum = 0, ao_ms_n = 0;
+      }
+    }
+  }
+
   // --- Blit (Resolve, Present) --------------------------------------------------------------------------
-  nvrhi::IGraphicsPipeline* BlitPipeline(nvrhi::IFramebuffer* fb, bool gamma = false) {
+  nvrhi::IGraphicsPipeline* BlitPipeline(nvrhi::IFramebuffer* fb, bool gamma = false, bool colour = false) {
     const nvrhi::FramebufferInfoEx& info = fb->getFramebufferInfo();
-    const uint64_t key = (info.colorFormats.empty() ? 0 : uint64_t(info.colorFormats[0])) | (gamma ? 1ull << 32 : 0);
+    const uint64_t key = (info.colorFormats.empty() ? 0 : uint64_t(info.colorFormats[0])) | (gamma ? 1ull << 32 : 0) |
+                         (colour ? 1ull << 33 : 0);
     if (auto it = blit_pipelines.find(key); it != blit_pipelines.end()) return it->second;
     nvrhi::GraphicsPipelineDesc pd;
     pd.primType = nvrhi::PrimitiveType::TriangleList;
     pd.VS = blit_vs;
-    pd.PS = gamma ? blit_gamma_ps : blit_ps;
+    pd.PS = colour ? blit_colour_ps : gamma ? blit_gamma_ps : blit_ps;
     pd.bindingLayouts = tl.layouts();
     pd.renderState.rasterState.setCullNone();
     pd.renderState.rasterState.scissorEnable = false;
@@ -3057,15 +4233,17 @@ struct GameRenderer::Impl {
   }
 
   // Draws src_slot (rectangle in UV) into fb at viewport.
+  // colour: [graphics] colour_blind, the three rows of the colour matrix (kBlitColourPS); null = the blit as before.
   void Blit(nvrhi::ICommandList* c, nvrhi::IFramebuffer* fb, uint32_t src_slot, const float uv[4], const nvrhi::Viewport& viewport,
-            uint32_t gamma_lut_slot = 0) {
-    nvrhi::IGraphicsPipeline* p = BlitPipeline(fb, gamma_lut_slot != 0);
+            uint32_t gamma_lut_slot = 0, const float (*colour)[4] = nullptr) {
+    nvrhi::IGraphicsPipeline* p = BlitPipeline(fb, gamma_lut_slot != 0, colour != nullptr);
     if (!p) return;
     fcshaders::DrawConstants dc{};
     dc.textureIndex[0] = src_slot;
     dc.textureIndex[1] = gamma_lut_slot;
     dc.pixelSamplers[0] = linear_clamp;
     std::memcpy(dc.clipPlanes[1], uv, 16);
+    if (colour) std::memcpy(dc.clipPlanes[2], colour, 48);
     static const std::array<float, 1024> zero{};
     tl.WriteConstants(c, zero.data(), zero.data(), dc);
     for (uint32_t& n : cb_frame) ++n;
@@ -3139,6 +4317,7 @@ struct GameRenderer::Impl {
       Log("renderer: T f%llu resolve src %08X %s %ux%u rect %d,%d-%d,%d -> %ux%u slot %X at %d,%d", (unsigned long long)frame,
           src ? src->surface : 0, src ? (src->depth ? "depth" : "color") : "-", src ? src->width : 0, src ? src->height : 0, x0, y0, x1, y1,
           dst ? dst->width : 0, dst ? dst->height : 0, dst ? dst->slot : 0, px, py);
+    AoBeforeUse(src, "a resolve of it");
     if (!src || !dst || !src->srv_slot) {
       if (src && src->host_samples > 1 && src->depth) ++skip_reasons["resolve from MSAA depth"];
       return;
@@ -3146,6 +4325,8 @@ struct GameRenderer::Impl {
     if (src->depth && dst->format != nvrhi::Format::R32_FLOAT) return;
     // Hor+: the first resolve from the 3D view's target begins the post processing (HorPlusNarrow).
     if (frame_3d && !src->depth && src->surface == view_surface) post_3d = true;
+    // Split screen: a finished view resolved from its own target into its place in the screen-sized picture.
+    if (opt.split_views && !src->depth) NoteSplitView(src, dst, x0, y0, x1, y1, px, py);
     // Rectangle and destination point come in guest pixels; the source is scaled by its factor, the destination by
     // its own (render scaling; at factor 1 the previous path, with different factors the blit filters).
     x0 = std::clamp(x0, 0, int32_t(src->gw));
@@ -3178,6 +4359,7 @@ struct GameRenderer::Impl {
     Blit(c, fb, src->srv_slot, uv, nvrhi::Viewport(float(dx0), float(dx1), float(dy0), float(dy1), 0, 1));
     c->setTextureState(dst->tex, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
     dst->frame = frame;
+    ++dst->interval_resolves;
     if (!readbacks.empty()) StageReadback(dst->base, *dst, c);
     ++frame_resolves;
     Counters::Get().resolves++;
@@ -3362,6 +4544,19 @@ struct GameRenderer::Impl {
       Log("renderer: T f%llu clear flags %X rt0 %08X ds %08X color (%g %g %g %g) z %g stencil %u%s", (unsigned long long)frame,
           flags, d.u32(F::render_targets, 0), d.u32(F::depth_stencil), color[0], color[1], color[2], color[3], z, stencil,
           in_tiling ? " (Tiling)" : "");
+    if (ao_view.pending) {
+      for (uint32_t i = 0; i < 4; ++i)
+        if (flags & (1u << i)) AoBeforeUse(GetTarget(d.u32(F::render_targets, i), false), "a clear of it");
+      if (flags & 0x30) AoBeforeUse(GetTarget(d.u32(F::depth_stencil), true), "a clear of its depth");
+      c = CL();
+    }
+    // Split screen: every view renders into the same target with the same viewport, beginning with a clear of colour
+    // and depth (measured, 4 players: target 640x360, viewport 320/-180 for each). The occlusion is once per view, not
+    // once per viewport and frame: such a clear begins a new view (else only the first player got it).
+    if (opt.split_views && (flags & 0x30) && (flags & 0xF)) {
+      const Target* z = GetTarget(d.u32(F::depth_stencil), true);
+      if (z && IsSplitTarget(z->gw, z->gh)) ao_done.clear();
+    }
     for (uint32_t i = 0; i < 4; ++i) {
       if (!(flags & (1u << i))) continue;
       if (Target* t = GetTarget(d.u32(F::render_targets, i), false))
@@ -3388,6 +4583,17 @@ struct GameRenderer::Impl {
       }
     }
     if (!f) Once("swapfront", "renderer: swap without a known front buffer (%s)", r.front_buffer ? "no resolve into it" : "r4 = 0");
+    // Ambient occlusion: a view still open at the swap had no end before it was shown (nothing to do there).
+    if (ao_view.pending) {
+      ++ao_dropped;
+      AoNote("dropped", "left out: the 3D view's opaque part never ended before the swap");
+    }
+    if (ao_applied != ao_applied_at_swap) ++ao_frames;
+    ao_applied_at_swap = ao_applied;
+    ++ao_swaps;
+    ao_view = AoView{};
+    ao_done.clear();
+    if (opt.ao_timing && ao_timer_pending) AoCollectTiming();
     ReadGammaRamp(r.device);
     if (f) {
       front = f->tex;
@@ -3414,6 +4620,13 @@ struct GameRenderer::Impl {
     front_aspect = (16.0f / 9.0f) * cur_wide / cur_tall;
     if (front_wide) ++wide_frames;
     frame_3d = post_3d = false;
+    // HUD at the edges, screen masks: this frame's state becomes the last frame's.
+    std::copy(masks_now, masks_now + n_masks_now, masks_last), n_masks_last = n_masks_now, n_masks_now = 0;
+    if (n_views_now > 1) ++stat_split_frames;
+    std::copy(views_now, views_now + n_views_now, views_last), n_views_last = n_views_now, n_views_now = 0;
+    std::copy(rows_now, rows_now + n_rows_now, rows_last), n_rows_last = n_rows_now, n_rows_now = 0;
+    hud_vs_last = hud_vs_now, hud_vs_now = 0;
+    hud_cover = false;
     view_surface = 0;
     {
       float nsx = 1.0f, nsy = 1.0f;
@@ -3447,6 +4660,7 @@ struct GameRenderer::Impl {
     // retire after three frames
     retired.erase(std::remove_if(retired.begin(), retired.end(), [&](const auto& e) { return e.first + 3 < frame; }), retired.end());
     RecycleSlots();
+    if (tpack) PackFrame();
     MaybeDump();
     if (opt.stats_every && frame % opt.stats_every == 0) {
       const double s = std::chrono::duration<double>(Clock::now() - stats_since).count();
@@ -3482,10 +4696,24 @@ struct GameRenderer::Impl {
         std::unordered_set<uint32_t> bases;
         for (const auto& [k, t] : textures) bases.insert(res::TextureFetch::FromWords(k.w.data()).BaseAddress());
         Log("renderer: tables %s; textures %zu (%zu base addresses), buffers %zu, samplers %zu, refused %llu%s; recycled: "
-            "%llu textures, %llu buffers; alpha-to-mask draws %llu",
+            "%llu textures, %llu buffers; alpha-to-mask draws %llu; fetches at a resolve base with another size %llu",
             tables.c_str(), textures.size(), bases.size(), buffers.size(), samplers.size(), (unsigned long long)refused,
             refused_by.c_str(), (unsigned long long)evicted_textures, (unsigned long long)evicted_buffers,
-            (unsigned long long)a2m_draws);
+            (unsigned long long)a2m_draws, (unsigned long long)stale_resolve_binds);
+        Log("renderer: allocations: estimated %zu of %u (%zu textures%s, %zu vertex buffers, %zu index buffers, %zu targets, "
+            "%zu resolve targets, %zu test); refused: %llu textures, %llu vertex buffers, %llu index buffers; allocation "
+            "passes %llu, evicted index buffers %llu, zeroed subresources (pool) %llu",
+            EstimatedAllocations(), host ? host->max_allocations() : 0, textures.size(), host && host->pooled_textures() ? " pooled" : "",
+            buffers.size(), index_buffers.size(), targets.size(), resolved.size(), test_allocs.size(),
+            (unsigned long long)alloc_fail_tex, (unsigned long long)alloc_fail_buf, (unsigned long long)alloc_fail_idx,
+            (unsigned long long)alloc_passes, (unsigned long long)evicted_index, (unsigned long long)zeroed_subresources);
+        if (opt.ao || ao_applied)
+          Log("renderer: ao %s: in %llu of %llu frames; so far %llu passes, left out %llu projection, %llu shape, %llu without an end; "
+              "opaque draws after it %.1f per frame",
+              opt.ao == 2 ? "GTAO" : opt.ao ? "SSAO" : "off", (unsigned long long)ao_frames, (unsigned long long)ao_swaps,
+              (unsigned long long)ao_applied, (unsigned long long)ao_skipped_proj, (unsigned long long)ao_skipped_shape,
+              (unsigned long long)ao_dropped, ao_frames ? double(ao_opaque_after) / double(ao_frames) : 0.0);
+        ao_frames = ao_swaps = ao_opaque_after = 0;
       }
       if (st.queued)
         Log("renderer: async shaders: %llu translated on workers (%.0f ms), draws waited %.1f ms", (unsigned long long)st.queued,
@@ -3509,11 +4737,38 @@ struct GameRenderer::Impl {
       Log("renderer: MSAA resolves %llu, not repeated (target unchanged) %llu", (unsigned long long)msaa_resolves,
           (unsigned long long)msaa_resolves_skipped);
       msaa_resolves = msaa_resolves_skipped = 0;
+      {
+        // Resolve targets refreshed (resolves) and used (binds) in this interval, ordered by base address.
+        std::vector<const Resolved*> rs;
+        for (const auto& [b, r] : resolved) rs.push_back(&r);
+        std::sort(rs.begin(), rs.end(), [](const Resolved* a, const Resolved* b) { return a->base < b->base; });
+        std::string line;
+        for (const Resolved* r : rs) {
+          char item[64];
+          std::snprintf(item, sizeof(item), " %08X %ux%u f%u %u/%u", r->base, r->gw, r->gh, unsigned(r->format), r->interval_resolves,
+                        r->interval_binds);
+          line += item;
+        }
+        Log("renderer: resolves per target (base size format resolves/binds):%s", line.c_str());
+        for (auto& [b, r] : resolved) r.interval_resolves = r.interval_binds = 0;
+      }
       if (Shaped()) {
         Log("renderer: %s %.4f: %llu wide frames of %u, 2D centred %llu, full width %llu, box unknown %llu",
             cur_wide != 1.0f ? "Hor+" : "Vert+", cur_wide != 1.0f ? cur_wide : cur_tall, (unsigned long long)wide_frames, opt.stats_every, (unsigned long long)narrow_draws, (unsigned long long)full_draws,
             (unsigned long long)unknown_boxes);
+        Log("renderer: HUD layout %s: %llu draws at the edges, %llu kept in the band under a cover (menus); screen masks %llu, "
+            "sides filled %llu",
+            opt.hud_aspect <= 0.0f ? "auto" : std::fabs(opt.hud_aspect - 16.0f / 9.0f) < 1e-3f ? "16:9" : "box",
+            (unsigned long long)stat_anchored, (unsigned long long)stat_covered, (unsigned long long)stat_masks,
+            (unsigned long long)stat_fills);
+        if (stat_split_frames || stat_view_hud || stat_view_masks || stat_window_offset)
+          Log("renderer: split screen: %llu frames with views, %llu HUD draws in a view's band, %llu screen masks in a view, "
+              "%llu view quads drawn at their place on the screen%s",
+              (unsigned long long)stat_split_frames, (unsigned long long)stat_view_hud, (unsigned long long)stat_view_masks,
+              (unsigned long long)stat_window_offset, opt.split_views ? "" : " (FCP_RENDER_SPLIT_VIEW=0)");
         wide_frames = narrow_draws = full_draws = unknown_boxes = 0;
+        stat_anchored = stat_covered = stat_masks = stat_fills = 0;
+        stat_split_frames = stat_view_hud = stat_view_masks = stat_window_offset = 0;
       }
       if (opt.index_cache)
         Log("renderer: index cache: %llu hits, %llu converted (%llu KB), %zu buffers, %llu changing constantly (ring)",
@@ -3585,6 +4840,44 @@ struct GameRenderer::Impl {
       Log("renderer: dump frame %llu -> %s (%ux%u)", (unsigned long long)frame, path.c_str(), front_w, front_h);
   }
 
+  // Present dump with an HDR10 swapchain (FCP_DUMP_PRESENT, RequestPresentDump): <name> = the SDR picture the HDR10
+  // pass mapped (without overlay), <base>_hdr10.raw = the swapchain image as presented ("FCPHDR10", uint32 width,
+  // height, picture x, y, w, h, then one R10G10B10A2 word per pixel, rows top first), <base>_hdr10.txt = the
+  // parameters. tools/hdr_check.py decodes and compares them.
+  void DumpHdr(const std::string& path) {
+    const size_t dot = path.find_last_of('.');
+    const std::string base = dot == std::string::npos ? path : path.substr(0, dot);
+    std::string error;
+    std::vector<uint32_t> words;
+    const nvrhi::TextureDesc& d = back->getDesc();
+    if (!ReadbackRaw32(dev, back, words, &error)) {
+      Log("renderer: HDR10 dump %s failed: %s", path.c_str(), error.c_str());
+      return;
+    }
+    if (FILE* f = std::fopen((base + "_hdr10.raw").c_str(), "wb")) {
+      const uint32_t head[6] = {d.width, d.height, uint32_t(hdr_rect[0]), uint32_t(hdr_rect[1]), uint32_t(hdr_rect[2] + 0.5f),
+                                uint32_t(hdr_rect[3] + 0.5f)};
+      std::fwrite("FCPHDR10", 1, 8, f);
+      std::fwrite(head, 4, 6, f);
+      std::fwrite(words.data(), 4, words.size(), f);
+      std::fclose(f);
+    }
+    if (FILE* f = std::fopen((base + "_hdr10.txt").c_str(), "w")) {
+      std::fprintf(f, "paper_white %g\npeak %g\ngain %g\nknee %g\ngamma %g\ntest_pattern %u\napi %s\nframe %llu\n"
+                   "display_hdr %d\ndisplay_peak %g\ndisplay_sdr_white %g\n",
+                   hdr_levels.paper_white, hdr_levels.peak, hdr_levels.gain, hdr_levels.knee, hdr_levels.gamma, hdr_levels.test_pattern,
+                   HostApiName(opt.api), (unsigned long long)frame, display_hdr.enabled ? 1 : 0, display_hdr.max_nits,
+                   display_hdr.sdr_white_nits);
+      std::fclose(f);
+    }
+    std::vector<uint8_t> rgba;
+    if (hdr_sdr && ReadbackRgba8(dev, hdr_sdr, rgba, &error) && WriteImage(path, hdr_sdr->getDesc().width, hdr_sdr->getDesc().height, rgba, &error))
+      Log("renderer: HDR10 dump -> %s_hdr10.raw (%ux%u, frame %llu), SDR picture -> %s", base.c_str(), d.width, d.height,
+          (unsigned long long)frame, path.c_str());
+    else
+      Log("renderer: HDR10 dump -> %s_hdr10.raw, SDR picture failed: %s", base.c_str(), error.c_str());
+  }
+
   std::string ShutdownSummary() const {
     const auto st = shaders.stats();
     std::string reasons;
@@ -3612,6 +4905,40 @@ struct GameRenderer::Impl {
   }
 
   void HandleResize() {
+    if (vsync_pending) {
+      // settings menu (frame rate, VSync): the swapchain anew with FIFO or without (Vulkan), the sync interval (D3D12)
+      vsync_pending = false;
+      back_fbs.clear();
+      const bool ok = host->SetVsync(opt.vsync);
+      Log("renderer: present %s (settings menu)%s", opt.vsync ? "with VSync" : "without waiting for the monitor",
+          ok ? "" : ": FAILED");
+    }
+    // Vulkan: a swapchain the driver reported out of date (exclusive mode change, restore from minimized at the same
+    // size: no resize comes) is made anew at the window's size once it has one; at most every 100 ms.
+    // FCP_RENDER_RECREATE_LOST=0: only on resize events, as before.
+    static const bool recreate_lost = !std::getenv("FCP_RENDER_RECREATE_LOST") ||
+                                      std::string(std::getenv("FCP_RENDER_RECREATE_LOST")) != "0";
+    if (!resize_pending && recreate_lost && host->swapchain_lost() && Clock::now() >= lost_retry) {
+      uint32_t w = 0, h = 0;
+      lost_retry = Clock::now() + std::chrono::milliseconds(100);
+      if (host->window_client_size(&w, &h) && w && h) {
+        Log("renderer: swapchain out of date, made anew at the window's %ux%u", w, h);
+        resize_pending = true;
+        resize_w = w, resize_h = h;
+      }
+    }
+    if (hdr_pending) {
+      // [display] hdr from the settings menu: a new swapchain in the other mode (same size)
+      hdr_pending = false;
+      display_hdr = QueryDisplayHdr(hwnd);
+      LogDisplayHdr("settings menu");
+      const bool want = WantHdr();
+      if (want != host->hdr_active()) {
+        back_fbs.clear();
+        host->SetHdr(want);
+      }
+      SettleHdr(want, "settings menu");
+    }
     if (!resize_pending) return;
     resize_pending = false;
     back_fbs.clear();
@@ -3671,6 +4998,52 @@ struct GameRenderer::Impl {
     return smaa_in_fb && smaa_out_slot;
   }
 
+  // [graphics] colour_blind: matrix of the mode and the shader (made on first use). false: the final blit as before.
+  bool ColourReady() {
+    const int mode = opt.colour_blind;
+    if (mode < 1 || mode > 3 || blit_colour_failed) return false;
+    if (!blit_colour_ps) {
+      std::string e;
+      blit_colour_ps = CreateBuiltinShader(dev, opt.api, BuiltinShader::kBlitColourPS, &e);
+      if (!blit_colour_ps) {
+        Log("renderer: colour blind blit not available: %s", e.c_str());
+        blit_colour_failed = true;
+        return false;
+      }
+    }
+    if (colour_mode != mode) {
+      colour_mode = mode;
+      ColourBlindMatrix(mode, colour_matrix);
+      Log("renderer: colour blind mode %s: %.4f %.4f %.4f / %.4f %.4f %.4f / %.4f %.4f %.4f", ColourBlindName(mode),
+          colour_matrix[0][0], colour_matrix[0][1], colour_matrix[0][2], colour_matrix[1][0], colour_matrix[1][1],
+          colour_matrix[1][2], colour_matrix[2][0], colour_matrix[2][1], colour_matrix[2][2]);
+    }
+    return true;
+  }
+
+  // HDR10: the SDR picture at the swapchain's size (recreated on a size change). false: no HDR10 pass this frame.
+  bool HdrTarget(uint32_t w, uint32_t h) {
+    if (hdr_sdr && hdr_sdr->getDesc().width == w && hdr_sdr->getDesc().height == h) return true;
+    nvrhi::TextureDesc d;
+    d.width = w;
+    d.height = h;
+    d.format = nvrhi::Format::RGBA8_UNORM;
+    d.isRenderTarget = true;
+    d.initialState = nvrhi::ResourceStates::ShaderResource;
+    d.keepInitialState = true;
+    d.setClearValue(nvrhi::Color(0, 0, 0, 1));
+    d.debugName = "hdr10 sdr picture";
+    hdr_sdr = dev->createTexture(d);
+    hdr_sdr_fb = hdr_sdr ? dev->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(hdr_sdr)) : nullptr;
+    if (!hdr_sdr_fb) {
+      Log("renderer: HDR10: SDR picture %ux%u failed", w, h);
+      hdr_sdr = nullptr;
+      return false;
+    }
+    Log("renderer: HDR10: SDR picture %ux%u", w, h);
+    return true;
+  }
+
   bool BeginPresent() {
     if (!ready || !host || !host->has_swapchain()) return false;
     HandleResize();
@@ -3679,8 +5052,12 @@ struct GameRenderer::Impl {
     auto it = back_fbs.find(back);
     if (it == back_fbs.end()) it = back_fbs.emplace(back, dev->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(back))).first;
     nvrhi::IFramebuffer* fb = it->second;
+    nvrhi::IFramebuffer* back_fb = fb;
+    // HDR10: the SDR path below draws into hdr_sdr instead of the swapchain, the HDR10 pass then maps it.
+    const bool hdr = hdr_on && HdrTarget(back->getDesc().width, back->getDesc().height);
+    if (hdr) fb = hdr_sdr_fb;
     present_cl->open();
-    present_cl->clearTextureFloat(back, nvrhi::AllSubresources, nvrhi::Color(0, 0, 0, 1));
+    present_cl->clearTextureFloat(hdr ? hdr_sdr.Get() : back, nvrhi::AllSubresources, nvrhi::Color(0, 0, 0, 1));
     if (front) {
       // Aspect ratio of the frame, centred (bars instead of distortion).
       const float bw = float(back->getDesc().width), bh = float(back->getDesc().height);
@@ -3702,6 +5079,7 @@ struct GameRenderer::Impl {
         gamma_dirty = false;
       }
       const bool gamma = opt.gamma_ramp && blit_gamma_ps && gamma_lut_slot && !gamma_identity;
+      const float (*colour)[4] = ColourReady() ? colour_matrix : nullptr;  // [graphics] colour_blind
       if (opt.smaa && SmaaReady(front_w, front_h)) {
         // SMAA on the frame as it is shown (after the gamma ramp, at frame size), then centred without the ramp.
         nvrhi::ITexture* src = front;
@@ -3712,11 +5090,17 @@ struct GameRenderer::Impl {
         }
         smaa->Run(present_cl, src, smaa_out);
         present_cl->setTextureState(smaa_out, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-        Blit(present_cl, fb, smaa_out_slot, uv, nvrhi::Viewport(x, x + w, y, y + h, 0, 1), 0);
+        Blit(present_cl, fb, smaa_out_slot, uv, nvrhi::Viewport(x, x + w, y, y + h, 0, 1), 0, colour);
         ++smaa_frames;
       } else {
-        Blit(present_cl, fb, front_slot, uv, nvrhi::Viewport(x, x + w, y, y + h, 0, 1), gamma ? gamma_lut_slot : 0);
+        Blit(present_cl, fb, front_slot, uv, nvrhi::Viewport(x, x + w, y, y + h, 0, 1), gamma ? gamma_lut_slot : 0,
+             colour);
       }
+      hdr_rect[0] = x, hdr_rect[1] = y, hdr_rect[2] = w, hdr_rect[3] = h;
+    }
+    if (hdr) {
+      hdr_pass->Run(present_cl, hdr_sdr, back_fb, hdr_levels);
+      ++hdr_frames;
     }
     present_cl->close();
     dev->executeCommandList(present_cl);
@@ -3870,6 +5254,10 @@ void GameRenderer::EndPresent() {
   m.pacer.BeforePresent();  // display pacing: holds the present (only), without the renderer lock
   Impl::TimedLock lock(m, kSitePresent);
   if (!m.host || !m.back) return;
+  if (!m.present_dump.empty() && m.back->getDesc().format == nvrhi::Format::R10G10B10A2_UNORM) {
+    m.DumpHdr(m.present_dump);
+    m.present_dump.clear();
+  }
   if (!m.present_dump.empty()) {
     // Test (RequestPresentDump): what the player sees, with overlay; waits for the GPU.
     std::vector<uint8_t> rgba;
@@ -3920,7 +5308,10 @@ uint32_t GameRenderer::RenderOverlay(const OverlayFrame& frame, OverlayTextureOp
     }
     op.done = op.kind != OverlayTextureOp::Kind::kCreate || op.id != 0;
   }
-  const uint32_t draws = m.overlay->Draw(cl, it->second, frame);
+  // HDR10 swapchain: the overlay at paper white in PQ (no highlight stretch)
+  const float hdr[2] = {m.hdr_levels.paper_white / 10000.0f, m.hdr_levels.gamma};
+  const bool hdr_back = m.back->getDesc().format == nvrhi::Format::R10G10B10A2_UNORM;
+  const uint32_t draws = m.overlay->Draw(cl, it->second, frame, hdr_back ? hdr : nullptr);
   cl->close();
   m.dev->executeCommandList(cl);
   if (draws) {
@@ -3942,11 +5333,98 @@ void GameRenderer::SetGammaRamp(bool on) {
   impl_->Log("renderer: gamma ramp %s (settings menu)", on ? "on" : "off");
 }
 
+void GameRenderer::SetHudAspect(float aspect) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  if (impl_->opt.hud_aspect == aspect) return;
+  impl_->opt.hud_aspect = aspect;
+  impl_->Log("renderer: HUD layout %s (settings menu)", aspect == 0.0f ? "auto (the picture's edges)"
+                                                       : std::fabs(aspect - 16.0f / 9.0f) < 1e-3f ? "16:9 (band)" : "box");
+}
+
 void GameRenderer::SetSmaa(bool on) {
   Impl::TimedLock lock(*impl_, kSiteOther);
   if (impl_->opt.smaa == on) return;
   impl_->opt.smaa = on;
   impl_->Log("renderer: SMAA %s (settings menu, from the next present)", on ? "on" : "off");
+}
+
+void GameRenderer::SetVsync(bool on) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  if (impl_->opt.vsync == on) return;
+  impl_->opt.vsync = on;
+  impl_->vsync_pending = impl_->host != nullptr;  // before the device: CreateHost takes opt.vsync
+  impl_->Log("renderer: VSync %s (settings menu, from the next present)", on ? "on" : "off");
+}
+
+void GameRenderer::SetPaceTarget(double fps) {
+  {
+    Impl::TimedLock lock(*impl_, kSiteOther);
+    if (impl_->opt.pace_fps == fps) return;
+    impl_->opt.pace_fps = fps;  // a host made later starts the pacer with it
+  }
+  impl_->pacer.SetTarget(fps);
+}
+
+void GameRenderer::SetFramesAhead(uint32_t frames) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  if (impl_->opt.frames_ahead == frames) return;
+  impl_->Log("renderer: frames ahead %u -> %u (settings menu, from the next swap)", impl_->opt.frames_ahead, frames);
+  impl_->opt.frames_ahead = frames;
+}
+
+void GameRenderer::SetColourBlind(int mode) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  mode = mode >= 0 && mode <= 3 ? mode : 0;
+  if (impl_->opt.colour_blind == mode) return;
+  impl_->opt.colour_blind = mode;
+  impl_->Log("renderer: colour blind mode %s (settings menu, from the next present)", ColourBlindName(mode));
+}
+
+void GameRenderer::SetHdr(uint32_t mode) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  mode = std::min(mode, 2u);
+  if (impl_->opt.hdr == mode) return;
+  impl_->opt.hdr = mode;
+  impl_->hdr_pending = impl_->host && impl_->host->has_swapchain();
+  impl_->Log("renderer: [display] hdr = %s (settings menu, at the next present)", mode == 1 ? "on" : mode == 2 ? "auto" : "off");
+}
+
+void GameRenderer::SetHdrLevels(float paper_white, float peak, float boost) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  Impl& m = *impl_;
+  if (m.opt.hdr_paper_white == paper_white && m.opt.hdr_peak == peak && m.opt.hdr_boost == boost) return;
+  m.opt.hdr_paper_white = paper_white, m.opt.hdr_peak = peak, m.opt.hdr_boost = boost;
+  m.UpdateHdrLevels();
+  m.Log("renderer: HDR10 paper white %.0f nits, peak %.0f nits, highlight gain x%.2f (settings menu%s)", m.hdr_levels.paper_white,
+        m.hdr_levels.peak, m.hdr_levels.gain, m.hdr_on ? "" : "; HDR10 output is off");
+}
+
+bool GameRenderer::HdrActive() const {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  return impl_->hdr_on;
+}
+
+void GameRenderer::SetShadowFilter(uint32_t mode) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  if (impl_->opt.shadow_filter == mode) return;
+  impl_->opt.shadow_filter = mode;
+  impl_->Log("renderer: shadow filter %s (settings menu, from the next draw)", mode ? "soft" : "console");
+}
+
+void GameRenderer::SetAo(uint32_t mode) {
+  Impl::TimedLock lock(*impl_, kSiteOther);
+  mode = std::min(mode, 2u);
+  if (impl_->opt.ao == mode) return;
+  impl_->opt.ao = mode;
+  impl_->Log("renderer: ambient occlusion %s (settings menu, from the next frame)", mode == 2 ? "GTAO" : mode ? "SSAO" : "off");
+}
+
+void GameRenderer::SetCameraProjection(const float m[16], float far_plane) {
+  if (!impl_) return;
+  std::lock_guard lock(impl_->proj_mutex);
+  std::memcpy(impl_->proj_m, m, sizeof(impl_->proj_m));
+  impl_->proj_far = far_plane;
+  ++impl_->proj_count;
 }
 
 void GameRenderer::SetTextureReplaceSource(TextureReplaceSource* source) {
@@ -4030,9 +5508,14 @@ void GameRenderer::Shutdown() {
   m.Log("renderer: end. %s", m.ShutdownSummary().c_str());
   if (m.overlay) m.Log("renderer: overlay: %llu frames with overlay, %llu draws, %zu textures", (unsigned long long)m.overlay_frames,
                        (unsigned long long)m.overlay_draws, m.overlay->texture_count());
+  if (m.hdr_frames) m.Log("renderer: HDR10: %llu presents through the HDR10 pass", (unsigned long long)m.hdr_frames);
   if (m.replace_source)
     m.Log("renderer: texture replacement: %llu textures checked, %llu bindings replaced, %llu images uploaded",
           (unsigned long long)m.replace_classified, (unsigned long long)m.replace_binds, (unsigned long long)m.replace_uploads);
+  if (m.tpack) {
+    m.Log("renderer: texture pack: %s; %s", m.PackStats().c_str(), m.tpack->Summary().c_str());
+    m.tpack.reset();  // writes the dumps still queued
+  }
 }
 
 std::string GameRenderer::Summary() const {
@@ -4083,6 +5566,7 @@ void GameRenderer::OnResolve(const ResolveRecord& r) {
     if (!dst || dst->format != nvrhi::Format::R32_FLOAT) {
       ++m.skip_reasons["resolve depth"];
     } else {
+      dst->depth = true;  // a shadow map: [graphics] shadow_filter applies when a shader fetches it
       int32_t x0 = 0, y0 = 0, x1 = int32_t(src->surface_w), y1 = int32_t(src->surface_h);
       if (r.has_rect) x0 = r.rect[0], y0 = r.rect[1], x1 = r.rect[2], y1 = r.rect[3];
       const int32_t px = r.has_point ? r.point[0] : x0, py = r.has_point ? r.point[1] : y0;

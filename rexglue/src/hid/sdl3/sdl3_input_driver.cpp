@@ -223,6 +223,7 @@ struct SDL3InputDriver::State {
 
   std::atomic<bool> events_up{false};
   std::atomic<bool> gamepad_up{false};
+  bool fold_extra = true;  // fold_extra_buttons, read at Initialize
 
   // change 301: posting to the UI thread wakes it with SDL_PushEvent, which waits for SDL's event locks while the
   // UI thread pumps; a small thread of the driver posts instead of the guest thread.
@@ -435,7 +436,7 @@ void SDL3InputDriver::State::OnAxisLocked(const SDL_Event& event) {
 }
 
 void SDL3InputDriver::State::OnButtonLocked(const SDL_Event& event) {
-  static constexpr std::array<u16, 21> kButtonLookup = {
+  static constexpr std::array<u16, 15> kButtonLookup = {
       kPadA,
       kPadB,
       kPadX,
@@ -451,26 +452,50 @@ void SDL3InputDriver::State::OnButtonLocked(const SDL_Event& event) {
       kPadDPadDown,
       kPadDPadLeft,
       kPadDPadRight,
-      kPadGuide,
-      kPadY,
-      kPadB,
-      kPadX,
-      kPadA,
-      kPadGuide,
   };
   static_assert(SDL_GAMEPAD_BUTTON_SOUTH == 0);
   static_assert(SDL_GAMEPAD_BUTTON_DPAD_RIGHT == 14);
+  static_assert(SDL_GAMEPAD_BUTTON_MISC1 == 15 && SDL_GAMEPAD_BUTTON_MISC6 == 25);
 
   Controller* controller = FindByInstance(event.gbutton.which);
-  if (!controller || event.gbutton.button >= kButtonLookup.size()) {
+  if (!controller) {
     return;
   }
-  const u16 bit = kButtonLookup[event.gbutton.button];
-  if (event.gbutton.down) {
-    controller->state.buttons = static_cast<u16>(controller->state.buttons | bit);
+  // Predator change: the buttons past the D-pad (misc, paddles, touchpad) go to PadState::extra; the guide
+  // button to both. GetDeviceState folds them into the title's bits as before while fold_extra_buttons is on.
+  const u32 button = event.gbutton.button;
+  u16 bit = 0;
+  u32 extra = 0;
+  if (button < kButtonLookup.size()) {
+    bit = kButtonLookup[button];
+    if (button == SDL_GAMEPAD_BUTTON_GUIDE) {
+      extra = kPadExtraGuide;
+    }
+  } else if (button <= SDL_GAMEPAD_BUTTON_MISC6) {
+    extra = 1u << (button - SDL_GAMEPAD_BUTTON_MISC1);
   } else {
-    controller->state.buttons = static_cast<u16>(controller->state.buttons & ~bit);
+    return;
   }
+  PadState& state = controller->state;
+  if (event.gbutton.down) {
+    state.buttons = static_cast<u16>(state.buttons | bit);
+    state.extra |= extra;
+  } else {
+    state.buttons = static_cast<u16>(state.buttons & ~bit);
+    state.extra &= ~extra;
+  }
+}
+
+// The mapping of the further buttons before the Predator change (taken from Xenia): misc1 and the touchpad on the
+// guide button, the paddles on the face buttons; misc2..misc6 nothing.
+static PadState FoldExtraButtons(PadState state) {
+  static constexpr std::array<u16, 6> kFold = {kPadGuide, kPadY, kPadB, kPadX, kPadA, kPadGuide};
+  for (size_t i = 0; i < kFold.size(); ++i) {
+    if (state.extra & (1u << i)) {
+      state.buttons = static_cast<u16>(state.buttons | kFold[i]);
+    }
+  }
+  return state;
 }
 
 SDL3InputDriver::State::Controller* SDL3InputDriver::State::FindByInstance(
@@ -587,6 +612,9 @@ Result<void> SDL3InputDriver::Initialize(IDriverContext& context) {
   state_ = std::make_shared<State>();
   state_->context = &context;
   state_->running = true;
+  state_->fold_extra = fold_extra_buttons.Get();
+  REXHID_INFO("SDL: paddles, misc and touchpad {}",
+              state_->fold_extra ? "fold onto A/B/X/Y and guide" : "reported apart (PadState::extra)");
 
   std::filesystem::path mappings = mappings_file.Get();
   const Result<void> ran =
@@ -720,7 +748,7 @@ Result<PadState> SDL3InputDriver::GetDeviceState(PadDeviceID id) {
   if (!controller) {
     return std::unexpected(NotConnected());
   }
-  return controller->state;
+  return state_->fold_extra ? FoldExtraButtons(controller->state) : controller->state;
 }
 
 Result<PadCapabilities> SDL3InputDriver::GetDeviceCapabilities(PadDeviceID id) {

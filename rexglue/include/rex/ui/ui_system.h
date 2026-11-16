@@ -139,6 +139,10 @@ class REX_UI_API UISettings final : public SettingOwner {
               Allowed("stretch", "4:3", "5:4", "3:2", "16:10", "16:9", "21:9", "32:9"));
   REX_SETTING(std::string, resolution, "",
               "Video mode preset or WxH, empty to use the ui.video_mode_* settings");
+  // FCP (rexglue/UPSTREAM.md, local change 351): the exclusive fullscreen mode by itself (the window size and the
+  // video mode the title sees stay as they are).
+  REX_SETTING(std::string, fullscreen_mode, "",
+              "Exclusive fullscreen mode WxH or WxH@Hz, empty for ui.resolution or the desktop's mode");
   REX_SETTING(i32, video_mode_width, 1280, "Video mode width the title sees", Range{640, 4095},
               kRestart);
   REX_SETTING(i32, video_mode_height, 720, "Video mode height the title sees", Range{480, 4095},

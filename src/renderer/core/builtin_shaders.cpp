@@ -62,6 +62,33 @@ float4 ps_gamma(VsOut i) : SV_Target0 {
 }
 )";
 
+// [graphics] colour_blind: like ps_main / ps_gamma (gamma ramp when textureIndex[0].y is not 0), then the colour
+// matrix in clipPlanes[2..4] (rows) on linear colour (gamma 2.2), clamped to 0..1 before and after, as Far Cry
+// Instincts Recomp (MIT, same author) does it. Its own source, so the other blits stay as they were.
+constexpr const char* kBlitColour = R"(
+cbuffer DrawConstantsCB : register(b2, space0) {
+  uint4 kk_Bool[2]; uint4 kk_Loop[8]; uint4 kk_TextureIndex[8]; uint4 kk_VSSampler[8]; uint4 kk_PSSampler[8];
+  uint4 kk_VertexFetch[16]; float4 kk_ClipPlane[6];
+};
+Texture2D<float4> kk_Tex2D[] : register(t0, space1);
+SamplerState kk_Sampler[] : register(s0, space5);
+struct VsOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+float ramp(uint ch, float v) {
+  const float x = saturate(v) * 255.0;
+  const uint i0 = (uint)floor(x), i1 = min(i0 + 1, 255u);
+  const float a = kk_Tex2D[kk_TextureIndex[0].y].Load(int3(i0, 0, 0))[ch];
+  const float b = kk_Tex2D[kk_TextureIndex[0].y].Load(int3(i1, 0, 0))[ch];
+  return lerp(a, b, x - (float)i0);
+}
+float4 ps_colour(VsOut i) : SV_Target0 {
+  float4 c = kk_Tex2D[kk_TextureIndex[0].x].Sample(kk_Sampler[kk_PSSampler[0].x], i.uv);
+  if (kk_TextureIndex[0].y != 0) c.rgb = float3(ramp(0, c.r), ramp(1, c.g), ramp(2, c.b));
+  const float3 lin = pow(saturate(c.rgb), 2.2);
+  const float3 m = float3(dot(kk_ClipPlane[2].xyz, lin), dot(kk_ClipPlane[3].xyz, lin), dot(kk_ClipPlane[4].xyz, lin));
+  return float4(pow(saturate(m), 1.0 / 2.2), c.a);
+}
+)";
+
 struct Cache {
   std::mutex mutex;
   std::vector<uint8_t> blobs[2][size_t(BuiltinShader::kCount)];
@@ -91,6 +118,7 @@ nvrhi::ShaderHandle CreateBuiltinShader(nvrhi::IDevice* device, HostApi api, Bui
         case BuiltinShader::kBlitVS: out = compiler.compileEntry(kBlit, L"vs_6_0", L"vs_main", target, false); break;
         case BuiltinShader::kBlitPS: out = compiler.compileEntry(kBlit, L"ps_6_0", L"ps_main", target); break;
         case BuiltinShader::kBlitGammaPS: out = compiler.compileEntry(kBlit, L"ps_6_0", L"ps_gamma", target); break;
+        case BuiltinShader::kBlitColourPS: out = compiler.compileEntry(kBlitColour, L"ps_6_0", L"ps_colour", target); break;
         default: break;
       }
       if (!out.ok) {
@@ -107,6 +135,7 @@ nvrhi::ShaderHandle CreateBuiltinShader(nvrhi::IDevice* device, HostApi api, Bui
   d.entryName = vertex ? "vs_main"
                 : (which == BuiltinShader::kTrianglePS || which == BuiltinShader::kBlitPS) ? "ps_main"
                 : which == BuiltinShader::kBlitGammaPS                                     ? "ps_gamma"
+                : which == BuiltinShader::kBlitColourPS                                    ? "ps_colour"
                                                                                            : "main";
   d.debugName = "builtin";
   return device->createShader(d, blob.data(), blob.size());

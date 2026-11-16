@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <iterator>
@@ -367,6 +368,20 @@ ImDrawData* ImGuiHost::BuildFrame() {
 
   io.DisplaySize.x = static_cast<f32>(display_width_) / content_scale_;
   io.DisplaySize.y = static_cast<f32>(display_height_) / content_scale_;
+  // FCP (rexglue/UPSTREAM.md, local change 351): the layout stays in points (pixels / content scale), the fonts are
+  // rasterized at the window's pixel density (ImGui 1.92: FontRasterizerDensity from the framebuffer scale), so text
+  // is sharp at 125/150/200 % instead of being stretched from the point size. The renderer maps the display to the
+  // framebuffer itself. REX_IMGUI_DPI_RASTER=0: rasterized at the point size, as before.
+  static const bool raster_dpi = [] {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    const char* v = std::getenv("REX_IMGUI_DPI_RASTER");  // read only
+#pragma clang diagnostic pop
+    return !(v && v[0] == '0' && v[1] == 0);
+  }();
+  if (raster_dpi) {
+    io.DisplayFramebufferScale = ImVec2(content_scale_, content_scale_);
+  }
 
   ImGui::NewFrame();
   capture_.Update(io);

@@ -39,15 +39,20 @@ not yet verified on real hardware are listed under [Known issues](#known-issues)
   after a restart.
 - **Native renderer** on Vulkan (default) or Direct3D 12, the game's shaders translated ahead of time into a shader
   pack. In the scenes compared, the picture matches reference captures made with the Xenia emulator.
-- **Frame rate 30 (as the console), 60 or 120.** Game time runs at wall-clock speed at every rate (ratio 1.000), and
+- **Frame rate 30 (as the console), any rate from 40 to 120, or the monitor's refresh rate**, switchable while
+  playing. Game time runs at wall-clock speed at every rate (ratio 1.000), and
   places where the game logic depends on the frame count are corrected (see
   [Frame rate and game logic](#frame-rate-and-game-logic)).
 - **Any output shape:** wider than 16:9 (21:9, 32:9) shows more to the sides (Hor+), narrower (16:10, 4:3) more
-  above and below (Vert+); the HUD, menus and videos stay in a 16:9 area in the middle.
+  above and below (Vert+); menus and videos stay in a 16:9 area in the middle, binoculars and scopes stay round and
+  cover the whole picture, and the HUD stays in the middle or (`[graphics] hud_aspect = "auto"`, experimental) moves
+  to the picture's edges.
 - **Graphics options:** render resolution (`native`, a fixed size such as `1280x800`, or a scale up to 4x / `auto` =
   the output height, e.g. 2x at 1440p), shadow
   map resolution, anisotropic filtering up to 16x, field of view, MSAA as the console or 2x/4x/8x, optional SMAA 1x,
-  the game's gamma ramp. All of them default to the console's look.
+  the game's gamma ramp, a colour blind mode (protanopia, deuteranopia, tritanopia), optional HDR10 output (the SDR
+  picture at a chosen paper white). All of them default to the console's look.
+- **Audio:** speech volume apart from music and effects; a peak limiter after the downmix instead of clipping.
 - **Mouse and keyboard:** direct mouse look on the game's view angles (fixed degrees per count, no stick emulation,
   the same at every frame rate), optional acceleration and smoothing by time, zoom scaling, invert Y; every pad
   button and stick direction bindable to keys, mouse buttons or the wheel.
@@ -58,7 +63,7 @@ not yet verified on real hardware are listed under [Known issues](#known-issues)
 - **Settings menu (F10 or Back + Start)** for all settings; the game pauses while it is open.
 - **Comfort:** skip the start-up logo and intro videos, frame rate display, game language (English, French, German,
   Spanish, Italian, or the Windows language; checked for texts), pause when the window loses focus, borderless
-  fullscreen (Alt+Enter toggles), window size and position kept across the game's own restarts.
+  fullscreen (Alt+Enter or F11 toggles), window size and position kept across the game's own restarts.
 - **No gameplay changes.** Difficulty, mechanics and aim assist stay as on the console. Every correction has an
   environment switch back to the original behaviour.
 
@@ -68,6 +73,7 @@ not yet verified on real hardware are listed under [Known issues](#known-issues)
 - [Building from source](docs/en/BUILDING.md): requirements, build configurations, release folder, tests.
 - [Configuration](docs/en/CONFIGURATION.md): every key of `predator.toml` and `predator_input.toml`, the F10 menu.
 - [Frame rate and game logic](docs/en/FRAMERATE.md): the frame rate corrections and the open points in detail.
+- [Texture packs](docs/en/TEXTURE-PACKS.md): dumping the game's textures and replacing them with your own images.
 - [Test tools](docs/en/TESTING.md) and [switches back to the original](docs/en/DEBUG-SWITCHES.md), for contributors.
 
 ## Installation and first start
@@ -229,7 +235,7 @@ Start `predator.exe`. Logs are written to `predator.log` in the user folder (the
 | Key | Action |
 |---|---|
 | F10, or Back + Start on a pad | open / close the settings menu |
-| Alt+Enter | switch between window and fullscreen (the choice is stored in `predator.toml`) |
+| Alt+Enter, F11 | switch between window and fullscreen (the choice is stored in `predator.toml`) |
 
 Environment switches for the first start:
 
@@ -259,21 +265,37 @@ The full reference is [docs/en/CONFIGURATION.md](docs/en/CONFIGURATION.md).
 | | `skip_intro` | `false` | `true` = skip the logo and intro videos at start; story cutscenes stay |
 | | `fps_counter` | `false` | `true` = frame rate and frame time display in the corner |
 | | `language` | `"english"` | `english`, `french`, `german`, `spanish`, `italian`, `auto` (Windows display language); restart |
-| `[display]` | `mode` | `"windowed"` | `windowed`, `borderless`, `exclusive` |
+| `[display]` | `mode` | `"windowed"` | `windowed`, `borderless`, `exclusive` (video mode: `exclusive_mode`) |
 | | `width`, `height` | `0` | window client size in pixels; `0` = 1280x720 (Steam Deck: 1280x800) |
 | | `monitor` | `0` | `0` = primary, `1`..`n` = display number |
-| | `fps` | `30` | `30` (console), `60`, `90` (Steam Deck OLED display), `120`; restart |
+| | `exclusive_mode` | `"desktop"` | video mode of exclusive fullscreen: `desktop` (the monitor's own) or `"WxH@Hz"` from the monitor's list; switches at once |
+| | `fps` | `30` | frame rate limit: `30` (console), any whole number from `40` to `120` (`45`, `60`, `90` for the Steam Deck OLED display, `120`), or `auto` (the monitor's refresh rate, at most 120); switches at once in the F10 menu |
+| | `unsupported_uncapped_fps` | `false` | `true` = `fps` and `auto` also take 121 to 240 (F10 menu: 144, 165, 240 "unsupported"); **not supported**, what differs is in [FRAMERATE.md](docs/en/FRAMERATE.md#above-120-unsupported) |
 | | `vsync` | `"auto"` | `auto` (on up to 60 frames/s, off above), `on`, `off` |
+| | `pacing` | `"game"` | `display` (every frame equally long on the display; Steam Deck default) or `game` |
+| | `frame_queue` | `2` | frames ahead on the GPU, `1`-`3` (1 = least input latency) |
+| | `hdr` | `"off"` | HDR10 output: `off` (SDR), `on`, `auto` (when Windows HDR is on); `hdr_paper_white` (200 nits), `hdr_peak`, `hdr_boost`: see [CONFIGURATION](docs/en/CONFIGURATION.md#hdr10) |
 | `[graphics]` | `backend` | `"auto"` | `auto` (`renderer.toml` next to the EXE, else Vulkan), `vulkan`, `d3d12` |
 | | `msaa` | `"console"` | `console` (2x on the screen, 4x on the reflection, as the console), `off`, or `2`, `4`, `8` samples on the screen-sized targets (limited by the GPU); restart. Older files: `true` = console, `false` = off |
 | | `smaa` | `false` | `true` = SMAA 1x edge smoothing on the finished picture; switches at once |
 | | `gamma` | `true` | the game's gamma ramp (its brightness setting) |
+| | `colour_blind` | `"off"` | `off`, `protanopia`, `deuteranopia`, `tritanopia`: daltonization of the finished picture; switches at once |
 | | `scale` | `1` | render resolution of screen-sized targets: `1` = 1280x720 as the console, `auto` = output height / 720, or a factor / percentage from 0.5 to 4 (`1.5`, `150%`); used while `resolution` is `"scale"` |
 | | `resolution` | `"scale"` | `scale` (from `scale`), `native` (the picture's size on the output, e.g. 1280x800 on a Steam Deck or 2560x1080 in a 2560x1080 window), or a size such as `"1920x1080"`; smaller than the output = faster, scaled up. Switches at once. Steam Deck default: `native` |
 | | `aspect` | `"auto"` | shape of the game view: `auto` = the output's (wider than 16:9: more to the sides; narrower: more above and below), `16:9` = as the console with bars, or a fixed shape (`16:10`, `4:3`, `21:9`, `32:9`, `2.39`); restart |
+| | `hud_aspect` | `"16:9"` | HUD layout on wider or narrower pictures (experimental): `16:9` (the whole HUD in the middle band), `auto` (edge elements at the picture's edges) or a shape such as `"21:9"`; switches at once |
 | | `shadow_scale` | `1` | shadow map resolution as a multiple of the console's 1344x1344 (up to 4) |
+| | `shadow_distance` | `1` | how far the sun's shadows reach, as a multiple of the console's (1 to 4; the shadow map grows with it); restart |
+| | `shadow_filter` | `"console"` | edges of the dynamic shadows: `console` (the game's 2x2 filter) or `soft` (4x4 texels, no stair steps); switches at once |
+| | `ao` | `"off"` | ambient occlusion on the opaque scene: `off` (console), `ssao` or `gtao`; switches at once |
+| | `lod_distance` | `1` | distance at which vegetation, buildings and characters switch to simpler models and trees to sprites, as a multiple of the console's (0.5 to 8); switches at once |
+| | `view_distance` | `1` | how far vegetation, buildings and characters are drawn, as a multiple of the console's (0.5 to 8; the fog still ends the view); switches at once |
 | | `aniso` | `1` | anisotropic filtering 1-16 (`1` = as the game sets it) |
 | | `fov` | `1` | field of view as a multiple of the game's (0.5 to 2); the weapon keeps its own view |
+| | `texture_dump` | `false` | `true` = every texture the game uses is written once into `textures\dump\` of the user folder; restart ([texture packs](docs/en/TEXTURE-PACKS.md)) |
+| | `texture_replace` | `false` | `true` = images in `textures\replace\` are drawn instead of the textures they are named after; restart ([texture packs](docs/en/TEXTURE-PACKS.md)) |
+| `[audio]` | `speech_volume` | `100` | speech volume in percent (0-100, 100 = as the console); music and effects stay; switches at once |
+| | `limiter` | `true` | peak limiter after the downmix instead of clipping; `false` = as before |
 | `[input]` | `file` | `"predator_input.toml"` | keyboard, mouse and pad file (relative to the user folder) |
 | | `button_prompts` | `"auto"` | `auto` (device used last), `xbox` (console), `keyboard`, `playstation`, `switch` |
 
@@ -293,7 +315,8 @@ The full reference is [docs/en/CONFIGURATION.md](docs/en/CONFIGURATION.md).
 | `[pad]` | `backend` | `"sdl"` | `sdl` (all controllers, up to four players), `xinput`, `off`; restart |
 | | `dead_zone` | `0.0` | extra radial dead zone (0.05-0.9); `0` = only the game's own |
 | | `rumble` | `100` | vibration strength in percent; `0` = off |
-| | `pad_bind_<button>` | the button itself | controller buttons for an Xbox pad button (`a b x y lb rb lt rt ls rs start back up down left right`); PlayStation names (`cross circle square triangle l1 r1 l2 r2 l3 r3 options select share create`) and `south east west north` work too; several with commas, `none` for none |
+| | `pad_bind_<button>` | the button itself | controller buttons for an Xbox pad button (`a b x y lb rb lt rt ls rs start back up down left right`); PlayStation names (`cross circle square triangle l1 r1 l2 r2 l3 r3 options select share create`) and `south east west north` work too, as do the further SDL buttons `guide misc1 rpaddle1 lpaddle1 rpaddle2 lpaddle2 touchpad misc2`..`misc6` (paddles act as A/B/X/Y until bound); several with commas, `none` for none. Also on the F10 menu's Controller page |
+| | `pad_bind_none` | `""` | controller buttons that do nothing (a paddle taken off its default) |
 | `[bindings]` | `<target>` | see below | keys for a pad button or stick direction; several with commas, `none` for none |
 
 Default key bindings (`[bindings]`):
@@ -330,10 +353,11 @@ game stays in its pause menu until you resume.
 
 | Tab | Contents |
 |---|---|
-| Display | display mode, monitor, window size (common sizes and the monitor's native size), frame rate, VSync |
-| Graphics | graphics API, render scale, render resolution, shadow resolution, anisotropic filtering, field of view, picture shape (Hor+/Vert+), MSAA, SMAA, gamma ramp |
-| Input | mouse sensitivity (both axes and vertical), invert Y, acceleration and its limit, smoothing, zoomed behaviour, keyboard, mouse, controller driver, dead zone, vibration, button prompts, all 24 key bindings (Change, Clear, Default) |
-| Game | pause on focus loss, skip intro videos, frame rate display, language |
+| Display | display mode, exclusive mode, monitor, window size (common sizes and the monitor's native size), frame rate, VSync, frame pacing, frames ahead, HDR10 output, paper white, peak brightness, highlight boost |
+| Graphics | graphics API, render scale, render resolution, shadow resolution, shadow distance, shadow filter, ambient occlusion, detail distance, object view distance, anisotropic filtering, field of view, picture shape (Hor+/Vert+), HUD layout, MSAA, SMAA, gamma ramp, colour blind mode |
+| Input | mouse sensitivity (both axes and vertical), invert Y, acceleration and its limit, smoothing, zoomed behaviour, keyboard, mouse, button prompts, all 24 key bindings (Change, Clear, Default) |
+| Controller | the connected controllers and their port (1-4), dead zone, vibration, controller driver, the controller buttons of all 16 Xbox buttons with "press a button" capture (Change, Add, Clear, Default, all to defaults) |
+| Game | pause on focus loss, skip intro videos, frame rate display, speech volume, audio limiter, language |
 | About | version, commit, graphics API, file paths, licence notice |
 
 Changes are written into the files at once (comments in the files are kept). Settings that only apply at the next
@@ -342,9 +366,33 @@ right away with the window and display mode kept (in the menus at once, back to 
 first, since progress since the last checkpoint is lost). This is how the **language** is switched: the game reads
 it only at start. A key that an environment variable sets is shown as "set by environment".
 
+**Defaults** (bottom right) sets only the settings of the page shown back to their defaults (on the Input page with
+the key bindings, on the Controller page with the controller buttons). On a Steam Deck or ROG Xbox Ally X these are the device's defaults; every choice list marks its
+default.
+
 **Exit Game** (bottom left) asks "Exit to desktop?" and then ends the game the same way as closing the window
 (settings are kept, progress since the last checkpoint is lost). Both questions are answered with A / Enter, and
 B / Escape go back, so the menu works with a pad alone (e.g. on a Steam Deck in Game Mode).
+
+## Split screen
+
+The game's own split screen for 2 to 4 players on one PC, as on the console: **Main menu → Multiplayer →
+Splitscreen**. Every player presses A on their controller to join ("Press A to join"), A again to confirm invert look
+and stick layout, then player 1 picks the match in the lobby and launches it (multiplayer maps, game types and match
+options as on the console). Controllers count in the order the game sees them (F10 → Controller lists the ports 1-4);
+keyboard and mouse belong to player 1. System Link is greyed out (no network); Xbox Live was not tried.
+
+The game lays the views out itself: 2 players side by side or one above the other (Options → Game Options →
+**Widescreen split**, A switches between Vertical, the default, and Horizontal), 3 players one half and two quarters,
+4 players four quarters. On a 16:9 output the picture is the console's. On wider or narrower outputs (21:9, 16:10)
+every view shows more to the sides or above and below like the single player game, and each player's HUD, crosshair
+and binoculars stay round and in their own view; with `hud_aspect = "auto"` the HUD goes to the edges of each view.
+The team score and time the views share stay together in the middle of the screen. Ambient occlusion is applied to
+every view. `FCP_RENDER_SPLIT_VIEW=0` restores the earlier handling (see
+[DEBUG-SWITCHES.md](docs/en/DEBUG-SWITCHES.md)).
+
+Measured with virtual controllers on a Ryzen 9 7950X3D / RTX 4070 Ti SUPER at 2560x1080: 4 players hold 60 frames/s
+(30 is the console's and the default); with `ao = "gtao"` and detail and view distance x2 about 48 frames/s.
 
 ## Frame rate and game logic
 
@@ -370,8 +418,10 @@ correction can be switched off for comparison (column "Original"). Causes, more 
 Measured without a dependency on the frame rate: walking speed, jump height, breath under water, the mounted machine
 gun's fire rate, video playback, menu key repeat, game time against wall time.
 
-**At most 120 frames/s.** The frame rate setting accepts 30, 45, 60, 90 and 120; the game logic was measured at 30,
-60 and 120 (45: fire rate, swimming and landing) and is not checked above 120. The corrections above apply to every rate above 30.
+**At most 120 frames/s.** The frame rate setting accepts 30, 40 to 120 and `auto`; the game logic was measured at 30,
+60 and 120 (45: fire rate, swimming and landing) and is not checked above 120. The corrections above apply to every
+frame shorter than 30 ms at a rate above 30, which is why 31-39 are left out
+([details](docs/en/FRAMERATE.md#which-frame-rates)).
 
 **Still open** (measured, not corrected):
 - Computer-controlled characters think every fourth frame (7.5 times per second at 30, 30 times at 120). In
@@ -392,7 +442,8 @@ quick access menu (`...` button → Performance) the refresh rate left at **90 H
 **allow tearing off**. Every frame then stays exactly two refreshes of the 90 Hz display (22.3 ms), at about 8-9 W.
 The console's 30 frames/s is just as even and uses the least power (about 7.5 W); it stays the default on the 60 Hz
 Steam Deck LCD. If you want 60 frames/s, set the refresh rate in Steam to **60 Hz**; 60 frames/s at 90 Hz alternate
-between one and two refreshes and look uneven although the counter shows 60.
+between one and two refreshes and look uneven although the counter shows 60. *Auto* means 90 on the Deck, which it
+does not hold in every level and which runs without display pacing: on a 90 Hz display 45 is smoother.
 
 ### Steam Deck setup
 
@@ -488,15 +539,22 @@ from hardware test vectors).
   objectives, bosses, vehicles and mid-level videos still need real play.
 - Not yet verified with real hardware: controllers and rumble (tested with virtual SDL pads), mouse feel, the F10
   and Alt+Enter keys from a real keyboard (tested with injected window messages), audio by ear.
-- Other shapes than 16:9 (Hor+ / Vert+, `[graphics] aspect`): the HUD, menus, videos and loading screens stay in a
-  16:9 area in the middle. Binocular and scope masks, subtitles and feral vision have not been checked at these
-  shapes yet.
-- Exclusive fullscreen and monitor selection are not tested.
+- Other shapes than 16:9 (Hor+ / Vert+, `[graphics] aspect`): menus, videos and loading screens stay in a 16:9 area
+  in the middle. Binoculars, the sniper scope and feral vision were checked at 21:9, 32:9 and 16:10 (one level each);
+  subtitles not yet. `hud_aspect = "auto"` is experimental: while a scope or the binoculars are up, the HUD goes back
+  to the middle area; HUD situations not seen in the tests (vehicles other than the jeep MG, boss fights, split
+  screen) may keep a part in the middle.
+- Exclusive fullscreen was tested on one 3440x1440 monitor (Vulkan and Direct3D 12: mode change, Alt+Tab, F11,
+  Alt+Enter, the F10 menu, restart). Monitor selection, a second monitor and display scales other than 125 % were not
+  tested with real hardware (other scales only with a simulated scale).
 - User folder paths with non-ASCII characters are not tested for the shader pack.
 - `03_river` is slightly brighter than the console reference.
 - The runtime's developer overlays (F3, F4, F7, the backtick console) are off; `FCP_DEV_OVERLAYS=1` turns them on for development.
 - The map editor on the disc is not supported; choosing it returns to the main menu.
-- Multiplayer (split screen, system link, online) is not tested.
+- Split screen was tested with virtual controllers on one map (Shanty Town, Seek and Secure) with 2, 3 and 4 players;
+  real controllers, other maps and game types and a whole match are not tested yet, nor 32:9 or the sniper scope in
+  split screen. With 2 players side by side at 21:9 the right player's binoculars leave a narrow strip of the world at
+  the left of the lenses. System link and online play were not tested.
 - The open frame rate points above.
 
 ## Credits
@@ -523,7 +581,8 @@ This port builds on the work of others. The full list of components, versions an
 | [SMAA](https://github.com/iryoku/smaa) | optional SMAA 1x (shader and tables as packaged by SCDA-XBERecomp, by way of the author's *Far Cry Instincts* port) | MIT |
 | [LZMA SDK](https://www.7-zip.org/sdk.html) | decoder for the disc's archives (shader pack) | public domain |
 | spdlog, fmt, toml++, SIMDe, xxHash, ExCrypt, TLSF, CLI11, inja, nlohmann/json, stb_image, Vulkan-Headers, DirectX-Headers | support libraries | MIT, BSD, Apache-2.0 or public domain (see the notices) |
-| [SCDA-XBERecomp](https://github.com/TGP482/SCDA-XBERecomp) | the first-start progress window and the SMAA packaging (by way of the author's *Far Cry Instincts* port) | MIT |
+| [SCDA-XBERecomp](https://github.com/TGP482/SCDA-XBERecomp) | the first-start progress window, the SMAA packaging, the ambient occlusion kernels and the HDR10 mapping (by way of the author's *Far Cry Instincts* port) | MIT |
+| [XeGTAO](https://github.com/GameTechDev/XeGTAO) | the GTAO method and its "high" preset (`[graphics] ao = "gtao"`) | MIT |
 | the author's earlier *Far Cry Instincts* (Xbox) recompilation | settings file and menu design, input layer, frame rate audit method, first-start build and release scripts | same author |
 
 No code from GPL-3 projects is used. The exact sources of the LGPL/GPL components (FFmpeg, libmspack, the binutils

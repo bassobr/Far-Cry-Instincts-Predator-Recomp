@@ -206,6 +206,34 @@ bool ReadbackRgba8(nvrhi::IDevice* device, nvrhi::ITexture* texture, std::vector
   return true;
 }
 
+bool ReadbackRaw32(nvrhi::IDevice* device, nvrhi::ITexture* texture, std::vector<uint32_t>& words, std::string* error) {
+  const nvrhi::TextureDesc& d = texture->getDesc();
+  if (d.format != nvrhi::Format::RGBA8_UNORM && d.format != nvrhi::Format::BGRA8_UNORM && d.format != nvrhi::Format::R10G10B10A2_UNORM)
+    return error && (*error = "raw readback only for RGBA8/BGRA8/R10G10B10A2", false);
+  nvrhi::TextureDesc sd = d;
+  sd.isRenderTarget = false;
+  sd.isUAV = false;
+  sd.initialState = nvrhi::ResourceStates::CopyDest;
+  sd.keepInitialState = true;
+  sd.debugName = "Readback";
+  nvrhi::StagingTextureHandle staging = device->createStagingTexture(sd, nvrhi::CpuAccessMode::Read);
+  nvrhi::CommandListHandle cl = device->createCommandList();
+  cl->open();
+  cl->copyTexture(staging, nvrhi::TextureSlice(), texture, nvrhi::TextureSlice());
+  cl->close();
+  device->executeCommandList(cl);
+  const auto t0 = std::chrono::steady_clock::now();
+  device->waitForIdle();
+  Counters::Get().AddWait(t0);
+  size_t pitch = 0;
+  const auto* p = static_cast<const uint8_t*>(device->mapStagingTexture(staging, nvrhi::TextureSlice(), nvrhi::CpuAccessMode::Read, &pitch));
+  if (!p) return error && (*error = "mapStagingTexture failed", false);
+  words.resize(size_t(d.width) * d.height);
+  for (uint32_t y = 0; y < d.height; ++y) std::memcpy(words.data() + size_t(y) * d.width, p + y * pitch, size_t(d.width) * 4);
+  device->unmapStagingTexture(staging);
+  return true;
+}
+
 const char* HostApiName(HostApi api) { return api == HostApi::kVulkan ? "vulkan" : "d3d12"; }
 
 nvrhi::IMessageCallback* HostMessageCallback() {

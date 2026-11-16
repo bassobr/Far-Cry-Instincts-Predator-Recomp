@@ -39,10 +39,20 @@
 namespace fcp::render {
 namespace {
 
+// [graphics] colour_blind: off | protanopia | deuteranopia | tritanopia (or 0..3) -> 0..3
+int ColourBlindMode(std::string v) {
+  for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  if (v == "protanopia" || v == "1") return 1;
+  if (v == "deuteranopia" || v == "2") return 2;
+  if (v == "tritanopia" || v == "3") return 3;
+  return 0;
+}
+
 std::unique_ptr<nr::GameRenderer> g_renderer;
 nr::NrApi g_api;
 std::once_flag g_base_once;
 std::atomic<bool> g_presenting{false};
+std::atomic<void*> g_window{nullptr};  // HWND from SetSurface ([display] fps = auto: its monitor)
 const char* g_backend = "off";
 
 void LogSink(const char* line) { fcp::log::Line(line); }
@@ -68,6 +78,53 @@ std::string BackendFromConfig(const std::filesystem::path& file) {
 }
 
 // Render scale: "1" (console), "auto" (scale only: output height / 720), "150%", "1.5", "2x". 0.5 to 4.
+// [graphics] shadow_filter: console (default) | soft
+uint32_t ShadowFilterMode(std::string v) {
+  for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  if (v == "soft" || v == "1") return 1;
+  if (!v.empty() && v != "console" && v != "0")
+    FCPLOG("renderer: FCP_RENDER_SHADOW_FILTER={} unknown (console, soft): console", v);
+  return 0;
+}
+
+// [graphics] ao: off (default) | ssao | gtao
+uint32_t AoMode(std::string v) {
+  for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  if (v == "ssao" || v == "1" || v == "low") return 1;
+  if (v == "gtao" || v == "2" || v == "high") return 2;
+  if (!v.empty() && v != "off" && v != "0" && v != "false")
+    FCPLOG("renderer: FCP_RENDER_AO={} unknown (off, ssao, gtao): off", v);
+  return 0;
+}
+std::atomic<bool> g_ao_wanted{false};
+
+// [display] hdr: off (default) | on | auto
+uint32_t HdrMode(std::string v) {
+  for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  if (v == "on" || v == "1" || v == "true" || v == "yes") return 1;
+  if (v == "auto") return 2;
+  if (!v.empty() && v != "off" && v != "0" && v != "false" && v != "no")
+    FCPLOG("renderer: FCP_HDR={} unknown (off, on, auto): off", v);
+  return 0;
+}
+
+// [display] hdr_paper_white (80..1000, auto/0 = Windows' SDR content brightness), hdr_peak (0 = the display's,
+// 100..10000), hdr_boost (0..1): numbers in nits; text that is no number gives `fallback` (with a log line).
+float HdrNumber(std::string v, const char* name, float lo, float hi, float fallback) {
+  for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  while (!v.empty() && v.back() == ' ') v.pop_back();
+  if (v.empty()) return fallback;
+  if (v == "auto") return 0.0f;
+  char* end = nullptr;
+  const float f = std::strtof(v.c_str(), &end);
+  if (!end || end == v.c_str() || *end) {
+    FCPLOG("renderer: {}={} is not a number, {} taken", name, v, fallback);
+    return fallback;
+  }
+  if (f == 0.0f) return 0.0f;
+  return std::clamp(f, lo, hi);
+}
+
 float ParseScale(std::string v, const char* name, bool allow_auto, bool* is_auto) {
   if (is_auto) *is_auto = false;
   for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
@@ -115,6 +172,27 @@ float ParseAspect(std::string v) {
   return float(w / h);
 }
 
+// HUD layout: "" / "16:9" / "off" = the whole HUD in the 16:9 band (as before); "auto" = the picture's edges; a shape
+// ("21:9", "16:10", 2.39) = the edges of a box of that shape (between 16:9 and the picture's).
+float ParseHudAspect(std::string v) {
+  for (char& ch : v) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+  while (!v.empty() && v.back() == ' ') v.pop_back();
+  while (!v.empty() && v.front() == ' ') v.erase(v.begin());
+  if (v.empty() || v == "off" || v == "0" || v == "false" || v == "16:9") return 16.0f / 9.0f;
+  if (v == "auto" || v == "edges" || v == "on" || v == "true") return 0.0f;
+  double w = 0, h = 1;
+  char sep = 0;
+  if (std::sscanf(v.c_str(), "%lf%c%lf", &w, &sep, &h) == 3 && (sep == ':' || sep == '/' || sep == 'x')) {
+  } else if (std::sscanf(v.c_str(), "%lf", &w) != 1) {
+    w = 0;
+  }
+  if (!(w > 0) || !(h > 0) || w / h < 1.0 || w / h > 8.0) {
+    FCPLOG("renderer: [graphics] hud_aspect={}: not a shape (16:9, auto, 16:10, 21:9, 32:9), 16:9 taken", v);
+    return 16.0f / 9.0f;
+  }
+  return float(w / h);
+}
+
 // Render resolution: "" / "scale" = from [graphics] scale (as before); "native" = the picture's size on the output;
 // "1280x800" = that many host pixels for the screen-sized targets (320x180 to 10240x5760).
 uint32_t ParseResolution(std::string v, uint32_t& w, uint32_t& h) {
@@ -151,7 +229,7 @@ bool CreateRenderer() {
   // Over 60 frames/s (FCP_FPS=120/unlimited) the host present must not wait for the monitor: EndPresent holds
   // the renderer mutex during Present, a FIFO wait there stalls the game's draws (measured at 120 on a 120 Hz
   // monitor: every third frame 16 ms). The game paces itself (vblank wait or limiter, fcp/framerate.h).
-  o.vsync = fcp::env::Flag("FCP_RENDER_VSYNC", !fcp::framerate::HostPresentImmediate());
+  o.vsync = fcp::framerate::HostVsync();  // FCP_RENDER_VSYNC, else !HostPresentImmediate()
   o.shader_pack = fcp::env::Get("FCP_SHADER_PACK");
   if (o.shader_pack.empty()) o.shader_pack = (exe / "shaders" / (std::string("predator.") + target + ".fcpack")).string();
   std::error_code ec;
@@ -224,8 +302,21 @@ bool CreateRenderer() {
       FCPLOG("renderer: FCP_RENDER_MSAA={} unknown (console, off, 2, 4, 8): console", m);
   }
   o.smaa = fcp::env::Flag("FCP_RENDER_SMAA", false);
+  o.colour_blind = ColourBlindMode(fcp::env::Get("FCP_RENDER_COLOUR_BLIND"));
+  // [display] hdr (core/hdr_pass.h): off = the SDR output as before; FCP_HDR=off always goes back to it.
+  o.hdr = HdrMode(fcp::env::Get("FCP_HDR"));
+  o.hdr_paper_white = HdrNumber(fcp::env::Get("FCP_HDR_PAPER_WHITE"), "FCP_HDR_PAPER_WHITE", 80.0f, 1000.0f, 200.0f);
+  o.hdr_peak = HdrNumber(fcp::env::Get("FCP_HDR_PEAK"), "FCP_HDR_PEAK", 100.0f, 10000.0f, 0.0f);
+  o.hdr_boost = HdrNumber(fcp::env::Get("FCP_HDR_BOOST"), "FCP_HDR_BOOST", 0.0f, 1.0f, 0.0f);
+  o.hdr_gamma = HdrNumber(fcp::env::Get("FCP_HDR_GAMMA"), "FCP_HDR_GAMMA", 1.0f, 3.0f, 2.2f);
+  if (o.hdr_gamma <= 0.0f) o.hdr_gamma = 2.2f;
+  o.hdr_test_pattern = fcp::env::Flag("FCP_HDR_TEST_PATTERN", false);
   o.constant_versions = uint32_t(std::max<int64_t>(0, fcp::env::Int("FCP_RENDER_CB_VERSIONS", 0)));
   o.slot_recycle = fcp::env::Flag("FCP_RENDER_SLOT_RECYCLE", true);
+  o.alloc_evict = fcp::env::Flag("FCP_RENDER_ALLOC_EVICT", true);
+  o.alloc_limit = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_ALLOC_LIMIT", 0), 0, 1 << 30));
+  o.test_allocs = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_TEST_ALLOCS", 0), 0, 1 << 20));
+  o.test_alloc_fail = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_TEST_ALLOC_FAIL", 0), 0, 1 << 30));
   if (const std::string ts = fcp::env::Get("FCP_RENDER_TABLE_SLOTS"); !ts.empty()) {
     unsigned v[6] = {};
     std::sscanf(ts.c_str(), "%u,%u,%u,%u,%u,%u", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]);
@@ -240,6 +331,7 @@ bool CreateRenderer() {
   // Asynchronous queries: the present thread waits for the GPU without the renderer lock; the game's
   // swap applies the back pressure instead (at most FCP_RENDER_FRAMES_AHEAD swaps open on the GPU).
   o.present_unlocked = fcp::env::Flag("FCP_RENDER_PRESENT_UNLOCKED", true);
+  // [display] frame_queue writes 1-3 here; the switch itself takes 0 (no waiting) to 8 (diagnostics).
   o.frames_ahead = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_FRAMES_AHEAD", 2), 0, 8));
   // Present timing (presentstat lines, same window as framestat) and display pacing (fcp/framerate.h).
   o.present_stats_seconds = double(fcp::env::Int("FCP_PRESENT_STATS", fcp::env::Int("FCP_FPS_STATS", 10)));
@@ -257,6 +349,7 @@ bool CreateRenderer() {
     unsigned long long first = 0, count = 1;
     if (std::sscanf(t.c_str(), "%llu,%llu", &first, &count) >= 1) o.trace_first = first, o.trace_count = count ? count : 1;
   }
+  o.trace_textures = fcp::env::Flag("FCP_RENDER_TRACE_TEX", true);
   if (const std::string pr = fcp::env::Get("FCP_RENDER_PROBE"); !pr.empty()) {
     int x = -1, y = -1;
     if (std::sscanf(pr.c_str(), "%d,%d", &x, &y) == 2) o.probe_x = x, o.probe_y = y;
@@ -274,6 +367,28 @@ bool CreateRenderer() {
     o.scale = ParseScale(fcp::env::Get("FCP_RENDER_SCALE"), "FCP_RENDER_SCALE", true, &is_auto);
     o.scale_auto = is_auto;
     o.shadow_scale = ParseScale(fcp::env::Get("FCP_RENDER_SHADOW_SCALE"), "FCP_RENDER_SHADOW_SCALE", false, nullptr);
+    o.shadow_filter = ShadowFilterMode(fcp::env::Get("FCP_RENDER_SHADOW_FILTER"));
+    // [graphics] ao (core/ao_pass.h): off = as the console (no pass at all), ssao, gtao; switchable live.
+    o.ao = AoMode(fcp::env::Get("FCP_RENDER_AO"));
+    if (o.ao) g_ao_wanted = true;
+    {
+      std::string r = fcp::env::Get("FCP_RENDER_AO_RESOLUTION");
+      for (char& ch : r) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+      o.ao_resolution = r == "full" ? 1u : r == "half" ? 2u : 0u;
+    }
+    if (const std::string s = fcp::env::Get("FCP_RENDER_AO_STRENGTH"); !s.empty())
+      o.ao_strength = std::clamp(float(std::atof(s.c_str())), 0.0f, 4.0f);
+    o.ao_debug = int(std::clamp<int64_t>(fcp::env::Int("FCP_AO_DEBUG", 0), 0, 3));
+    o.ao_timing = fcp::env::Flag("FCP_AO_TIMING", false);
+    o.ao_trace = fcp::env::Flag("FCP_TRACE_AO", false);
+    // [graphics] shadow_distance (fcp/shadow_distance.cpp): the sun's square grows by that factor, the map with it
+    // (the texel size stays), at most 8192x8192.
+    if (const std::string sd = fcp::env::Get("FCP_SHADOW_DISTANCE"); !sd.empty()) {
+      const float k = std::clamp(float(std::atof(sd.c_str())), 1.0f, 4.0f);
+      const float s = std::min(o.shadow_scale * k, 8192.0f / 1344.0f);
+      if (k > 1.0f) FCPLOG("renderer: shadow distance x{:.2f}: shadow map factor {:.2f} -> {:.2f}", k, o.shadow_scale, s);
+      if (k > 1.0f) o.shadow_scale = s;
+    }
     o.scale_min_width = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_SCALE_MIN_WIDTH", 640), 1, 8192));
     o.aniso = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_ANISO", 1), 1, 16));
     o.aspect = ParseAspect(fcp::env::Get("FCP_RENDER_ASPECT"));
@@ -283,6 +398,24 @@ bool CreateRenderer() {
       FCPLOG("renderer: FCP_RENDER_RESOLUTION={} decides, FCP_RENDER_SCALE={} not used for the screen targets",
              fcp::env::Get("FCP_RENDER_RESOLUTION"), fcp::env::Get("FCP_RENDER_SCALE"));
     o.trace_wide = fcp::env::Flag("FCP_TRACE_WIDE", false);
+    o.hud_aspect = ParseHudAspect(fcp::env::Get("FCP_RENDER_HUD_ASPECT"));
+    o.screen_masks = fcp::env::Flag("FCP_RENDER_SCREEN_MASK", true);
+    o.split_views = fcp::env::Flag("FCP_RENDER_SPLIT_VIEW", true);
+  }
+  // Texture packs ([graphics] texture_dump / texture_replace, default off): <user folder>\textures\dump and \replace,
+  // FCP_TEXTURE_DIR=<folder> moves both (tests).
+  {
+    const bool dump = fcp::env::Flag("FCP_TEXTURE_DUMP", false), replace = fcp::env::Flag("FCP_TEXTURE_REPLACE", false);
+    if (dump || replace) {
+      const std::string dir = fcp::env::Get("FCP_TEXTURE_DIR");
+      const std::filesystem::path root =
+          dir.empty() ? fcp::paths::Root() / "textures" : std::filesystem::path(std::u8string(dir.begin(), dir.end()));
+      if (dump) o.texture_dump_dir = fcp::paths::Utf8(root / "dump");
+      if (replace) o.texture_replace_dir = fcp::paths::Utf8(root / "replace");
+      o.texture_upload_mb = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_TEXTURE_UPLOAD_MB", 16), 1, 1024));
+      FCPLOG("renderer: texture pack: dump {}, replace {} ({})", dump ? "on" : "off", replace ? "on" : "off",
+             fcp::paths::Utf8(root));
+    }
   }
   o.log = &LogSink;
   FCPLOG("renderer: backend {} ({}), debug {}, vsync {}, pack {}, cache {}", backend, backend_from, o.debug, o.vsync,
@@ -450,6 +583,7 @@ class PresenterModule final : public rex::IModule, public rex::gpu::IHostPresent
       return rex::Ok();
     }
     HWND hwnd = static_cast<HWND>(window.window);
+    g_window = hwnd;
     RECT rc{};
     GetClientRect(hwnd, &rc);
     std::string error;
@@ -518,9 +652,46 @@ void SetScale(const std::string& value) {
   g_renderer->SetScale(f, is_auto);
 }
 
+void SetShadowFilter(const std::string& value) {
+  if (g_renderer) g_renderer->SetShadowFilter(ShadowFilterMode(value));
+}
+
 void SetSmaa(bool on) {
   if (g_renderer) g_renderer->SetSmaa(on);
 }
+
+void SetColourBlind(const std::string& mode) {
+  if (g_renderer) g_renderer->SetColourBlind(ColourBlindMode(mode));
+}
+
+void SetHudAspect(const std::string& value) {
+  if (g_renderer) g_renderer->SetHudAspect(ParseHudAspect(value));
+}
+
+void SetAo(const std::string& value) {
+  const uint32_t mode = AoMode(value);
+  if (mode) g_ao_wanted = true;
+  if (g_renderer) g_renderer->SetAo(mode);
+}
+
+void SetHdr(const std::string& value) {
+  if (g_renderer) g_renderer->SetHdr(HdrMode(value));
+}
+
+void SetHdrLevels() {
+  if (!g_renderer) return;
+  g_renderer->SetHdrLevels(HdrNumber(fcp::env::Get("FCP_HDR_PAPER_WHITE"), "FCP_HDR_PAPER_WHITE", 80.0f, 1000.0f, 200.0f),
+                           HdrNumber(fcp::env::Get("FCP_HDR_PEAK"), "FCP_HDR_PEAK", 100.0f, 10000.0f, 0.0f),
+                           HdrNumber(fcp::env::Get("FCP_HDR_BOOST"), "FCP_HDR_BOOST", 0.0f, 1.0f, 0.0f));
+}
+
+bool HdrActive() { return g_renderer && g_renderer->HdrActive(); }
+
+void SetCameraProjection(const float m[16], float far_plane) {
+  if (g_renderer) g_renderer->SetCameraProjection(m, far_plane);
+}
+
+bool AoWanted() { return g_ao_wanted.load(std::memory_order_relaxed); }
 
 void SetResolution(const std::string& value) {
   if (!g_renderer) return;
@@ -534,5 +705,19 @@ float VertPlusTall() { return g_renderer ? g_renderer->Tall() : 1.0f; }
 
 bool DisplayPacingActive() { return g_renderer && g_renderer->DisplayPacingActive(); }
 double DisplayFrameMs() { return g_renderer ? g_renderer->DisplayFrameMs() : 0.0; }
+
+void SetPresentVsync(bool on) {
+  if (g_renderer) g_renderer->SetVsync(on);
+}
+
+void SetPaceTarget(double fps) {
+  if (g_renderer) g_renderer->SetPaceTarget(fps);
+}
+
+void SetFramesAhead(int frames) {
+  if (g_renderer) g_renderer->SetFramesAhead(uint32_t(std::clamp(frames, 0, 8)));
+}
+
+void* WindowHandle() { return g_window.load(); }
 
 }  // namespace fcp::render

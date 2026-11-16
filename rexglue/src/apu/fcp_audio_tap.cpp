@@ -57,9 +57,10 @@ struct Recorder {
   std::FILE* gaps = nullptr;
   u64 data_bytes = 0;
   std::string path;
+  u32 channels = kChannels;  // change 371: 2 for a stereo device output
 
   void WriteHeader() {
-    // WAVE_FORMAT_EXTENSIBLE, IEEE float, 6 channels FL FR FC LFE BL BR (mask 0x3F).
+    // WAVE_FORMAT_EXTENSIBLE, IEEE float, 6 channels FL FR FC LFE BL BR (mask 0x3F), or FL FR (0x3).
     auto u16le = [](u8* p, u16 v) { p[0] = u8(v); p[1] = u8(v >> 8); };
     auto u32le = [](u8* p, u32 v) { for (int i = 0; i < 4; ++i) p[i] = u8(v >> (8 * i)); };
     u8 h[68] = {};
@@ -69,14 +70,14 @@ struct Recorder {
     std::memcpy(h + 8, "WAVEfmt ", 8);
     u32le(h + 16, 40);
     u16le(h + 20, 0xFFFE);
-    u16le(h + 22, kChannels);
+    u16le(h + 22, u16(channels));
     u32le(h + 24, kAudioSampleRate);
-    u32le(h + 28, kAudioSampleRate * kChannels * 4);
-    u16le(h + 32, kChannels * 4);
+    u32le(h + 28, kAudioSampleRate * channels * 4);
+    u16le(h + 32, u16(channels * 4));
     u16le(h + 34, 32);
     u16le(h + 36, 22);
     u16le(h + 38, 32);
-    u32le(h + 40, 0x3F);
+    u32le(h + 40, channels == 6 ? 0x3Fu : channels == 2 ? 0x3u : 0u);
     static constexpr u8 kFloatGuid[16] = {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
                                           0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71};
     std::memcpy(h + 44, kFloatGuid, 16);
@@ -87,14 +88,14 @@ struct Recorder {
     std::fseek(wav, 0, SEEK_END);
   }
 
-  bool Open(const std::string& file) {
+  bool Open(const std::string& file, bool with_gaps = true) {
     path = file;
     wav = OpenForWrite(file);
     if (!wav) {
       return false;
     }
     WriteHeader();
-    gaps = OpenForWrite(file + ".gaps.tsv");
+    gaps = with_gaps ? OpenForWrite(file + ".gaps.tsv") : nullptr;
     if (gaps) {
       std::fputs("period\tseconds\tunderrun_slots\topen_streams\n", gaps);
     }
@@ -181,6 +182,15 @@ struct State {
   u64 total_underruns = 0;
   u64 total_underrun_periods = 0;
   Clock::time_point start;
+  // change 371: after the limiter
+  std::once_flag out_once;
+  Recorder out_recorder;
+  bool out_recording = false;
+  std::mutex out_mutex;  // guards out_recorder.pending against Shutdown
+  LimiterStats out_window;
+  u64 out_periods = 0;
+  u64 out_window_periods = 0;
+  LimiterStats out_total;
 };
 
 State& S() {
@@ -188,13 +198,8 @@ State& S() {
   return *state;
 }
 
-void Init(State& s) {
-  s.start = Clock::now();
-  s.stats = Env("FCP_AUDIO_STATS") != "0";
-  std::string path = Env("FCP_RECORD_AUDIO");
-  if (path.empty()) {
-    return;
-  }
+// <file>.gen<n>.wav in a relaunched process (FCP_RELAUNCH_GEN=n)
+std::string GenerationPath(std::string path) {
   const std::string gen = Env("FCP_RELAUNCH_GEN");
   if (!gen.empty() && gen != "0") {
     const size_t dot = path.find_last_of('.');
@@ -206,6 +211,17 @@ void Init(State& s) {
       path += suffix;
     }
   }
+  return path;
+}
+
+void Init(State& s) {
+  s.start = Clock::now();
+  s.stats = Env("FCP_AUDIO_STATS") != "0";
+  std::string path = Env("FCP_RECORD_AUDIO");
+  if (path.empty()) {
+    return;
+  }
+  path = GenerationPath(path);
   if (s.recorder.Open(path)) {
     s.recording = true;
     REXAPU_INFO("FCP_RECORD_AUDIO: recording the mix (6 ch float, {} Hz, before gain and mute) to {}",
@@ -304,10 +320,86 @@ void OnPeriod(const f32* planar, const PeriodInfo& info) {
   }
 }
 
+namespace {
+
+void Add(LimiterStats& to, const LimiterStats& from) {
+  to.peak_in = std::max(to.peak_in, from.peak_in);
+  to.peak_out = std::max(to.peak_out, from.peak_out);
+  to.over_in += from.over_in;
+  to.over_out += from.over_out;
+  to.limited_frames += from.limited_frames;
+  to.min_gain = std::min(to.min_gain, from.min_gain);
+}
+
+void LogLimiter(const char* what, const LimiterStats& w, u64 periods) {
+  const u64 frames = periods * kSamples;
+  REXAPU_INFO(
+      "fcp limiter{}: periods={} peak in={:.3f} ({:+.2f} dBFS) out={:.3f} | samples >1.0 in={} out={} | "
+      "limited frames={} ({:.4f} %) min gain={:.3f} ({:+.2f} dB)",
+      what, periods, w.peak_in, w.peak_in > 0 ? 20.0 * std::log10(w.peak_in) : -999.0, w.peak_out,
+      w.over_in, w.over_out, w.limited_frames, frames ? 100.0 * f64(w.limited_frames) / f64(frames) : 0.0,
+      w.min_gain, 20.0 * std::log10(std::max(w.min_gain, 1e-6f)));
+}
+
+}  // namespace
+
+// change 371
+void OnOutput(const f32* interleaved, u32 frames, u32 channels, const LimiterStats* stats) {
+  State& s = S();
+  std::call_once(s.once, [&] { Init(s); });
+  std::call_once(s.out_once, [&] {
+    const std::string path = Env("FCP_RECORD_AUDIO_OUT");
+    if (path.empty()) {
+      return;
+    }
+    s.out_recorder.channels = channels;
+    const std::string file = GenerationPath(path);
+    if (s.out_recorder.Open(file, false)) {
+      s.out_recording = true;
+      REXAPU_INFO("FCP_RECORD_AUDIO_OUT: recording the output after the limiter ({} ch float, {} Hz, "
+                  "before mute) to {}", channels, kAudioSampleRate, file);
+    } else {
+      REXAPU_WARN("FCP_RECORD_AUDIO_OUT: cannot open {}", file);
+    }
+  });
+  if (stats) {
+    Add(s.out_window, *stats);
+    Add(s.out_total, *stats);
+    ++s.out_periods;
+    if (s.stats && ++s.out_window_periods >= kStatsPeriods) {
+      LogLimiter("", s.out_window, s.out_window_periods);
+      s.out_window = LimiterStats{};
+      s.out_window_periods = 0;
+    }
+  }
+  if (s.out_recording && channels == s.out_recorder.channels) {
+    std::lock_guard lock(s.out_mutex);
+    if (s.out_recording) {
+      std::lock_guard rec(s.out_recorder.mutex);
+      s.out_recorder.pending.insert(s.out_recorder.pending.end(), interleaved,
+                                    interleaved + size_t{frames} * channels);
+    }
+  }
+}
+
 void Shutdown() {
   State& s = S();
   if (s.stats && s.window.periods) {
     LogWindow(s);
+  }
+  if (s.out_periods) {
+    if (s.stats && s.out_window_periods) {
+      LogLimiter("", s.out_window, s.out_window_periods);
+    }
+    LogLimiter(" (total)", s.out_total, s.out_periods);
+  }
+  {
+    std::lock_guard lock(s.out_mutex);
+    if (s.out_recording) {
+      s.out_recording = false;
+      s.out_recorder.Close();
+      REXAPU_INFO("FCP_RECORD_AUDIO_OUT: closed {}", s.out_recorder.path);
+    }
   }
   std::lock_guard lock(s.record_mutex);
   if (s.recording) {

@@ -12,7 +12,7 @@ namespace fcshaders {
 
 // The translator's own version: part of every cache key together with the prelude text and
 // abi.h's kAbiVersion. Bump it when the generated code changes.
-constexpr uint32_t kTranslatorVersion = 7;  // 7: render scale aware (b3, ScaleConstants); 6: FOG0 interpolator (slot 15); 5: ordered GE rejects NaNs without optional Vulkan float controls
+constexpr uint32_t kTranslatorVersion = 8;  // 8: soft shadow filter behind b3 kk_TexInvScale[slot].z; 7: render scale aware (b3, ScaleConstants); 6: FOG0 interpolator (slot 15); 5: ordered GE rejects NaNs without optional Vulkan float controls
 // 4: differential testing fixes (KK docs/shaders.md), bool literals inlined, DXC -Gis
 // 3: pixel interpolator count from the mask (word 6)
 // 2: Windows validation pass (literal relative reads, select forms, predicate runs)

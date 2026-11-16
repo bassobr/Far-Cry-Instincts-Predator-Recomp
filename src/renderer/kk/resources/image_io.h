@@ -15,6 +15,9 @@ namespace fcp_res_tools {
 
 bool WritePng(const std::string& path, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba);
 bool WriteDds(const std::string& path, const fcp::res::HostTextureData& texture);
+// The same files in memory (texture dumps write them with wide paths).
+bool EncodePng(uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba, std::vector<uint8_t>& png);
+bool EncodeDds(const fcp::res::HostTextureData& texture, std::vector<uint8_t>& dds);
 uint32_t DxgiFormat(fcp::res::HostFormat format);
 
 // One depth slice of a host subresource as RGBA8, with the plan's view swizzle applied (what a shader

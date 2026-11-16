@@ -28,7 +28,9 @@
 
 #include "fcp/device_preset.h"
 #include "fcp/devstart.h"
+#include "fcp/display.h"
 #include "fcp/env.h"
+#include "fcp/framerate.h"
 #include "fcp/log.h"
 #include "fcp/pc_input.h"
 #include "fcp/relaunch.h"
@@ -40,7 +42,7 @@ namespace fcp::settings {
 namespace {
 
 enum class Kind { kMode, kSize, kMonitor, kFps, kOnOffAuto, kBackend, kBool, kPath, kFactor, kAniso, kLanguage, kPrompts, kMsaa,
-                  kPacing, kResolution };
+                  kPacing, kResolution, kFrameQueue, kPercent, kColourBlind, kExclusiveMode, kHdr };
 
 struct Key {
   const char* section;
@@ -69,20 +71,45 @@ constexpr Key kKeys[] = {
      "# italian, or auto (the Windows display language; English when it is none of these). Needs a restart."},
     {"display", "mode", "FCP_DISPLAY_MODE", "\"windowed\"", Kind::kMode,
      "windowed | borderless (fullscreen window on the monitor) | exclusive (fullscreen video mode).\n"
-     "# Alt+Enter switches between the window and fullscreen at once and stores the choice here."},
+     "# Alt+Enter or F11 switches between the window and fullscreen at once and stores the choice here."},
     {"display", "width", "FCP_WINDOW_WIDTH", "0", Kind::kSize,
      "Window client size in pixels; 0 = 1280x720. The render resolution is set under [graphics]."},
     {"display", "height", "FCP_WINDOW_HEIGHT", "0", Kind::kSize, nullptr},
     {"display", "monitor", "FCP_MONITOR", "0", Kind::kMonitor,
      "Monitor: 0 = the system's choice (primary), 1..n = display number."},
+    {"display", "exclusive_mode", "FCP_EXCLUSIVE_MODE", "\"desktop\"", Kind::kExclusiveMode,
+     "Video mode of exclusive fullscreen: desktop (the monitor's own mode) or \"WxH@Hz\" from the monitor's list,\n"
+     "# e.g. \"2560x1440@120\" (\"WxH\" alone: the desktop's refresh rate). Only with mode = \"exclusive\"; the\n"
+     "# desktop gets its mode back on Alt+Tab and when the game ends."},
+    {"display", "unsupported_uncapped_fps", "FCP_UNSUPPORTED_UNCAPPED_FPS", "false", Kind::kBool,
+     "true = fps (and auto) also take 121 to 240. NOT SUPPORTED: the game logic is only verified up to 120;\n"
+     "# what is known to differ above it is listed in docs/en/FRAMERATE.md."},
     {"display", "fps", "FCP_FPS", "30", Kind::kFps,
-     "Frame rate: 30 (as the console), 45, 60, 90 (Steam Deck OLED display) or 120. Smooth only when the display's\n"
-     "# refresh rate is a multiple of it (90 Hz: 30, 45, 90; 60 Hz: 30, 60; 120 Hz: 30, 60, 120)."},
+     "Frame rate limit: 30 (as the console), any whole number from 40 to 120 (e.g. 45, 60, 90 for the Steam Deck\n"
+     "# OLED display, 120), or auto (the refresh rate of the window's monitor, at most 120). Smooth only when the\n"
+     "# display's refresh rate is a multiple of it (90 Hz: 30, 45, 90; 60 Hz: 30, 60; 120 Hz: 30, 40, 60, 120).\n"
+     "# 31 to 39 and over 120 are not accepted: the game logic is only corrected for those (docs: FRAMERATE.md).\n"
+     "# With unsupported_uncapped_fps = true also up to 240 (not supported)."},
     {"display", "vsync", "FCP_RENDER_VSYNC", "\"auto\"", Kind::kOnOffAuto,
      "Wait for the monitor when presenting: auto (on up to 60 frames/s, off above), on, off."},
     {"display", "pacing", "FCP_FPS_PACING", "\"game\"", Kind::kPacing,
      "Frame pacing: display (every frame stays the same number of refreshes on the display, timed by the display;\n"
      "# needs Vulkan and a frame rate the refresh rate is a multiple of, else as game) or game (the game's own timing)."},
+    {"display", "frame_queue", "FCP_RENDER_FRAMES_AHEAD", "2", Kind::kFrameQueue,
+     "Frames ahead: game frames that may wait on the GPU before the game waits for it, 1 to 3. 1 = least input\n"
+     "# latency, 2 = as before, 3 = evens out single slow frames for up to one frame more latency. Switches at once."},
+    {"display", "hdr", "FCP_HDR", "\"off\"", Kind::kHdr,
+     "HDR10 output: off (SDR, as before), on (HDR10 when the display and driver offer it, else SDR), or auto (on when\n"
+     "# Windows HDR is on for the game's monitor). The game's SDR picture is shown at hdr_paper_white. Switches at once."},
+    {"display", "hdr_paper_white", "FCP_HDR_PAPER_WHITE", "200", Kind::kFactor,
+     "HDR10: brightness of the game's white (and of HUD, menus and the settings menu) in nits, 80 to 1000;\n"
+     "# auto = Windows' \"SDR content brightness\"."},
+    {"display", "hdr_peak", "FCP_HDR_PEAK", "0", Kind::kFactor,
+     "HDR10: the display's peak brightness in nits (100 to 10000); 0 = what Windows reports for it, else 1000.\n"
+     "# Only the highlight boost uses it."},
+    {"display", "hdr_boost", "FCP_HDR_BOOST", "0", Kind::kFactor,
+     "HDR10: 0 to 1, stretches the bright parts of the picture (its upper half of luminance) towards hdr_peak;\n"
+     "# 1 = the game's white reaches the peak (the HUD's white too: it is part of the game's picture). 0 = off."},
     {"graphics", "backend", "FCP_RENDER_BACKEND", "\"auto\"", Kind::kBackend,
      "Graphics API: auto (renderer.toml next to the EXE, else Vulkan), vulkan, d3d12."},
     {"graphics", "msaa", "FCP_RENDER_MSAA", "\"console\"", Kind::kMsaa,
@@ -102,6 +129,22 @@ constexpr Key kKeys[] = {
      "# scaled up; a shape other than the picture's is stretched to it). Switches with the next frame."},
     {"graphics", "shadow_scale", "FCP_RENDER_SHADOW_SCALE", "1", Kind::kFactor,
      "Shadow map resolution as a multiple of the console's (1344x1344; 1 = as the console, up to 4)."},
+    {"graphics", "shadow_filter", "FCP_RENDER_SHADOW_FILTER", "\"console\"", Kind::kFactor,
+     "Edges of the sun and lamp shadows: console (the game's own filter over 2x2 texels) or soft (an even filter\n"
+     "# over 4x4 texels of the shadow map; smoother edges, no stair steps). Switches at once."},
+    {"graphics", "ao", "FCP_RENDER_AO", "\"off\"", Kind::kFactor,
+     "Ambient occlusion (darker creases, corners and contact areas) over the opaque 3D scene: off (as the console),\n"
+     "# ssao (16 samples) or gtao (ground truth AO, a little sharper). Not on the sky, water, particles, the HUD or the\n"
+     "# weapon; fades out with distance. Switches at once."},
+    {"graphics", "shadow_distance", "FCP_SHADOW_DISTANCE", "1", Kind::kFactor,
+     "How far the sun's dynamic shadows reach, as a multiple of the console's (~15 m ahead; 1 = as the console, up to 4).\n"
+     "# The shadow map grows with it (shadow_scale x shadow_distance, at most 8192x8192). Needs a restart."},
+    {"graphics", "lod_distance", "FCP_LOD_DISTANCE", "1", Kind::kFactor,
+     "Distance at which vegetation, buildings and characters switch to simpler models and trees to sprites, as a\n"
+     "# multiple of the console's (1 = as the console; 0.5 to 8). Switches at once."},
+    {"graphics", "view_distance", "FCP_VIEW_DISTANCE", "1", Kind::kFactor,
+     "How far vegetation, buildings and characters are drawn, as a multiple of the console's (1 = as the console;\n"
+     "# 0.5 to 8). The level's fog still ends the view. Switches at once."},
     {"graphics", "aniso", "FCP_RENDER_ANISO", "1", Kind::kAniso,
      "Anisotropic texture filtering 1-16 (1 = as the game sets it)."},
     {"graphics", "fov", "FCP_RENDER_FOV", "1", Kind::kFactor,
@@ -110,6 +153,26 @@ constexpr Key kKeys[] = {
      "Shape of the game view: auto = the output's (21:9, 32:9: the same height, more to the sides; 16:10, 4:3:\n"
      "# the same width, more above and below; HUD, menus and videos stay 16:9 in the middle), \"16:9\" = as the\n"
      "# console (bars), or a fixed shape (\"16:10\", \"4:3\", \"21:9\", \"32:9\", 2.39). Needs a restart."},
+    {"graphics", "colour_blind", "FCP_RENDER_COLOUR_BLIND", "\"off\"", Kind::kColourBlind,
+     "Colour blind mode on the finished picture (daltonization): off (as the console), protanopia,\n"
+     "# deuteranopia, tritanopia. Switches at once."},
+    {"graphics", "hud_aspect", "FCP_RENDER_HUD_ASPECT", "\"16:9\"", Kind::kFactor,
+     "HUD layout on a picture wider or narrower than 16:9: \"16:9\" = the whole HUD in the 16:9 band in the middle\n"
+     "# (as before), auto = radar, health, ammunition, hints and compass at the picture's edges (21:9, 32:9: to the\n"
+     "# sides; 16:10: up and down), or a shape such as \"21:9\" (the edges of a box of that shape). Crosshair, scope\n"
+     "# and binocular views, menus and videos stay in the middle. Experimental. Switches at once."},
+    {"graphics", "texture_dump", "FCP_TEXTURE_DUMP", "false", Kind::kBool,
+     "true = every texture the game uses is written once into textures\\dump\\ of this folder (PNG, or DDS for\n"
+     "# compressed textures and cube maps), named by a hash of its content. Needs a restart."},
+    {"graphics", "texture_replace", "FCP_TEXTURE_REPLACE", "false", Kind::kBool,
+     "true = images in textures\\replace\\ (PNG or DDS, any resolution) whose name holds a texture's hash are drawn\n"
+     "# instead of it; changes to the folder show while the game runs. Needs a restart. See TEXTURE-PACKS.md."},
+    {"audio", "speech_volume", "FCP_SPEECH_VOLUME", "100", Kind::kPercent,
+     "Volume of the speech (dialogue, radio, shouts) in percent, apart from music and effects: 100 = as the\n"
+     "# console, 0 = no speech. Switches at once."},
+    {"audio", "limiter", "FCP_AUDIO_LIMITER", "true", Kind::kBool,
+     "Peak limiter after the downmix: the loudest moments (explosions) are turned down for a moment instead\n"
+     "# of clipping; below full scale the sound is unchanged. false = as before (hard clipping)."},
     {"input", "file", "FCP_INPUT_CONFIG", "\"predator_input.toml\"", Kind::kPath,
      "Keyboard and mouse bindings (relative to this folder); written with the defaults when missing."},
     {"input", "button_prompts", "FCP_BUTTON_PROMPTS", "\"auto\"", Kind::kPrompts,
@@ -245,9 +308,16 @@ bool Normalize(const Key& k, const std::string& text, std::string& env) {
       if (!ParseInt(v, 0, 16, n)) return false;
       return env = n > 0 ? std::to_string(n) : "", true;
     case Kind::kFps:
-      // 90: the Steam Deck OLED's refresh rate; 45: half of it (every frame two refreshes)
-      if (v != "30" && v != "45" && v != "60" && v != "90" && v != "120") return false;
-      return env = v, true;
+      // 30 (the console), auto (the monitor's refresh rate, at most 120), or 40..120 (fcp/framerate.h kMinFree,
+      // kMaxFps: the frame coupling corrections act on frames under 30 ms; not verified over 120). 90: the Steam Deck
+      // OLED's refresh rate, 45: half of it (every frame two refreshes). Up to 240 with unsupported_uncapped_fps (the
+      // key before this one, so its environment variable is already set here).
+      if (v == "auto") return env = v, true;
+      if (!ParseInt(v, 30, fcp::framerate::MaxFps(), n) || (n > 30 && n < fcp::framerate::kMinFree)) return false;
+      return env = std::to_string(n), true;
+    case Kind::kFrameQueue:
+      if (!ParseInt(v, 1, 3, n)) return false;
+      return env = std::to_string(n), true;
     case Kind::kOnOffAuto:
       if (v == "auto" || v.empty()) return env = "", true;
       if (!ParseBoolText(v, b)) return false;
@@ -257,6 +327,12 @@ bool Normalize(const Key& k, const std::string& text, std::string& env) {
       if (v == "display") return env = v, true;
       if (v == "game" || v.empty()) return env = "", true;
       return false;
+    case Kind::kHdr:
+      // off = FCP_HDR unset (the SDR output); on, auto
+      if (v == "off" || v.empty()) return env = "", true;
+      if (v == "on" || v == "auto") return env = v, true;
+      if (!ParseBoolText(v, b)) return false;
+      return env = b ? "on" : "", true;
     case Kind::kBackend:
       if (v == "auto" || v.empty()) return env = "", true;
       if (v == "vulkan" || v == "d3d12") return env = v, true;
@@ -277,6 +353,17 @@ bool Normalize(const Key& k, const std::string& text, std::string& env) {
         return false;
       return env = std::format("{}x{}", w, h), true;
     }
+    case Kind::kExclusiveMode: {
+      // desktop = the SDK's default (the monitor's mode); WxH or WxH@Hz -> ui.fullscreen_mode
+      if (v.empty() || v == "desktop") return env = "", true;
+      const size_t x = v.find('x'), at = v.find('@');
+      int w = 0, h = 0, hz = 0;
+      if (x == std::string::npos || !ParseInt(v.substr(0, x), 640, 16384, w) ||
+          !ParseInt(v.substr(x + 1, at == std::string::npos ? std::string::npos : at - x - 1), 480, 16384, h))
+        return false;
+      if (at != std::string::npos && !ParseInt(v.substr(at + 1), 24, 1000, hz)) return false;
+      return env = hz ? std::format("{}x{}@{}", w, h, hz) : std::format("{}x{}", w, h), true;
+    }
     case Kind::kAniso:
       if (!ParseInt(v, 1, 16, n)) return false;
       return env = std::to_string(n), true;
@@ -293,6 +380,17 @@ bool Normalize(const Key& k, const std::string& text, std::string& env) {
       return env = b ? "console" : "off", true;
     case Kind::kPrompts:
       for (const char* name : {"auto", "xbox", "keyboard", "playstation", "switch"}) {
+        if (v == name) return env = name, true;
+      }
+      return false;
+    case Kind::kPercent: {
+      std::string p = v;
+      if (!p.empty() && p.back() == '%') p.pop_back();
+      if (!ParseInt(Trim(p), 0, 100, n)) return false;
+      return env = std::to_string(n), true;
+    }
+    case Kind::kColourBlind:
+      for (const char* name : {"off", "protanopia", "deuteranopia", "tritanopia"}) {
         if (v == name) return env = name, true;
       }
       return false;
@@ -345,13 +443,13 @@ std::string SettingText(std::string_view name) {
   return {};
 }
 
-void ToggleFullscreen() {
+void ToggleFullscreen(const char* key = "Alt+Enter") {
   const bool now = SettingText("ui.fullscreen") == "true";
   const bool exclusive = SettingText("ui.fullscreen_exclusive") == "true";
   const bool next = !now;
   if (auto set = REX_SETTINGS().SetText(rex::SettingLayer::kRuntime, "ui.fullscreen", next ? "true" : "false");
       !set) {
-    FCPLOG("settings: Alt+Enter: ui.fullscreen FAILED: {}", set.error().GetDescription());
+    FCPLOG("settings: {}: ui.fullscreen FAILED: {}", key, set.error().GetDescription());
     return;
   }
   const std::string mode = next ? (exclusive ? "exclusive" : "borderless") : "windowed";
@@ -363,10 +461,10 @@ void ToggleFullscreen() {
   } else {
     stored = StoreMode(mode) ? std::format("stored in {}", U8(g_file)) : std::format("storing in {} FAILED", U8(g_file));
   }
-  FCPLOG("settings: Alt+Enter: {} -> {} ({})", now ? "fullscreen" : "window", mode, stored);
-  std::thread([] {
+  FCPLOG("settings: {}: {} -> {} ({})", key, now ? "fullscreen" : "window", mode, stored);
+  std::thread([key] {
     std::this_thread::sleep_for(std::chrono::seconds(1));
-    FCPLOG("settings: window 1 s after Alt+Enter: {}", fcp::relaunch::DescribeOwnWindow());
+    FCPLOG("settings: window 1 s after {}: {}", key, fcp::relaunch::DescribeOwnWindow());
   }).detach();
 }
 
@@ -374,7 +472,16 @@ class Hotkeys final : public rex::ui::IUIEventListener {
  public:
   void OnUIEvent(const rex::ui::UIEvent&) override {}
   void OnInputEvent(rex::InputEvent& e) override {
-    if (e.type != rex::InputEvent::Type::kKeyDown || e.key != rex::VirtualKey::kReturn) return;
+    if (e.type != rex::InputEvent::Type::kKeyDown) return;
+    // F11 (without modifiers) as Alt+Enter, as in FCI (Far Cry Instincts Recomp, src/video/display.cpp, MIT, same
+    // author); FCP_F11=0 leaves F11 to the game's keyboard bindings (as before).
+    if (e.key == rex::VirtualKey::kF11 && f11_ && e.modifiers == rex::KeyModifiers{}) {
+      if (trace_) FCPLOG("settings: F11 down, repeat {}", e.repeat);
+      e.handled = true;  // never a binding of the game's keyboard pad
+      if (!e.repeat) ToggleFullscreen("F11");
+      return;
+    }
+    if (e.key != rex::VirtualKey::kReturn) return;
     const auto mods = static_cast<unsigned>(e.modifiers);
     if (trace_) FCPLOG("settings: Enter down, modifiers {:X}, repeat {}", mods, e.repeat);
     if (mods != static_cast<unsigned>(rex::KeyModifiers::kAlt)) return;
@@ -382,6 +489,7 @@ class Hotkeys final : public rex::ui::IUIEventListener {
     if (!e.repeat) ToggleFullscreen();
   }
   bool trace_ = false;
+  bool f11_ = true;
 };
 Hotkeys g_hotkeys;
 rex::ScopeGuard g_hotkeys_guard;
@@ -469,12 +577,22 @@ void Apply(rex::SettingsRegistry& settings) {
     const std::string dw = fcp::device::Default("FCP_WINDOW_WIDTH"), dh = fcp::device::Default("FCP_WINDOW_HEIGHT");
     if (!dw.empty() && !dh.empty()) w = std::atoll(dw.c_str()), h = std::atoll(dh.c_str());
   }
+  const char* size_from = "FCP_WINDOW_WIDTH/HEIGHT";
+  if (w <= 0 || h <= 0) {
+    // the built-in 1280x720 is meant at 100 %: scaled with the monitor's scale (fcp/display.h; FCP_DPI_WINDOW=0 off)
+    int bw = 0, bh = 0;
+    fcp::display::BuiltInWindowSize(int(fcp::env::Int("FCP_MONITOR", 0)), bw, bh);
+    if (bw != 1280 || bh != 720) w = bw, h = bh, size_from = "built-in 1280x720 at the monitor's scale";
+  }
   if (w > 0 && h > 0) {
-    set("ui.window_width", std::to_string(w), "FCP_WINDOW_WIDTH");
-    set("ui.window_height", std::to_string(h), "FCP_WINDOW_HEIGHT");
+    set("ui.window_width", std::to_string(w), size_from);
+    set("ui.window_height", std::to_string(h), size_from);
   }
   if (const int64_t m = fcp::env::Int("FCP_MONITOR", 0); m > 0) {
     set("ui.monitor", std::to_string(m), "FCP_MONITOR");
+  }
+  if (const std::string em = fcp::env::Get("FCP_EXCLUSIVE_MODE"); !em.empty() && Lower(em) != "desktop") {
+    set("ui.fullscreen_mode", em, "FCP_EXCLUSIVE_MODE");
   }
   // [game] language: the console's system language, which the title reads with XGetLanguage (kernel.user_language:
   // 0 = the host's preferred locales, else the XLanguage id). Read until the launch.
@@ -495,8 +613,10 @@ void Apply(rex::SettingsRegistry& settings) {
 
 void AttachUI(rex::ui::IUISystem& ui) {
   fcp::pc_input::AttachUI(ui);  // focus pause
+  fcp::display::AttachUI(ui);   // a DPI change keeps the window's size on the screen
+  g_hotkeys.f11_ = fcp::env::Flag("FCP_F11", true);
   g_hotkeys_guard = ui.AddEventListener(g_hotkeys);
-  FCPLOG("settings: Alt+Enter switches window/fullscreen");
+  FCPLOG("settings: Alt+Enter{} switches window/fullscreen", g_hotkeys.f11_ ? " and F11" : " (F11 off: FCP_F11=0)");
   fcp::menu::Attach(ui);  // F10 / Back+Start settings menu, frame rate display
   // Test: FCP_TEST_ALT_ENTER=<s>[,<s>...] posts Alt+Enter as window messages to the own window at those seconds
   // after the title launch (the whole path: SDL, the listener, the setting, the file), no focus needed.
@@ -546,6 +666,7 @@ void AttachUI(rex::ui::IUISystem& ui) {
 
 void DetachUI() {
   fcp::menu::Detach();
+  fcp::display::DetachUI();
   g_hotkeys_guard.Reset();
   fcp::pc_input::DetachUI();
 }
@@ -560,6 +681,16 @@ std::string Value(std::string_view section, std::string_view key) {
   const auto it = g_values.find(name);
   if (it != g_values.end()) return it->second;
   return k ? DefaultValue(*k) : std::string();
+}
+
+std::string DefaultText(std::string_view section, std::string_view key) {
+  const Key* k = FindKey(section, key);
+  return k ? DefaultValue(*k) : std::string();
+}
+
+std::string DefaultSource(std::string_view section, std::string_view key) {
+  const Key* k = FindKey(section, key);
+  return k && !fcp::device::Default(k->env).empty() ? fcp::device::Name() : std::string();
 }
 
 std::string EnvironmentOverride(std::string_view section, std::string_view key) {

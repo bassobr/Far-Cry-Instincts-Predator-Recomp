@@ -50,3 +50,9 @@ License: MIT. The texts are included: `LICENSE-XenosRecomp.md` (hedge-dev and co
    the sizes read with `GetDimensions` (unnormalised coordinates, fetch offsets, `getWeights`) go through
    `KKScaleConstants` (b3) into guest units. At factor 1 the result is the same. `kTranslatorVersion` 7
    (pack and disk cache are rebuilt). Purpose: rendering at an internal resolution above the guest's.
+8. `shader_recompiler.cpp`: soft shadow filter. A `getWeights2D` and `tfetch2D` with offsets (+-0.5, +-0.5) in a pixel
+   shader (the game's `BilinearSampleShadow`, `shaders\hlsl\SampleShadow.fx`) get a branch on `kk_TexInvScale[slot].z`
+   (b3, set by the renderer only for depth resolves with `[graphics] shadow_filter = soft`): getWeights returns the
+   result of `kk_ShadowSoft` (3x3 bilinear comparisons over 4x4 host texels) as x and 0 as y, the four fetches depths
+   that make the game's weighted sum equal to it. With z = 0 the branch is not taken and the result is the previous
+   one. `kTranslatorVersion` 8 (pack and disk cache are rebuilt).

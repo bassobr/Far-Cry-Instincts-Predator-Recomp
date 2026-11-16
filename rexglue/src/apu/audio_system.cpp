@@ -74,6 +74,11 @@ struct AudioSystem::State {
 
   std::array<MixSlot, kMaxStreams> mix_slots;
   f32 master_applied = 1.0f;
+  // FCP: change 371, apu.limiter
+  bool limiter_on = false;
+  PeakLimiter limiter;
+  f32 gain_applied = 1.0f;
+  f32 mute_applied = 1.0f;
   bool device_open = false;
   bool reopen_failed = false;
   u32 reopen_wait = 0;
@@ -247,6 +252,61 @@ Result<void> AudioSystem::Start(rex::apu::IAudioDriver* device) {
 
     const bool muted =
         settings_.mute.Get() || (settings_.mute_unfocused.Get() && !s.focused.load());
+    // FCP: change 371, apu.limiter: gain, downmix without the clamp, limiter, then mute and the clamp
+    // (the limiter and its measurement see the sound also while muted). Off: the path below as before.
+    const bool limiter = settings_.limiter.Get();
+    if (limiter != s.limiter_on) {
+      s.limiter_on = limiter;
+      s.limiter.Reset(out_channels);
+      s.gain_applied = static_cast<f32>(settings_.gain.Get());
+      s.mute_applied = muted ? 0.0f : 1.0f;
+      s.master_applied = muted ? 0.0f : s.gain_applied;
+      REXAPU_INFO("apu.limiter {} (peak limiter after the downmix)", limiter ? "on" : "off");
+    }
+    if (limiter) {
+      const f32 gain_target = static_cast<f32>(settings_.gain.Get());
+      f32 gain = gain_target;
+      if (s.gain_applied != gain_target) {
+        RampGain(s.planar.data(), rex::apu::kAudioChannelSamples, s.gain_applied, gain_target);
+        gain = 1.0f;
+      }
+      s.gain_applied = gain_target;
+      if (out_channels == rex::apu::kAudioFrameChannels) {
+        const SurroundWeights weights{static_cast<f32>(settings_.center.Get()),
+                                      static_cast<f32>(settings_.surround.Get()),
+                                      static_cast<f32>(settings_.lfe.Get())};
+        MixSurround(s.out.data(), s.planar.data(), rex::apu::kAudioChannelSamples, weights, gain,
+                    false);
+      } else {
+        MixStereo(s.out.data(), s.planar.data(), rex::apu::kAudioChannelSamples, StereoWeights{},
+                  gain, false);
+      }
+      if (s.limiter.Channels() != out_channels) {
+        s.limiter.Reset(out_channels);
+      }
+      LimiterStats stats;
+      s.limiter.Process(s.out.data(), rex::apu::kAudioChannelSamples, stats);
+      fcp::OnOutput(s.out.data(), rex::apu::kAudioChannelSamples, out_channels, &stats);
+      const f32 mute_target = muted ? 0.0f : 1.0f;
+      const f32 step = (mute_target - s.mute_applied) / static_cast<f32>(rex::apu::kAudioChannelSamples);
+      f32 level = s.mute_applied;
+      for (u32 n = 0; n < rex::apu::kAudioChannelSamples; ++n) {
+        if (step != 0.0f) {
+          level += step;
+        }
+        for (u32 c = 0; c < out_channels; ++c) {
+          f32& v = s.out[n * out_channels + c];
+          v = std::clamp(level == 1.0f ? v : v * level, -1.0f, 1.0f);
+        }
+      }
+      s.mute_applied = mute_target;
+      s.master_applied = muted ? 0.0f : gain_target;
+      s.out_channels = out_channels;
+      s.out_samples = out_channels * rex::apu::kAudioChannelSamples;
+      s.out_pos = 0;
+      return;
+    }
+
     const f32 master_target = muted ? 0.0f : static_cast<f32>(settings_.gain.Get());
     f32 constant_gain = master_target;
     if (s.master_applied != master_target) {

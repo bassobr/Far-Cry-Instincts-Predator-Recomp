@@ -42,6 +42,7 @@ constexpr Expected kSettings[] = {
     {"apu.lfe", "1"},
     {"apu.peak_limit", "0"},
     {"apu.max_queued_frames", "8"},
+    {"apu.limiter", "false"},  // FCP: change 371
     {"gpu.driver", "any"},
     {"gpu.vsync", "true"},
     {"gpu.frame_limit", "0"},

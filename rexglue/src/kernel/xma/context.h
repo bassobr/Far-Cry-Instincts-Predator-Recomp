@@ -245,13 +245,15 @@ class XMAContext {
    * @param is_two_channel True when the frame has two channels.
    * @param output_buffer Receives the int16 samples.
    */
-  static void ConvertFrame(const u8** samples, bool is_two_channel, u8* output_buffer);
+  static void ConvertFrame(const u8** samples, bool is_two_channel, u8* output_buffer,
+                           f32 gain = 1.0f);  // FCP: change 370, speech volume
 
   kernel::GuestAddressSpace* memory_ = nullptr;
   std::unique_ptr<rex::platform::Event> work_completion_event_;
 
   u32 id_ = 0;
   u32 guest_ptr_ = 0;
+  u32 fcp_traced_input_ = 0;  // FCP: change 370, FCP_TRACE_XMA_INPUT
   std::mutex lock_;
   std::atomic<bool> is_allocated_ = false;
   std::atomic<bool> is_enabled_ = false;

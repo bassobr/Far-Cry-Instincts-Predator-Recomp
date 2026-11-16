@@ -33,6 +33,9 @@ struct HostOptions {
   // Split present: WaitFrameSlot/AcquireImage run without the caller's lock before BeginFrame
   // (BeginFrame then no longer waits itself).
   bool split_present = false;
+  // [display] hdr: an HDR10 swapchain (R10G10B10A2, ST 2084 / BT.2020) if the surface offers one; otherwise the SDR
+  // swapchain as without it (hdr_active() tells which one it got).
+  bool hdr = false;
 };
 
 // Occlusion queries through the native handles (NVRHI has none). A fixed ring of slots; the caller
@@ -62,6 +65,10 @@ class HostDevice {
   // Highest MSAA level (1, 2, 4, 8) the device supports as a render target for all screen-target formats
   // (RGBA8, RGBA16F, RGB10A2, D32S8) ([graphics] msaa).
   virtual uint32_t max_samples() const { return 4; }
+  // Vulkan: VkPhysicalDeviceLimits::maxMemoryAllocationCount (4096 on some drivers), 0 = no such limit (D3D12).
+  virtual uint32_t max_allocations() const { return 0; }
+  // Vulkan: guest textures share pooled 64 MiB blocks instead of one vkAllocateMemory each (FCP_RENDER_VK_TEXTURE_POOL).
+  virtual bool pooled_textures() const { return false; }
   // Next swapchain image (in state Present or Undefined; null without a swapchain).
   virtual nvrhi::ITexture* BeginFrame() = 0;
   // Transitions the image to the present state and shows it; waits for at most two frames of lead.
@@ -78,8 +85,23 @@ class HostDevice {
   virtual void WaitIdle() = 0;
   // Resize the swapchain to the new window size (waits for the GPU). False without a swapchain or on failure.
   virtual bool Resize(uint32_t width, uint32_t height) { (void)width, (void)height; return false; }
+  // Present with VSync or not from now on (HostOptions::vsync; Vulkan makes the swapchain anew, waits for the GPU).
+  // Same thread and lock as Present. False on failure.
+  virtual bool SetVsync(bool on) { (void)on; return false; }
   virtual uint32_t swapchain_width() const { return 0; }
   virtual uint32_t swapchain_height() const { return 0; }
+  // Vulkan: the swapchain no longer fits the surface (VK_ERROR_OUT_OF_DATE_KHR at acquire or present, e.g. after an
+  // exclusive mode change or a restore from minimized at the same size, which sends no resize). The caller makes it
+  // anew with Resize(window_client_size) under its lock; Resize clears the flag. Always false on D3D12.
+  virtual bool swapchain_lost() const { return false; }
+  // Client size of the swapchain's window now (0x0 while minimized). False without a window.
+  virtual bool window_client_size(uint32_t* width, uint32_t* height) const { (void)width, (void)height; return false; }
+  // HDR10 output: true while the swapchain is HDR10 (back_buffer_format R10G10B10A2_UNORM, PQ / BT.2020).
+  // SetHdr recreates the swapchain in the other mode (waits for the GPU, like Resize); returns hdr_active() after it.
+  // hdr_note: why the last request for HDR10 gave SDR (empty when it did not).
+  virtual bool hdr_active() const { return false; }
+  virtual bool SetHdr(bool on) { (void)on; return false; }
+  virtual std::string hdr_note() const { return {}; }
   virtual DriverPipelineCache* pipeline_cache() { return nullptr; }
   // Saves the driver pipeline cache (Vulkan) if one is active.
   virtual void SavePipelineCache() {}

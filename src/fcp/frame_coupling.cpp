@@ -132,6 +132,12 @@ uint64_t g_timer_ticks_held = 0;
 constexpr uint32_t kEntityTimerPeriod = 0x3FC, kEntityTimerStart = 0x400, kEntitySystemClock = 0xF8;
 double g_lua_frametime = 0.0;                       // what Game_ScriptGlobals set this frame
 std::unordered_map<uint32_t, double> g_timer_last;  // entity -> game time of its last timer call (main thread)
+// A repeating timer's measured interval counts down to this much below its period (FCP_FRAME_TIMER_SLACK_MS, default
+// 3; 0: from the period on, as before): the timer's start is stored in whole ms and the game fires it on its own (even)
+// game time, so on the whole-ms clock a 50 ms timer came out at 49 ms in about a quarter of the calls at 60 frames/s
+// and took the fallback (the period rounded up to whole frames, 64 ms) instead: 7.5-7.7 instead of 7.1-7.2 drowning
+// damage per second (measured, staging-v090.md).
+double g_timer_slack = 0.003;
 
 bool g_trace_land = false;
 bool g_trace_land_frames = false;  // FCP_TRACE_LAND=2: also the local player's +0xB24 each frame while it is not 0
@@ -163,16 +169,37 @@ struct BoatState {
 };
 std::unordered_map<uint32_t, BoatState> g_boats;  // CVehicle -> state (main thread: physics runs in System_Update)
 
-// Wheeled vehicles (diagnostics only, FCP_TRACE_WHEELS=1): the wheel force step of CWheeledVehicleEntity
-// (vtable 0x8207E228 +0xD8 = Vehicle_WheelForces 0x82556AA8, r3 = entity, f1 = step time, r5 = contact mask; called
-// by the rigid body step 0x825455E8 like FCI's 0x003CC9A0). Counts calls and step times per second.
+// Wheeled vehicles at the console's 50 wheel impulse steps per second (FCP_FRAME_VEHICLE=1: the original). The rigid
+// body step (0x825455E8) of a CWheeledVehicleEntity (vtable 0x8207E228) calls two of its methods: +0xD8 =
+// Vehicle_WheelForces (0x82556AA8, named so in audit 2, in fact the wheel contacts: r3 = entity, r5 = contact
+// list; the wheels' ground contacts from box and ray
+// queries 0x82511940/0x82511400/0x82511520; it never reads f1, which it overwrites at 0x82556D00) after the
+// collision setup, and at the end of the step, after the body has moved, +0xDC = Vehicle_WheelImpulses (0x82558368,
+// r3 = entity, f1 = step time, kept at 0x15AC(r1) and read in 13 places): the wheel impulses (engine, brakes,
+// suspension, tyre friction), the same role as FCI's 0x003CC9A0 (Far Cry Instincts Recomp, src/xdk/game.cpp,
+// Game_VehicleImpulses). On the console (30 fps) the physics runs steps of exactly 0.02 s (measured, audit 2: 50
+// calls/s); above 50 fps the step is the frame, so the impulses come 120 times per second at 120 fps (measured:
+// 117-120/s), each with its share of the time. Measured (docs/phase1/bildraten-ueber-120.md): the player's Humvee in
+// 10_dead_marshes 19.1-19.2 m/s at 120-240 fps against 17.3-17.4 at 30 before its obstacle, the quad in 06_cliffs 3 %
+// slower at 240. Here, as in FCI, the impulse step runs at most 50 times per second of simulated time, over the time
+// since its last call (the step that comes closest to 0.02 s, at most 0.1 s); shorter steps only collect their
+// time. The body itself still moves every step (its velocity, gravity, collisions); the impulses come once per
+// console step. Only above the console rate (FCP_FPS != 30) and for steps shorter than 0.02 s (the physics splits
+// longer frames into 0.02 s steps: at 30 and 45 nothing changes).
+// FCP_TRACE_WHEELS=1: per vehicle and second the calls of both methods, the impulse steps and the body's speed.
+constexpr float kVehicleStep = 0.02f;
+constexpr uint32_t kBodyPos = 0x118, kBodyVel = 0x2C4;
+bool g_frame_vehicle = false;
 bool g_trace_wheels = false;
+bool g_trace_drive = false;  // FCP_TRACE_WHEELS=2 (OnVehicleAction)
 struct WheelState {
+  float pending = 0.0f;  // step time collected since the last impulse step
+  // trace window
   double window_start = -1.0;
-  uint32_t calls = 0;
+  uint32_t contacts = 0, steps = 0, calls = 0;
   float lo = 1e9f, hi = 0.0f;
 };
-std::unordered_map<uint32_t, WheelState> g_wheels;
+std::unordered_map<uint32_t, WheelState> g_wheels;  // vehicle entity -> state (main thread: physics in System_Update)
 bool g_trace_drowning = false;  // FCP_TRACE_DROWNING (OnPlayerIsUnderWater)
 // living entities (OnLivingAction/Step/Move): originals FCP_FRAME_SWIM=1, FCP_FRAME_EDGE=1, FCP_FRAME_LANDING=1
 bool g_frame_swim = false, g_frame_edge = false, g_frame_landing = false;
@@ -238,6 +265,11 @@ void Configure() {
   g_frame_bob = fcp::env::Flag("FCP_FRAME_BOB");
   g_frame_timers = fcp::env::Flag("FCP_FRAME_TIMERS");
   g_trace_timers = fcp::env::Flag("FCP_TRACE_TIMERS");
+  if (const std::string s = fcp::env::Get("FCP_FRAME_TIMER_SLACK_MS"); !s.empty()) {
+    g_timer_slack = std::clamp(std::atof(s.c_str()), 0.0, 10.0) / 1000.0;
+  }
+  FCPLOG("frame coupling: entity timer intervals count from {:.1f} ms below the period (FCP_FRAME_TIMER_SLACK_MS)",
+         g_timer_slack * 1000.0);
   // experiment, off unless FCP_FRAME_TIMER_TICK=0: measured (05_mines) it does not move the AI timeline (audit 3)
   g_frame_timer_tick = fcp::env::Get("FCP_FRAME_TIMER_TICK") != "0";
   FCPLOG("frame coupling: entity timer ticks on the console's frames {} (experiment: FCP_FRAME_TIMER_TICK=0 turns it on)",
@@ -245,6 +277,10 @@ void Configure() {
   g_frame_water = fcp::env::Flag("FCP_FRAME_WATER");
   g_trace_boat = fcp::env::Flag("FCP_TRACE_BOAT");
   g_trace_wheels = fcp::env::Flag("FCP_TRACE_WHEELS");
+  g_trace_drive = fcp::env::Get("FCP_TRACE_WHEELS") == "2";
+  g_frame_vehicle = fcp::env::Flag("FCP_FRAME_VEHICLE");
+  FCPLOG("frame coupling: wheel impulses at the console's 0.02 s steps {} (original: FCP_FRAME_VEHICLE=1)",
+         g_frame_vehicle ? "off" : "on");
   g_trace_drowning = fcp::env::Flag("FCP_TRACE_DROWNING");
   g_frame_swim = fcp::env::Flag("FCP_FRAME_SWIM");
   // step edges: no coupling measured in Predator yet (05_mines stairs: the landing part alone restores the console's
@@ -447,6 +483,14 @@ void OnEntityScriptEvent(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
     original(ctx, base);
     return;
   }
+  // The intervals below are measured on the frame clock as the game measures it (whole ms), not on the frame times
+  // FCP_FRAME_DT_SMOOTH evens out: with the even ones the timer's interval came out too long (measured 57.0 ms for
+  // calls every 49.8 ms at 60, 8-10 % more drowning damage; release-pruefung-v0.6.0.md section 3). dt (the evened
+  // _frametime) is only put back after the call.
+  const double clock_dt =
+      fcp::gametime::RawFrameDt() != fcp::gametime::FrameDt() && fcp::gametime::RawFrameDt() > 0.0
+          ? fcp::gametime::RawFrameDt()
+          : dt;
   const uint32_t period_ms = ctx.r5.u32;
   // Timer ticks on the console's frames (experiment, FCP_FRAME_TIMER_TICK=0 turns it on; only with FCP_FRAME_TIMERS on). The entity update (call at
   // fcp::addr::entity_timer_return - 4) fires a one-shot timer on the first frame with game time x 1000 - start
@@ -463,7 +507,7 @@ void OnEntityScriptEvent(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
       const double now_ms = double(float(F64(base, clock + 0x28 /* frame timer: game time */))) * 1000.0;  // as the game reads it
       const double elapsed = now_ms - double(int32_t(fcp::guest::U32(base, entity + kEntityTimerStart)));
       const double console_ms = std::ceil(period_ms / (1000.0 * kConsoleStep) - 1e-6) * 1000.0 * kConsoleStep;
-      if (elapsed + 500.0 * dt < console_ms) {
+      if (elapsed + 500.0 * clock_dt < console_ms) {
         const uint32_t be = __builtin_bswap32(period_ms);
         std::memcpy(fcp::guest::Ptr(base, entity + kEntityTimerPeriod), &be, 4);
         if (g_trace_timers) {
@@ -474,15 +518,15 @@ void OnEntityScriptEvent(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
       }
     }
   }
-  const double now = fcp::gametime::GameSeconds();
+  const double now = fcp::gametime::RawGameSeconds();
   double& last = g_timer_last[entity];
   const double since = now - last;
   const double period = period_ms / 1000.0;
   // interval at this rate: the measured one when it fits the period (a repeating timer), else the period
   // rounded up to whole frames of this rate; at 30: the period rounded up to whole console frames
-  const double here = (last > 0.0 && since >= period && since < period + 4 * dt + 0.05)
+  const double here = (last > 0.0 && since >= period - g_timer_slack && since < period + 4 * clock_dt + 0.05)
                           ? since
-                          : std::max(1.0, std::ceil(period / dt - 1e-6)) * dt;
+                          : std::max(1.0, std::ceil(period / clock_dt - 1e-6)) * clock_dt;
   const double console = std::max(1.0, std::ceil(period / kConsoleStep - 1e-6)) * kConsoleStep;
   last = now;
   const double value = kConsoleStep * here / console;
@@ -566,27 +610,94 @@ void OnBoatWaterModel(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   }
 }
 
-void OnWheelForces(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
-  if (g_trace_wheels) {
-    const uint32_t ent = ctx.r3.u32;
-    const float dt = float(ctx.f1.f64);
-    WheelState& s = g_wheels[ent];
-    const double now = fcp::gametime::LevelSeconds();
-    if (s.window_start < 0.0) {
-      s.window_start = now;
-    }
-    s.calls++;
-    s.lo = std::min(s.lo, dt);
-    s.hi = std::max(s.hi, dt);
-    if (now - s.window_start >= 1.0) {
-      FCPLOG("wheels: {:08X} at level {:.2f} s: {} calls ({:.4f}..{:.4f} s) in {:.2f} s", ent, now, s.calls, s.lo,
-             s.hi, now - s.window_start);
-      s.window_start = now;
-      s.calls = 0;
-      s.lo = 1e9f;
-      s.hi = 0.0f;
-    }
+// FCP_TRACE_WHEELS=2 (diagnostics): also every pe_action_drive (type 3) a wheeled vehicle gets (Vehicle_Action
+// 0x82554FD8 = CWheeledVehicleEntity vtable +0x18, r3 entity, r4 action): +4 pedal, +8 dpedal (added to the pedal
+// per call, clamped), +0xC steer, +0x10 dsteer (added per call); a field whose bits match 0xFFA00000 under the mask
+// 0xFFA00000 is "unused" (image: 0x825550D4). At most 6000 lines.
+void OnVehicleAction(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
+  const uint32_t ent = ctx.r3.u32, act = ctx.r4.u32;
+  if (!g_trace_drive || !fcp::guest::Plausible(act) || !fcp::guest::Plausible(ent) || fcp::guest::U32(base, act) != 3) {
+    original(ctx, base);
+    return;
   }
+  auto field = [&](uint32_t o) {
+    const uint32_t u = fcp::guest::U32(base, act + o);
+    return (u & 0xFFA00000u) == 0xFFA00000u ? std::string("-") : std::format("{:.4f}", std::bit_cast<float>(u));
+  };
+  const std::string f[4] = {field(4), field(8), field(0xC), field(0x10)};
+  const uint32_t from = uint32_t(ctx.lr);
+  original(ctx, base);
+  static uint32_t n = 0;
+  if (++n <= 6000) {
+    FCPLOG("drive: {:08X} at level {:.4f} s frame {} dt {:.2f} ms: pedal {} dpedal {} steer {} dsteer {} -> body pedal "
+           "{:.4f} steer {:.4f} (from {:08X})",
+           ent, fcp::gametime::LevelSeconds(), fcp::gametime::Frame(),
+           F64(base, fcp::addr::frame_timer + kTimerGameFrameTime) * 1000.0, f[0], f[1], f[2], f[3],
+           F32(base, ent + 0xE0C), F32(base, ent + 0xE10), from);
+  }
+}
+
+void OnWheelContacts(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
+  if (g_trace_wheels) {
+    g_wheels[ctx.r3.u32].contacts++;
+  }
+  original(ctx, base);
+}
+
+void TraceWheels(uint8_t* base, uint32_t ent, WheelState& s, float call_step, bool called) {
+  const double now = fcp::gametime::LevelSeconds();
+  if (s.window_start < 0.0) {
+    s.window_start = now;
+  }
+  s.steps++;
+  if (called) {
+    s.calls++;
+    s.lo = std::min(s.lo, call_step);
+    s.hi = std::max(s.hi, call_step);
+  }
+  if (now - s.window_start >= 1.0) {
+    const float vx = F32(base, ent + kBodyVel), vy = F32(base, ent + kBodyVel + 4), vz = F32(base, ent + kBodyVel + 8);
+    FCPLOG("wheels: {:08X} at level {:.2f} s: {} steps, {} contact calls, {} impulse calls ({:.4f}..{:.4f} s) in {:.2f} "
+           "s, pos {:.2f} {:.2f} {:.2f} speed {:.3f} (vz {:.3f})",
+           ent, now, s.steps, s.contacts, s.calls, s.calls ? s.lo : 0.0f, s.hi, now - s.window_start,
+           F32(base, ent + kBodyPos), F32(base, ent + kBodyPos + 4), F32(base, ent + kBodyPos + 8),
+           std::sqrt(vx * vx + vy * vy), vz);
+    s.window_start = now;
+    s.contacts = s.steps = s.calls = 0;
+    s.lo = 1e9f;
+    s.hi = 0.0f;
+  }
+}
+
+void OnWheelImpulses(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
+  const uint32_t ent = ctx.r3.u32;
+  const float dt = float(ctx.f1.f64);
+  if (g_frame_vehicle || fcp::framerate::TargetFps() == 30 || !(dt > 0.0f) || !fcp::guest::Plausible(ent)) {
+    if (g_trace_wheels && fcp::guest::Plausible(ent)) {
+      TraceWheels(base, ent, g_wheels[ent], dt, true);
+    }
+    original(ctx, base);
+    return;
+  }
+  WheelState& s = g_wheels[ent];
+  float step = dt;
+  if (dt < kVehicleStep) {
+    s.pending += dt;
+    if (s.pending + 0.5f * dt < kVehicleStep) {  // the step that comes closest to 0.02 s is still to come
+      if (g_trace_wheels) {
+        TraceWheels(base, ent, s, 0.0f, false);
+      }
+      return;
+    }
+    step = std::min(s.pending, 0.1f);
+  } else if (s.pending > 0.0f) {
+    step = std::min(dt + s.pending, 0.1f);  // a long step after short ones: the collected time goes with it
+  }
+  s.pending = 0.0f;
+  if (g_trace_wheels) {
+    TraceWheels(base, ent, s, step, true);
+  }
+  ctx.f1.f64 = step;
   original(ctx, base);
 }
 
@@ -1227,6 +1338,11 @@ double ConsoleFireInterval(const FireLast& last, float rate) {
 void OnWeaponTryFire(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   const uint32_t weapon = ctx.r3.u32, shooter = ctx.r6.u32, state = ctx.r7.u32, pflags = ctx.r8.u32;
   const int32_t mode = int32_t(ctx.r9.u32);
+  // The game's own test and this correction on the clock as the game measures it (whole ms): with the frame times
+  // FCP_FRAME_DT_SMOOTH evens out the game's test held more frames on the console's grid (2-8 % slower fire at 60 and
+  // 120, release-pruefung-v0.6.0.md section 3). The frame timer holds the unsmoothed game time and frame time for the
+  // call (last shots are stored in it too); FCP_FRAME_DT_RAW_CLOCK=0: the evened clock.
+  const fcp::gametime::RawClockScope raw_clock(base);
   const double dt = F64(base, fcp::addr::frame_timer + kTimerGameFrameTime);
   // FCP_TRACE_FIRE also runs the model without a correction (30 fps, FCP_FRAME_FIRE=1) to compare it with the game
   const bool correct = !g_frame_fire && Above30() && dt > 0.0 && dt < kShortFrame;
@@ -1437,6 +1553,16 @@ REX_HOOK_RAW(Player_IsUnderWater) {
 }
 
 REX_EXTERN(__imp__Vehicle_WheelForces);
-REX_HOOK_RAW(Vehicle_WheelForces) {
-  ::fcp::frame_coupling::OnWheelForces(ctx, base, __imp__Vehicle_WheelForces);
+REX_HOOK_RAW(Vehicle_WheelForces) {  // the wheel contacts (name from audit 2)
+  ::fcp::frame_coupling::OnWheelContacts(ctx, base, __imp__Vehicle_WheelForces);
+}
+
+REX_EXTERN(__imp__Vehicle_Action);
+REX_HOOK_RAW(Vehicle_Action) {
+  ::fcp::frame_coupling::OnVehicleAction(ctx, base, __imp__Vehicle_Action);
+}
+
+REX_EXTERN(__imp__Vehicle_WheelImpulses);
+REX_HOOK_RAW(Vehicle_WheelImpulses) {
+  ::fcp::frame_coupling::OnWheelImpulses(ctx, base, __imp__Vehicle_WheelImpulses);
 }

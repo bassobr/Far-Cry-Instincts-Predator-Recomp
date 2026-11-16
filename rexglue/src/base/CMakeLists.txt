@@ -15,6 +15,7 @@ target_sources(
           exception_handler.cpp
           hash.cpp
           gpu_progress.cpp # FCP change 80
+          fcp_speech.cpp # FCP change 370
           init.cpp
           input_source.cpp
           host_alloc.cpp

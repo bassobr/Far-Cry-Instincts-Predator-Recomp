@@ -24,6 +24,7 @@
 #include "fcp/input_trace.h"
 #include "fcp/keyboard_text.h"
 #include "fcp/sound_trace.h"
+#include "fcp/speech_volume.h"
 #include "fcp/relaunch.h"
 #include "fcp/log.h"
 #include "fcp/save_guard.h"
@@ -404,6 +405,7 @@ void Configure() {
   }
   fcp::input_trace::Configure();
   fcp::sound_trace::Configure();
+  fcp::speech::Configure();
   fcp::input_script::Configure();
   fcp::file_patch::Configure();
   // Always watch the launch imports: relaunch data, dev start, launch targets.
@@ -441,6 +443,10 @@ void Configure() {
     }
     if (fcp::input_trace::Enabled() && (Is(i, "XamInputGetState") || Is(i, "XamInputSetState"))) {
       g_flags[i] |= 64;
+    }
+    if (fcp::speech::Enabled() && (Is(i, "NtCreateFile") || Is(i, "NtOpenFile") || Is(i, "NtReadFile") ||
+                                   Is(i, "NtClose") || Is(i, "NtSetInformationFile"))) {
+      g_flags[i] |= 2048;  // speech volume: reads of the sound archive
     }
   }
   // After the first call these need nothing but the count (Enter would return false): flags 2 only matter with
@@ -515,7 +521,7 @@ bool EnterImpl(size_t index, PPCContext& ctx, uint8_t* base) {
     t_pending = Detail(index, ctx, base);
     FCPLOG("import call {} #{} {}{}", kTable[index].name, n + 1, Regs(ctx), t_pending);
   }
-  if (flags & (12 | 32 | 64 | 128 | 256 | 512)) {
+  if (flags & (12 | 32 | 64 | 128 | 256 | 512 | 2048)) {
     t_entry_r3 = ctx.r3.u32;
     t_entry_r4 = ctx.r4.u32;
     t_entry_r5 = ctx.r5.u32;
@@ -535,6 +541,22 @@ bool EnterImpl(size_t index, PPCContext& ctx, uint8_t* base) {
     } else if (fcp::guest::Readable(base, ctx.r5.u32, 12)) {
       // NtCreateFile/NtOpenFile: r3 = handle out, r5 = OBJECT_ATTRIBUTES (name at +4).
       t_open_name = fcp::guest::AnsiString(base, fcp::guest::U32(base, ctx.r5.u32 + 4));
+      observe = true;
+    }
+  }
+  if (flags & 2048) {
+    // speech volume (fcp/speech_volume.h): the same calls as the sound trace, its own bookkeeping
+    if (Is(index, "NtReadFile")) {
+      fcp::speech::BeforeRead(base, ctx.r3.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32);
+      observe = true;
+    } else if (Is(index, "NtClose")) {
+      fcp::speech::OnClose(ctx.r3.u32);
+    } else if (Is(index, "NtSetInformationFile")) {
+      fcp::speech::OnSetInformation(base, ctx.r3.u32, ctx.r7.u32, ctx.r5.u32);
+    } else if (t_open_name.empty() && fcp::guest::Readable(base, ctx.r5.u32, 12)) {
+      t_open_name = fcp::guest::AnsiString(base, fcp::guest::U32(base, ctx.r5.u32 + 4));
+      observe = true;
+    } else if (!t_open_name.empty()) {
       observe = true;
     }
   }
@@ -617,9 +639,14 @@ void Leave(size_t index, PPCContext& ctx, uint8_t* base) {
       fcp::input_trace::OnSetState(t_entry_r3, ctx.r3.u32, base, t_entry_r5);
     }
   }
-  if ((flags & 32) && !t_open_name.empty()) {
+  if ((flags & 2048) && Is(index, "NtReadFile")) {
+    fcp::speech::AfterRead(base, ctx.r3.u32);
+  }
+  if ((flags & (32 | 2048)) && !t_open_name.empty()) {
     if (ctx.r3.u32 == 0 && fcp::guest::Plausible(t_entry_r3)) {
-      fcp::sound_trace::OnOpen(t_open_name, fcp::guest::U32(base, t_entry_r3));
+      const uint32_t handle = fcp::guest::U32(base, t_entry_r3);
+      if (flags & 32) fcp::sound_trace::OnOpen(t_open_name, handle);
+      if (flags & 2048) fcp::speech::OnOpen(t_open_name, handle);
     }
     t_open_name.clear();
   }
@@ -665,6 +692,7 @@ void WriteSummary() {
   FCPLOG("import summary: {} called ({} stubs), {} never called", used, used_stub, unused);
   fcp::input_trace::WriteSummary();
   fcp::sound_trace::WriteSummary();
+  fcp::speech::WriteSummary();
 }
 
 uint64_t CountOf(const char* name) {

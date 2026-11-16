@@ -44,6 +44,7 @@
 #include <rex/ppc/hook.h>
 
 #include "fcp/env.h"
+#include "fcp/gametime.h"
 #include "fcp/guest.h"
 #include "fcp/log.h"
 #include "fcp/render_bridge.h"
@@ -123,6 +124,48 @@ State& Get() {
   return *s;
 }
 
+// Diagnostics (FCP_TRACE_CAMERA_DUMP=<n>): the first n updates of screen cameras after the call, the camera's floats
+// 0x00..0x23C as hex words with the game frame (camera smoothness: the view's turn per frame, read offline).
+void DumpCamera(uint8_t* base, uint32_t cam, uint32_t from, bool screen) {
+  static const int64_t limit = fcp::env::Int("FCP_TRACE_CAMERA_DUMP", 0);
+  static std::atomic<int64_t> done{0};
+  if (limit <= 0 || !screen || done.load(std::memory_order_relaxed) >= limit) return;
+  done.fetch_add(1, std::memory_order_relaxed);
+  std::string words;
+  words.reserve(0x23C / 4 * 9);
+  for (uint32_t o = 0; o < kCamProjection; o += 4) words += std::format(" {:08X}", fcp::guest::U32(base, cam + o));
+  FCPLOG("camdump f{} cam {:08X} from {:08X}:{}", fcp::gametime::Frame(), cam, from, words);
+}
+
+// Ambient occlusion ([graphics] ao, renderer core/ao_pass.h): the projection a screen camera's update built goes to
+// the renderer, which reconstructs view positions from the scene's depth with it. Only read, nothing written. Only
+// when the matrix is the PerspectiveFovRH of the camera's own near and far plane (layout check; else nothing, and the
+// renderer leaves the occlusion out).
+void PublishProjection(uint8_t* base, uint32_t cam) {
+  if (!fcp::render::AoWanted() || fcp::guest::U32(base, cam + kCamOrtho) != 0) return;
+  float m[16];
+  for (uint32_t i = 0; i < 16; ++i) m[i] = GetF(base, cam + kCamProjection + 4 * i);
+  const float n = GetF(base, cam + kCamNear), f = GetF(base, cam + kCamFar);
+  // m10 = f / (n - f), m14 = n f / (n - f). The game's near plane is 5 mm: m10 + 1 is about -7e-6, so the far plane
+  // cannot be read back from the matrix; compare the matrix with the camera's planes instead.
+  const bool shape = m[0] > 0 && m[5] > 0 && m[11] == -1.0f && m[15] == 0.0f && n > 0 && f > n;
+  const double e10 = double(f) / (double(n) - f), e14 = double(n) * f / (double(n) - f);
+  const bool fits = shape && std::fabs(m[10] - e10) <= 1e-5 * std::fabs(e10) && std::fabs(m[14] - e14) <= 1e-3 * std::fabs(e14);
+  const float mn = n, mf = f;
+  static std::atomic<int> logged{0};
+  if (!fits) {
+    if (logged.fetch_add(1) < 4)
+      FCPLOG("fov: ao: camera {:08X} projection not PerspectiveFovRH of near {:g} far {:g} (m10 {:g} m11 {:g} m14 {:g} m15 {:g}); not "
+             "passed on",
+             cam, n, f, m[10], m[11], m[14], m[15]);
+    return;
+  }
+  static std::atomic<bool> first{true};
+  if (first.exchange(false))
+    FCPLOG("fov: ao: camera {:08X} projection x {:.4f} y {:.4f} near {:g} far {:g} passed to the renderer", cam, m[0], m[5], mn, mf);
+  fcp::render::SetCameraProjection(m, f);
+}
+
 }  // namespace
 
 void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
@@ -151,7 +194,12 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   }
   const uint32_t ortho = fcp::guest::U32(base, cam + kCamOrtho);
   // The screen's perspective cameras (16:9 and the like), not square render-to-texture views or ortho ones (FCI's rule).
-  const bool screen = ortho == 0 && aspect > 1.2f && aspect < 3.6f && fov > 0.05f && fov < 3.0f;
+  // Split screen with 2 players side by side (the game's "widescreen split: vertical"): each view is 640x720, its
+  // camera's aspect 0.8889 (measured, m20_shantytown); the renderer widens those targets as well (FCP_RENDER_SPLIT_VIEW=0:
+  // neither, as before).
+  static const bool split_half = fcp::env::Flag("FCP_RENDER_SPLIT_VIEW", true);
+  const bool half_view = split_half && std::fabs(aspect - 640.0f / 720.0f) < 0.01f;
+  const bool screen = ortho == 0 && ((aspect > 1.2f && aspect < 3.6f) || half_view) && fov > 0.05f && fov < 3.0f;
   const bool patch = screen && (s.factor != 1.0f || hor != 1.0f || tall != 1.0f);
   float wide = fov, wide_aspect = aspect;
   bool capped = false;
@@ -185,6 +233,8 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   }
   if (!patch) {
     original(ctx, base);
+    DumpCamera(base, cam, from, screen);
+    if (screen) PublishProjection(base, cam);
     return;
   }
   s.widened.fetch_add(1, std::memory_order_relaxed);
@@ -198,6 +248,7 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
   SetF(base, cam + kCamFov, wide);
   if (wide_aspect != aspect) SetF(base, cam + kCamAspect, wide_aspect);
   original(ctx, base);
+  DumpCamera(base, cam, from, screen);
   if ((hor != 1.0f || tall != 1.0f) && s.layout_logs.fetch_add(1, std::memory_order_relaxed) < 4) {
     // Diagnostics: the projection the call built, against PerspectiveFovRH(wide / wide_aspect, wide_aspect).
     const float ys_call = 1.0f / std::tan(wide / wide_aspect * 0.5f);
@@ -226,6 +277,7 @@ void OnCameraUpdate(PPCContext& ctx, uint8_t* base, PPCFunc& original) {
              kMaxFov, kCamProjection, m00, m11, ys_call / wide_aspect, ys_call);
     }
   }
+  PublishProjection(base, cam);
   // The widened values stay in the camera (measured in 00_training): the water's grid is built later
   // from the camera's fov and aspect; with the game's values put back it covered only the 16:9 middle and its edge
   // showed at the sides (with Hor+ and with the fov factor alike). The game writes both fields again before every

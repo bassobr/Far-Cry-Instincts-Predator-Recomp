@@ -66,12 +66,15 @@ target_sources(
           src/fcp/state_trace.cpp
           src/fcp/frame_coupling.cpp
           src/fcp/camera_fov.cpp
+          src/fcp/detail_distance.cpp
+          src/fcp/shadow_distance.cpp
           src/fcp/file_patch.cpp
           src/fcp/fp_stats.cpp
           src/fcp/level_test.cpp
           src/fcp/user_paths.cpp
           src/fcp/save_guard.cpp
           src/fcp/user_settings.cpp
+          src/fcp/display.cpp
           src/fcp/device_preset.cpp
           src/fcp/toml_edit.cpp
           src/fcp/settings_menu.cpp

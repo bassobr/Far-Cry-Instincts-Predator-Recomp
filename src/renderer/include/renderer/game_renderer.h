@@ -9,7 +9,10 @@
 //
 // Presentation: window and swapchain belong to this renderer (HostDevice). The SDK calls BeginPresent/EndPresent
 // through IHostPresenter (rexglue, local change 9) on its present thread; the image is the copy that OnSwap made
-// from the game's front buffer.
+// from the game's front buffer. Order of the present path: gamma ramp -> SMAA -> centring with bars (the final blit;
+// with [graphics] colour_blind the colour blind matrix in this blit, still SDR) -> with HDR10 only: the HDR10 pass
+// from that SDR picture into the swapchain (core/hdr_pass.h) -> overlay (settings menu, frame rate; in HDR10 at paper
+// white) -> present.
 //
 // Threads: the game threads call the DrawSink methods (the game serializes them through device ownership),
 // the present thread calls Begin/EndPresent. A mutex protects device and queue.
@@ -43,6 +46,7 @@ struct GameRendererOptions {
   uint64_t dump_resolves_frame = ~0ull;  // FCP_DUMP_RESOLVES=<n>: every resolve target (RGBA8) of frame n
   uint32_t stats_every = 150;       // frame statistics to the log every n frames (0: off)
   bool trace_draws = false;         // FCP_TRACE_DRAWS
+  bool trace_textures = true;       // FCP_RENDER_TRACE_TEX=0: the draw log without the line of bound textures
   uint64_t trace_first = ~0ull;     // FCP_RENDER_TRACE=<frame>[,<count>]: every draw/resolve of these frames to the log
   uint64_t trace_count = 1;
   // FCP_RENDER_PROBE=<x>,<y>: in the trace frames, read pixel (x,y) of color target 0 after every
@@ -99,6 +103,10 @@ struct GameRendererOptions {
   uint32_t msaa_samples = 0;
   // [graphics] smaa (FCP_RENDER_SMAA): SMAA 1x on the finished image before the overlay. Switchable live (SetSmaa).
   bool smaa = false;
+  // [graphics] colour_blind (FCP_RENDER_COLOUR_BLIND): 0 off (the final blit as before), 1 protanopia,
+  // 2 deuteranopia, 3 tritanopia: daltonization in the final blit into the swapchain (after the gamma ramp and SMAA,
+  // before the overlay). Switchable live (SetColourBlind).
+  int colour_blind = 0;
   // FCP_RENDER_CB_VERSIONS: versions per volatile constant buffer (Vulkan; 0 = layout default).
   uint32_t constant_versions = 0;
   // FCP_RENDER_TABLE_SLOTS=<2D>,<3D>,<cube>,<array>,<samplers>,<buffers>: capacities of the bindless tables
@@ -107,6 +115,17 @@ struct GameRendererOptions {
   // Evict textures and vertex buffers not bound for a while when their bindless table fills up and reuse their
   // slots (GitHub issue #1). FCP_RENDER_SLOT_RECYCLE=0: slots are never reused (old behaviour).
   bool slot_recycle = true;
+  // Device allocations (GitHub issue #1): evict unused textures, vertex and index buffers once the estimated count
+  // passes 3/4 of the device's limit (Vulkan maxMemoryAllocationCount). FCP_RENDER_ALLOC_EVICT=0: off.
+  bool alloc_evict = true;
+  // FCP_RENDER_ALLOC_LIMIT=<n>: evict as if the device allowed n allocations (diagnostics, 0 = the device's).
+  uint32_t alloc_limit = 0;
+  // FCP_RENDER_TEST_ALLOCS=<n>: n extra device allocations held for good from the start (diagnostics: a long session's
+  // allocation count without playing it).
+  uint32_t test_allocs = 0;
+  // FCP_RENDER_TEST_ALLOC_FAIL=<n>: guest textures and buffers are refused (as by the device) while the estimated
+  // allocation count is at least n (diagnostics: a driver limit or full memory without such a driver).
+  uint32_t test_alloc_fail = 0;
   // Small, continuously read targets asynchronously (1-2 frames old) instead of synchronously; FCP_RENDER_LOCK_READBACK=sync: always synchronous.
   bool lock_readback_async = true;
   // FCP_RENDER_BUFFER_WATCH=0: hash vertex buffers every frame instead of using the write watch.
@@ -141,6 +160,19 @@ struct GameRendererOptions {
   uint32_t scale_min_width = 640;  // FCP_RENDER_SCALE_MIN_WIDTH
   // Shadow maps (square targets from 1024): separate factor. FCP_RENDER_SHADOW_SCALE.
   float shadow_scale = 1.0f;
+  // [graphics] shadow_filter (FCP_RENDER_SHADOW_FILTER): 0 = as the console (the game's bilinear 2x2 comparison),
+  // 1 = soft (3x3 bilinear comparisons over 4x4 host texels). The translated shaders read it per fetch slot from b3
+  // (kk_TexInvScale[slot].z) for textures that are depth resolves (shadow maps). Switchable live (SetShadowFilter).
+  uint32_t shadow_filter = 0;
+  // [graphics] ao (FCP_RENDER_AO): screen space ambient occlusion over the opaque 3D scene (core/ao_pass.h).
+  // 0 = off (as the console, nothing changes), 1 = SSAO, 2 = GTAO. Switchable live (SetAo). Where it goes in:
+  // game_renderer.cpp, "Ambient occlusion".
+  uint32_t ao = 0;
+  uint32_t ao_resolution = 0;  // FCP_RENDER_AO_RESOLUTION: 0 auto (half above 720 lines), 1 full, 2 half
+  float ao_strength = 1.0f;    // FCP_RENDER_AO_STRENGTH: exponent on the occlusion, 0..4
+  int ao_debug = 0;            // FCP_AO_DEBUG: 1 the occlusion instead of the scene, 2 view depth, 3 right half only
+  bool ao_timing = false;      // FCP_AO_TIMING=1: GPU time of the pass in the log (average of 300)
+  bool ao_trace = false;       // FCP_TRACE_AO=1: each insertion point and each reason to leave it out, once per kind
   // Anisotropic filtering: at least this level for samplers with linear min/mag filter (0/1: as the game).
   uint32_t aniso = 0;
   // Hor+ ([graphics] aspect / FCP_RENDER_ASPECT): shape of the shown 3D picture. 0 = auto (the output's when wider
@@ -160,6 +192,28 @@ struct GameRendererOptions {
   uint32_t res_w = 0, res_h = 0;
   // FCP_TRACE_WIDE=1: each new kind of 2D draw over a wide 3D picture (shaders, box, decision) once into the log.
   bool trace_wide = false;
+  // HUD layout ([graphics] hud_aspect / FCP_RENDER_HUD_ASPECT): the shape of the box whose edges the HUD's edge
+  // elements (radar, health, ammunition, hints, compass) sit at, over a Hor+/Vert+ picture. 16/9 = as before (the
+  // whole HUD in the 16:9 band), 0 = auto (the picture's edges), else W/H (between 16:9 and the picture's shape).
+  // Centred elements (crosshair, markers, subtitles, the scope and binocular views), menus and videos stay in the
+  // band. Switchable live (SetHudAspect).
+  float hud_aspect = 16.0f / 9.0f;
+  // Screen masks (binoculars, scopes) over a Hor+/Vert+ picture: such a draw of several quads across the width or the
+  // height goes into the band as a whole (round, not cut to the band) and the sides beyond it are filled with its own
+  // edge, so no world shows beside it. FCP_RENDER_SCREEN_MASK=0: classified as before (parts stretched over the whole
+  // picture, the rest in the band).
+  bool screen_masks = true;
+  // Texture packs (core/texture_pack.h; [graphics] texture_dump / texture_replace). UTF-8 folders, empty = off.
+  // dump: every texture the game uses once as <hash>_<w>x<h>_<format>.png|dds; replace: an image whose name holds a
+  // texture's hash is drawn instead. Both empty: no texture pack code runs.
+  std::string texture_dump_dir;
+  std::string texture_replace_dir;
+  uint32_t texture_upload_mb = 16;  // FCP_TEXTURE_UPLOAD_MB: replacement uploads per frame (the rest in later frames)
+  // Split screen over a Hor+/Vert+ picture: the views of a frame (3D draws whose viewport is a part of the screen
+  // target). A 2D draw of the HUD whose box has its centre in such a view goes into that view's band (narrowed about
+  // its centre, not the screen's), its edge elements to that view's edges (hud_aspect), and a screen mask that covers
+  // the view is recognised and filled within the view. FCP_RENDER_SPLIT_VIEW=0: everything about the screen as before.
+  bool split_views = true;
   // Present timing and display pacing (renderer/present_pacer.h; FCP_PRESENT_STATS, FCP_FPS_PACING=display).
   double present_stats_seconds = 10;  // presentstat line every n seconds, 0: none
   double pace_fps = 0;                // display pacing target (0: off, < 0: every refresh)
@@ -169,6 +223,15 @@ struct GameRendererOptions {
   double pace_spin_ms = 0;            // FCP_PACE_SPIN
   bool pace_trace = false;            // FCP_PACE_TRACE
   bool pace_single = false;           // FCP_PACE_SINGLE
+  // HDR10 output ([display] hdr / FCP_HDR, core/hdr_pass.h): 0 = off (the SDR swapchain and path as before, default),
+  // 1 = on (an HDR10 swapchain when the surface offers one), 2 = auto (on when Windows HDR is on for the window's
+  // monitor). Without an HDR10 swapchain: a log line and SDR as before. Switchable at run time (SetHdr).
+  uint32_t hdr = 0;
+  float hdr_paper_white = 200.0f;  // nits of the game's white; 0 = Windows' SDR content brightness (else 200)
+  float hdr_peak = 0.0f;           // nits; 0 = the display's peak (else 1000)
+  float hdr_boost = 0.0f;          // 0..1 highlight stretch towards the peak (0 = off)
+  float hdr_gamma = 2.2f;          // FCP_HDR_GAMMA: SDR code value -> linear light
+  bool hdr_test_pattern = false;   // FCP_HDR_TEST_PATTERN=1: eight bars of known values instead of the picture
   // Log (the game's log thread); null: stderr.
   void (*log)(const char* line) = nullptr;
 };
@@ -210,6 +273,30 @@ class GameRenderer : public DrawSink {
   float Tall() const;
   // SMAA 1x on the finished image before the overlay, from the next present on.
   void SetSmaa(bool on);
+  // Settings menu: present with VSync or without waiting for the monitor (Vulkan: FIFO / mailbox, the swapchain is made
+  // anew at the next present; D3D12: sync interval 1 / 0).
+  void SetVsync(bool on);
+  // Settings menu: display pacing target (GameRendererOptions::pace_fps; 0 = off), at once.
+  void SetPaceTarget(double fps);
+  // Settings menu: GameRendererOptions::frames_ahead, from the next swap.
+  void SetFramesAhead(uint32_t frames);
+  // Colour blind mode (GameRendererOptions::colour_blind, 0..3), from the next present on.
+  void SetColourBlind(int mode);
+  // HUD layout (GameRendererOptions::hud_aspect: 16/9 = in the band, 0 = auto, else W/H), from the next draw on.
+  void SetHudAspect(float aspect);
+  // HDR10 output (GameRendererOptions::hdr: 0 off, 1 on, 2 auto): the swapchain is recreated at the next present.
+  void SetHdr(uint32_t mode);
+  // Paper white, peak (nits, 0 = the display's) and highlight boost (0..1), from the next present on.
+  void SetHdrLevels(float paper_white, float peak, float boost);
+  // True while the swapchain is HDR10.
+  bool HdrActive() const;
+  // Shadow filter (GameRendererOptions::shadow_filter), from the next draw on.
+  void SetShadowFilter(uint32_t mode);
+  // Ambient occlusion (GameRendererOptions::ao: 0 off, 1 SSAO, 2 GTAO), from the next frame on.
+  void SetAo(uint32_t mode);
+  // The game camera's projection (PerspectiveFovRH, row-major 4x4 as the camera holds it), any thread (camera hook,
+  // fcp/camera_fov.cpp): the AO reconstructs view positions from it. The latest one counts.
+  void SetCameraProjection(const float m[16], float far_plane);
   // Texture replacement (renderer/texture_replace.h, button glyphs); nullptr = off. The source must live until Shutdown.
   void SetTextureReplaceSource(TextureReplaceSource* source);
   // The game starts loading a level (StartLevel command, any thread): prewarm jobs of that level's group go first;

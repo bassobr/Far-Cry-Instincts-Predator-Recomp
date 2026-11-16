@@ -35,6 +35,13 @@ struct FcpXmaStats {
   std::atomic<u64> client_callbacks{0};
   std::atomic<u64> callbacks_after_unregister{0};  // change 32 counts what it prevented
   std::atomic<u64> unregister_waits{0};
+  // change 370: decoded frames by the mark of their input (rex/fcp_speech.h): unknown, sound, speech
+  std::atomic<u64> frames_by_kind[3] = {};
+  // ... and the energy of their output after the gain (sum of squares, full scale 1) and its sample count
+  std::atomic<f64> energy_by_kind[3] = {};
+  std::atomic<u64> samples_by_kind[3] = {};
+  // ... and of the known ones, the offset of their input from its sound entry's start modulo 2048, in 128 byte steps
+  std::atomic<u64> frames_by_phase[16] = {};
 
   void OnContextCreated() {
     contexts_created.fetch_add(1, std::memory_order_relaxed);

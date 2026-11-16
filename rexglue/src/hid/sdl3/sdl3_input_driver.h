@@ -33,6 +33,9 @@ class SDL3InputDriver final : public IInputDriver, public SettingOwner {
  public:
   REX_SETTING(std::filesystem::path, mappings_file, "{app.root}/gamecontrollerdb.txt",
               "SDL gamepad mappings file", kStartupOnly);
+  // Predator change: false reports the paddles, misc and touchpad buttons only in PadState::extra.
+  REX_SETTING(bool, fold_extra_buttons, true,
+              "Paddles also press A/B/X/Y, misc1 and the touchpad the guide button", kStartupOnly);
 
   SDL3InputDriver();
 

@@ -59,7 +59,8 @@ static_assert(sizeof(DrawConstants) == 59 * 16, "DrawConstants must match KKDraw
 // RecompilerInput::renderScaleAware, which is the only thing that declares it.
 struct alignas(16) ScaleConstants {
     float renderScale[4];       // xy: host pixels per guest pixel of the draw's targets; zw: the inverse
-    float texInvScale[32][4];   // per texture fetch constant, xy: guest texels per host texel of the texture bound there
+    float texInvScale[32][4];   // per texture fetch constant, xy: guest texels per host texel of the texture bound there;
+                                // z: shadow filter of that texture (0 = as the console, 1 = soft; fcshaders change 8)
 };
 static_assert(sizeof(ScaleConstants) == 16 + 32 * 16, "ScaleConstants must match KKScaleConstants");
 

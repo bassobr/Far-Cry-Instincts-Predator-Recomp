@@ -1,6 +1,8 @@
 #include "ui/video_mode.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <string>
 
 #include <rex/title.h>
 #include "ui/resolution_preset.h"
@@ -35,6 +37,27 @@ void ResolveModeSize(const UISettings& ui, u32& width_out, u32& height_out) {
     width_out = static_cast<u32>(width);
     height_out = static_cast<u32>(height);
   }
+}
+
+void ResolveFullscreenMode(const UISettings& ui, u32& width_out, u32& height_out, f32& refresh_out) {
+  refresh_out = 0.0f;
+  const std::string text = ui.fullscreen_mode.Get();
+  unsigned width = 0;
+  unsigned height = 0;
+  float refresh = 0.0f;
+  char tail = 0;
+  // "WxH" or "WxH@Hz"; anything else (empty, "desktop") falls back to ui.resolution / the desktop's mode
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  const int fields = std::sscanf(text.c_str(), "%ux%u@%f%c", &width, &height, &refresh, &tail);
+#pragma clang diagnostic pop
+  if ((fields == 2 || fields == 3) && width >= 320 && height >= 200 && width <= 16384 && height <= 16384) {
+    width_out = width;
+    height_out = height;
+    refresh_out = fields == 3 && refresh > 0.0f && refresh < 1000.0f ? refresh : 0.0f;
+    return;
+  }
+  ResolveModeSize(ui, width_out, height_out);
 }
 
 AspectRatio ParseAspectRatio(std::string_view text) {

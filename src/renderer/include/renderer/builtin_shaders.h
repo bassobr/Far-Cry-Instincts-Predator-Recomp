@@ -20,6 +20,8 @@ enum class BuiltinShader : uint8_t {
   kBlitVS,      // full-screen triangle; UV = clipPlanes[1].xy + uv01 * clipPlanes[1].zw (resolve, present)
   kBlitPS,      // Tex2D[textureIndex[0]] with sampler pixelSamplers[0]
   kBlitGammaPS, // like kBlitPS, then per channel the gamma ramp Tex2D[textureIndex[1]] (256x1, linearly interpolated)
+  kBlitColourPS, // [graphics] colour_blind: kBlitPS or kBlitGammaPS (textureIndex[1] not 0), then the colour matrix
+                 // clipPlanes[2..4] on linear colour (gamma 2.2)
   kCount
 };
 

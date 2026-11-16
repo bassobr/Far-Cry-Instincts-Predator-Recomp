@@ -5,7 +5,8 @@
 # The mix recording (FCP_RECORD_AUDIO) lives in the SDK copy (rexglue/src/apu, UPSTREAM change 30).
 
 #  - src/fcp/pc_input.*: keyboard/mouse as pad 0, mouse look hook, pad connection state.
+#  - src/fcp/speech_volume.*: [audio] speech_volume (marks the speech banks for the XMA decoder, UPSTREAM 370).
 
 target_sources(predator PRIVATE src/fcp/input_trace.cpp src/fcp/sound_trace.cpp src/fcp/virtual_pads.cpp
-                                src/fcp/pc_input.cpp)
+                                src/fcp/pc_input.cpp src/fcp/speech_volume.cpp)
 target_link_libraries(predator PRIVATE SDL3::SDL3)

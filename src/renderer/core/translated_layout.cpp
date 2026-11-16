@@ -181,7 +181,7 @@ void TranslatedLayout::WriteConstants(nvrhi::ICommandList* cl, const void* vs, c
   static const fcshaders::ScaleConstants one = [] {
     fcshaders::ScaleConstants s{};
     for (float& v : s.renderScale) v = 1.0f;
-    for (auto& t : s.texInvScale) t[0] = t[1] = t[2] = t[3] = 1.0f;
+    for (auto& t : s.texInvScale) t[0] = t[1] = t[3] = 1.0f, t[2] = 0.0f;  // z: shadow filter off
     return s;
   }();
   cl->writeBuffer(scale_constants_, &one, sizeof(one));

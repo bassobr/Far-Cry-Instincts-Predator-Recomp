@@ -267,7 +267,8 @@ void UISystem::State::OpenWindow() {
   config.fullscreen_exclusive = owner.GetSettings().fullscreen_exclusive.Get();
   config.monitor = owner.GetSettings().monitor.Get();
   config.vulkan_surface = graphics && graphics->GetDriverName() == "vulkan";
-  ui::detail::ResolveModeSize(owner.GetSettings(), config.mode_width, config.mode_height);
+  ui::detail::ResolveFullscreenMode(owner.GetSettings(), config.mode_width, config.mode_height,
+                                    config.mode_refresh);
   // FCP (rexglue/UPSTREAM.md, local change 110): position and maximized state before the window shows.
   if (const std::string position = owner.GetSettings().window_position.Get(); !position.empty()) {
     int x = 0;

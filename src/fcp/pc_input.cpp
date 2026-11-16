@@ -211,6 +211,15 @@ std::vector<int> ParseKeys(std::string_view list, const char* target) {
 // direction names as aliases. The triggers are analog: on a digital button they press from 30/255
 // (XINPUT_GAMEPAD_TRIGGER_THRESHOLD), a digital button on a trigger gives 0 or 255. ----
 constexpr int kPadLt = 0x10000, kPadRt = 0x20000;  // trigger codes beside the XINPUT button bits
+// The further buttons SDL3 knows (the SDK's PadState::extra, rex/hid/pad.h): code kPadExtra + bit. Names and
+// aliases after FCI (Far Cry Instincts Recomp, src/hle/host_pad.cpp, MIT, same author); the Steam Deck's back
+// buttons and the Xbox Elite paddle numbers as aliases.
+constexpr int kPadExtra = 0x1000000;
+constexpr int kExMisc1 = kPadExtra + 0, kExRPaddle1 = kPadExtra + 1, kExLPaddle1 = kPadExtra + 2,
+              kExRPaddle2 = kPadExtra + 3, kExLPaddle2 = kPadExtra + 4, kExTouchpad = kPadExtra + 5,
+              kExGuide = kPadExtra + 16;
+constexpr bool IsExtra(int code) { return code >= kPadExtra; }
+constexpr uint32_t ExtraBit(int code) { return 1u << (code - kPadExtra); }
 struct PadName {
   const char* name;
   int code;
@@ -225,7 +234,26 @@ constexpr PadName kPadNames[] = {
     {"select", kBack},  {"share", kBack},   {"create", kBack},  {"view", kBack},    {"up", kUp},
     {"down", kDown},    {"left", kLeft},    {"right", kRight},  {"dpup", kUp},      {"dpdown", kDown},
     {"dpleft", kLeft},  {"dpright", kRight},
+    {"guide", kExGuide},       {"home", kExGuide},        {"ps", kExGuide},
+    {"misc1", kExMisc1},       {"capture", kExMisc1},     {"mic", kExMisc1},
+    {"rpaddle1", kExRPaddle1}, {"p1", kExRPaddle1},       {"r4", kExRPaddle1},
+    {"lpaddle1", kExLPaddle1}, {"p3", kExLPaddle1},       {"l4", kExLPaddle1},
+    {"rpaddle2", kExRPaddle2}, {"p2", kExRPaddle2},       {"r5", kExRPaddle2},
+    {"lpaddle2", kExLPaddle2}, {"p4", kExLPaddle2},       {"l5", kExLPaddle2},
+    {"touchpad", kExTouchpad}, {"misc2", kPadExtra + 6},  {"misc3", kPadExtra + 7},
+    {"misc4", kPadExtra + 8},  {"misc5", kPadExtra + 9},  {"misc6", kPadExtra + 10},
 };
+// The extra buttons the menu's capture and the docs offer, in this order.
+constexpr int kExtraSources[] = {kExGuide,    kExMisc1,      kExRPaddle1,    kExLPaddle1,    kExRPaddle2,
+                                 kExLPaddle2, kExTouchpad,   kPadExtra + 6,  kPadExtra + 7,  kPadExtra + 8,
+                                 kPadExtra + 9, kPadExtra + 10};
+// The paddles' default targets: the SDK mapped them so before (Xenia's table in hid/sdl3); misc1, the touchpad and
+// the guide button went to the guide bit, which the title does not get (hid.guide_button off): no target.
+struct ExtraDefault {
+  int source, target;
+};
+constexpr ExtraDefault kExtraDefaults[] = {
+    {kExLPaddle2, kA}, {kExLPaddle1, kB}, {kExRPaddle2, kX}, {kExRPaddle1, kY}};
 constexpr int kPadTargets[] = {kA,  kB,  kX,     kY,    kLb, kRb,   kPadLt, kPadRt,
                                kLs, kRs, kStart, kBack, kUp, kDown, kLeft,  kRight};
 constexpr int kPadTargetCount = int(sizeof kPadTargets / sizeof kPadTargets[0]);
@@ -294,7 +322,10 @@ struct Settings {
   double dead_zone = 0.0;  // extra radial dead zone (share of full deflection), 0 = only the game's own
   int rumble = 100;        // percent, 0 = off
   std::array<std::vector<int>, kPadTargetCount> pad_binds;
-  bool pad_identity = true;  // every button on itself: no remapping
+  std::vector<int> pad_none;   // [pad] pad_bind_none: controller buttons that do nothing (paddles without default)
+  bool pad_identity = true;    // every button on itself and no extra button bound: no remapping
+  bool pad_extra = true;       // FCP_PAD_EXTRA=0: the SDK folds paddles/misc/touchpad as before, not bindable
+  bool pad_remap = true;       // FCP_PAD_REMAP=0: no controller remapping at all (pad_bind_* ignored)
   bool focus_pause = false;  // FCP_PAUSE_ON_FOCUS_LOSS / predator.toml [game] pause_on_focus_loss
 };
 Settings g_set;
@@ -409,10 +440,15 @@ std::string DefaultFile() {
       "# none). Buttons: a b x y lb rb lt rt ls rs start back up down left right (D-pad), by their place on an\n"
       "# Xbox pad; PlayStation names work too: cross circle square triangle l1 r1 l2 r2 l3 r3 options select\n"
       "# share create, and south east west north. All players. A button the file gives to another button leaves\n"
-      "# the defaults (swap: set both).\n";
+      "# the defaults (swap: set both). Further controller buttons (SDL): guide, misc1 (share/capture/mic),\n"
+      "# rpaddle1 lpaddle1 rpaddle2 lpaddle2 (Elite p1 p3 p2 p4, Steam Deck r4 l4 r5 l5), touchpad, misc2-misc6.\n"
+      "# The paddles press a b x y (lpaddle2 = a, lpaddle1 = b, rpaddle2 = x, rpaddle1 = y) until a line names\n"
+      "# them; pad_bind_none lists controller buttons that do nothing. The settings menu (F10) has a Controller\n"
+      "# page for all of this. Switches: FCP_PAD_EXTRA=0, FCP_PAD_REMAP=0.\n";
   for (int i = 0; i < kPadTargetCount; ++i) {
     s += std::format("pad_bind_{} = \"{}\"\n", PadLabel(kPadTargets[i]), PadLabel(kPadTargets[i]));
   }
+  s += "pad_bind_none = \"\"\n";
   s +=
       "\n"
       "# Pad targets: a b x y lb rb lt rt ls rs start back up down left right (D-pad),\n"
@@ -456,27 +492,55 @@ void EnvNumber(const char* name, double& value) {
   value = v;
 }
 
-// [pad] pad_bind_<button> of the file (or the defaults), with the keyboard's rule for claimed buttons.
+std::string PadListText(const std::vector<int>& list) {
+  std::string s;
+  for (int c : list) s += (s.empty() ? "" : ", ") + PadLabel(c);
+  return s.empty() ? "none" : s;
+}
+
+// [pad] pad_bind_<button> of the file (or the defaults), with the keyboard's rule for claimed buttons. The paddles
+// keep their default target (kExtraDefaults) while no pad_bind_ line names them (pad_bind_none included).
 void FinishPadBinds(const std::array<bool, kPadTargetCount>& set) {
-  std::vector<int> claimed;
+  std::vector<int> claimed = g_set.pad_none;
   for (int i = 0; i < kPadTargetCount; ++i) {
     if (set[i]) claimed.insert(claimed.end(), g_set.pad_binds[i].begin(), g_set.pad_binds[i].end());
+  }
+  auto named = [&](int c) { return std::find(claimed.begin(), claimed.end(), c) != claimed.end(); };
+  for (int i = 0; i < kPadTargetCount; ++i) {
+    if (!set[i]) std::erase_if(g_set.pad_binds[i], named);
+  }
+  if (!g_set.pad_remap) {
+    for (int i = 0; i < kPadTargetCount; ++i) g_set.pad_binds[i] = {kPadTargets[i]};
+    g_set.pad_none.clear();
+  } else if (!g_set.pad_extra) {
+    for (auto& list : g_set.pad_binds) std::erase_if(list, IsExtra);
+  } else {
+    for (const ExtraDefault& d : kExtraDefaults) {
+      std::vector<int>& list = g_set.pad_binds[size_t(PadTargetIndex(d.target))];
+      if (!named(d.source) && std::find(list.begin(), list.end(), d.source) == list.end()) list.push_back(d.source);
+    }
   }
   std::string changed;
   g_set.pad_identity = true;
   for (int i = 0; i < kPadTargetCount; ++i) {
-    if (!set[i]) {
-      std::erase_if(g_set.pad_binds[i],
-                    [&](int c) { return std::find(claimed.begin(), claimed.end(), c) != claimed.end(); });
+    if (g_set.pad_binds[i] != std::vector<int>{kPadTargets[i]}) g_set.pad_identity = false;
+    std::vector<int> base = {kPadTargets[i]};  // the log names what differs from the defaults
+    if (g_set.pad_extra && g_set.pad_remap) {
+      for (const ExtraDefault& d : kExtraDefaults)
+        if (d.target == kPadTargets[i]) base.push_back(d.source);
     }
-    if (g_set.pad_binds[i] != std::vector<int>{kPadTargets[i]}) {
-      g_set.pad_identity = false;
+    if (g_set.pad_binds[i] != base) {
       changed += std::format(" {}=", PadLabel(kPadTargets[i]));
       for (size_t k = 0; k < g_set.pad_binds[i].size(); ++k) changed += (k ? "+" : "") + PadLabel(g_set.pad_binds[i][k]);
       if (g_set.pad_binds[i].empty()) changed += "none";
     }
   }
-  FCPLOG("input: controller bindings{}", changed.empty() ? ": defaults (each button on itself)" : ":" + changed);
+  if (!g_set.pad_none.empty()) changed += " none=" + PadListText(g_set.pad_none);
+  FCPLOG("input: controller bindings{}{}",
+         changed.empty() ? ": defaults (each button on itself, the paddles on A/B/X/Y)" : ":" + changed,
+         !g_set.pad_remap  ? " (FCP_PAD_REMAP=0: no remapping)"
+         : !g_set.pad_extra ? " (FCP_PAD_EXTRA=0: paddles, misc and touchpad as the SDK folds them)"
+                            : "");
 }
 
 std::atomic<uint32_t> g_settings_generation{0};  // SettingsGeneration (button prompts redraw after a change)
@@ -489,6 +553,9 @@ void LoadSettings() {
   for (int i = 0; i < kPadTargetCount; ++i) {
     g_set.pad_binds[i] = {kPadTargets[i]};
   }
+  g_set.pad_none.clear();
+  g_set.pad_remap = fcp::env::Flag("FCP_PAD_REMAP", true);
+  g_set.pad_extra = g_set.pad_remap && fcp::env::Flag("FCP_PAD_EXTRA", true);
   std::array<bool, kPadTargetCount> pad_set{};
   double dead_zone = 0.0, rumble = 100.0, zoom_sens = 1.0, accel = 0.0, accel_cap = 2.0, smoothing_ms = 0.0;
   const std::filesystem::path path = ConfigPath();
@@ -531,6 +598,8 @@ void LoadSettings() {
         dead_zone = ParseNumber(v.text, 0.0);
       } else if (v.section == "pad" && v.key == "rumble") {
         rumble = ParseNumber(v.text, 100.0);
+      } else if (v.section == "pad" && (v.key == "pad_bind_none" || v.key == "bind_none")) {
+        g_set.pad_none = ParsePadList(v.text, "none");
       } else if (v.section == "pad" && (v.key.starts_with("pad_bind_") || v.key.starts_with("bind_"))) {
         const std::string name = v.key.substr(v.key.find("bind_") + 5);
         const int target = PadTargetIndex(ParsePadName(name));
@@ -763,7 +832,8 @@ uint16_t GetU16(const uint8_t* p) {
 }
 
 // X_INPUT_STATE of a real pad: the controller bindings and the extra dead zone (before the keyboard overlay).
-void PadComfort(uint8_t* s) {
+// extra: the SDK's PadState::extra of this reading (paddles, misc, touchpad, guide).
+void PadComfort(uint8_t* s, uint32_t extra) {
   if (!g_set.pad_identity) {
     const uint16_t in = GetU16(s + 4);
     const uint8_t lt = s[6], rt = s[7];
@@ -771,7 +841,10 @@ void PadComfort(uint8_t* s) {
     uint8_t trig[2] = {0, 0};
     for (int i = 0; i < kPadTargetCount; ++i) {
       for (int src : g_set.pad_binds[i]) {
-        const int v = src == kPadLt ? lt : src == kPadRt ? rt : ((in & src) ? 255 : 0);
+        const int v = src == kPadLt ? lt
+                      : src == kPadRt ? rt
+                      : IsExtra(src)  ? ((extra & ExtraBit(src)) ? 255 : 0)
+                                      : ((in & src) ? 255 : 0);
         const int target = kPadTargets[i];
         if (target == kPadLt || target == kPadRt) {
           uint8_t& t = trig[target == kPadRt];
@@ -1264,7 +1337,7 @@ void OnGetState(PPCContext& ctx, uint8_t* base, uint32_t user, uint32_t state) {
     }
     if (readable) std::memset(fcp::guest::Ptr(base, state) + 4, 0, 12);
   } else if (real && readable && (!g_set.pad_identity || g_set.dead_zone > 0)) {
-    PadComfort(fcp::guest::Ptr(base, state));
+    PadComfort(fcp::guest::Ptr(base, state), g_set.pad_extra && g_input ? g_input->GetLastExtraButtons(user) : 0);
   }
   if (user != 0) return;  // keyboard and mouse are player 1's; the SDK answers the others
   if (real && readable) NotePadUse(fcp::guest::Ptr(base, state));  // button prompts (auto): the pad in use
@@ -1361,24 +1434,32 @@ void AttachUI(rex::ui::IUISystem& ui) {
 
 // ---- settings menu (fcp/settings_menu.h) ----
 
-Live GetLive() {
-  std::lock_guard lock(g_mutex);
+namespace {
+Live LiveOf(const Settings& s) {
   Live l;
-  l.keyboard = g_set.keyboard;
-  l.mouse = g_set.mouse;
-  l.sensitivity_x = g_set.degrees_x * 10.0;
-  l.sensitivity_y = g_set.degrees_y * 10.0;
-  l.invert_y = g_set.invert_y;
-  l.zoom_scale = ZoomName(g_set.zoom_scale);
-  l.zoom_sensitivity = g_set.zoom_sensitivity;
-  l.acceleration = g_set.accel;
-  l.acceleration_cap = g_set.accel_cap;
-  l.smoothing_ms = g_set.smoothing * 1000.0;
-  l.dead_zone = g_set.dead_zone;
-  l.rumble = g_set.rumble;
-  l.backend = BackendName(g_set.backend);
+  l.keyboard = s.keyboard;
+  l.mouse = s.mouse;
+  l.sensitivity_x = s.degrees_x * 10.0;
+  l.sensitivity_y = s.degrees_y * 10.0;
+  l.invert_y = s.invert_y;
+  l.zoom_scale = ZoomName(s.zoom_scale);
+  l.zoom_sensitivity = s.zoom_sensitivity;
+  l.acceleration = s.accel;
+  l.acceleration_cap = s.accel_cap;
+  l.smoothing_ms = s.smoothing * 1000.0;
+  l.dead_zone = s.dead_zone;
+  l.rumble = s.rumble;
+  l.backend = BackendName(s.backend);
   return l;
 }
+}  // namespace
+
+Live GetLive() {
+  std::lock_guard lock(g_mutex);
+  return LiveOf(g_set);
+}
+
+Live Defaults() { return LiveOf(Settings{}); }
 
 std::filesystem::path ConfigFile() { return ConfigPath(); }
 
@@ -1447,13 +1528,167 @@ std::string PadSourceName(std::string_view name) {
   std::lock_guard lock(g_mutex);
   for (int i = 0; i < kPadTargetCount; ++i) {
     if (name != kNames[i]) continue;
-    const std::vector<int>& src = g_set.pad_binds[size_t(i)];
-    if (src.empty()) return {};
-    for (int k = 0; k < kPadTargetCount; ++k)
-      if (kPadTargets[k] == src[0]) return kNames[k];
+    // the first button the prompt pages have a glyph for (the extra buttons have none)
+    for (int src : g_set.pad_binds[size_t(i)]) {
+      for (int k = 0; k < kPadTargetCount; ++k)
+        if (kPadTargets[k] == src) return kNames[k];
+    }
     return {};
   }
   return {};
+}
+
+// ---- the Controller page (FCI's rule, src/hle/host_pad.cpp SetBinding: a controller button is bound once) ----
+namespace {
+
+bool InList(const std::vector<int>& list, int c) { return std::find(list.begin(), list.end(), c) != list.end(); }
+
+std::vector<int> DefaultPadList(int i) {
+  std::vector<int> list = {kPadTargets[i]};
+  if (g_set.pad_extra) {
+    for (const ExtraDefault& d : kExtraDefaults)
+      if (d.target == kPadTargets[i]) list.push_back(d.source);
+  }
+  return list;
+}
+
+// Writes the lines of the targets whose list changes (and pad_bind_none), then reads the file again.
+std::string StorePadLists(const std::array<std::vector<int>, kPadTargetCount>& next, const char* why) {
+  std::array<std::vector<int>, kPadTargetCount> before;
+  std::vector<int> none;
+  {
+    std::lock_guard lock(g_mutex);
+    before = g_set.pad_binds;
+    none = g_set.pad_none;
+  }
+  const std::vector<int> none_before = none;
+  auto bound = [&](int c) {
+    for (const auto& list : next)
+      if (InList(list, c)) return true;
+    return false;
+  };
+  // a paddle no list names any more goes into pad_bind_none (else its default target would take it back)
+  for (const ExtraDefault& d : kExtraDefaults)
+    if (!bound(d.source) && !InList(none, d.source)) none.push_back(d.source);
+  std::erase_if(none, bound);
+  const std::filesystem::path path = ConfigPath();
+  bool ok = true;
+  std::string what;
+  for (int i = 0; i < kPadTargetCount; ++i) {
+    if (next[size_t(i)] == before[size_t(i)]) continue;
+    const std::string key = "pad_bind_" + PadLabel(kPadTargets[i]), text = PadListText(next[size_t(i)]);
+    ok = fcp::toml::SetValue(path, "pad", key, "\"" + text + "\"") && ok;
+    what += std::format(" {}=\"{}\"", key, text);
+  }
+  if (none != none_before) {
+    const std::string text = none.empty() ? std::string() : PadListText(none);
+    ok = fcp::toml::SetValue(path, "pad", "pad_bind_none", "\"" + text + "\"") && ok;
+    what += std::format(" pad_bind_none=\"{}\"", text);
+  }
+  {
+    std::lock_guard lock(g_mutex);
+    LoadSettings();
+  }
+  FCPLOG("input: controller bindings ({}):{} ({} {}); settings read again", why, what.empty() ? " unchanged" : what,
+         ok ? "stored in" : "storing FAILED in", path.filename().string());
+  return ok ? std::string() : "storing in " + path.string() + " failed";
+}
+
+std::array<std::vector<int>, kPadTargetCount> CurrentPadLists() {
+  std::lock_guard lock(g_mutex);
+  return g_set.pad_binds;
+}
+
+}  // namespace
+
+int PadBindingCount() { return kPadTargetCount; }
+
+std::string PadBindingName(int t) { return t >= 0 && t < kPadTargetCount ? PadLabel(kPadTargets[t]) : ""; }
+
+std::string PadBindingSources(int t) {
+  std::lock_guard lock(g_mutex);
+  return t >= 0 && t < kPadTargetCount ? PadListText(g_set.pad_binds[size_t(t)]) : "";
+}
+
+std::string DefaultPadBindingSources(int t) {
+  std::lock_guard lock(g_mutex);
+  return t >= 0 && t < kPadTargetCount ? PadListText(DefaultPadList(t)) : "";
+}
+
+std::string SetPadBinding(int t, const std::string& source, bool add) {
+  if (t < 0 || t >= kPadTargetCount) return "no such button";
+  if (!g_set.pad_remap) return "FCP_PAD_REMAP=0 is set: no remapping";
+  const int code = ParsePadName(source);
+  if (code < 0) return "unknown controller button '" + source + "'";
+  if (IsExtra(code) && !g_set.pad_extra) return "FCP_PAD_EXTRA=0 is set: " + source + " is not bindable";
+  auto next = CurrentPadLists();
+  for (int i = 0; i < kPadTargetCount; ++i)
+    if (i != t) std::erase(next[size_t(i)], code);
+  std::vector<int>& list = next[size_t(t)];
+  if (add) {
+    if (!InList(list, code)) list.push_back(code);
+  } else {
+    list = {code};
+  }
+  return StorePadLists(next, add ? "added in the settings menu" : "set in the settings menu");
+}
+
+std::string ClearPadBinding(int t) {
+  if (t < 0 || t >= kPadTargetCount) return "no such button";
+  if (!g_set.pad_remap) return "FCP_PAD_REMAP=0 is set: no remapping";
+  auto next = CurrentPadLists();
+  next[size_t(t)].clear();
+  return StorePadLists(next, "cleared in the settings menu");
+}
+
+std::string DefaultPadBinding(int t) {
+  if (t < 0 || t >= kPadTargetCount) return "no such button";
+  if (!g_set.pad_remap) return "FCP_PAD_REMAP=0 is set: no remapping";
+  auto next = CurrentPadLists();
+  std::vector<int> def;
+  {
+    std::lock_guard lock(g_mutex);
+    def = DefaultPadList(t);
+  }
+  for (int i = 0; i < kPadTargetCount; ++i)
+    if (i != t) std::erase_if(next[size_t(i)], [&](int c) { return InList(def, c); });
+  next[size_t(t)] = def;
+  return StorePadLists(next, "default in the settings menu");
+}
+
+std::string ResetPadBindings() {
+  if (!g_set.pad_remap) return "FCP_PAD_REMAP=0 is set: no remapping";
+  std::array<std::vector<int>, kPadTargetCount> next;
+  {
+    std::lock_guard lock(g_mutex);
+    for (int i = 0; i < kPadTargetCount; ++i) next[size_t(i)] = DefaultPadList(i);
+  }
+  return StorePadLists(next, "all defaults in the settings menu");
+}
+
+std::string PressedPadSource(const rex::hid::PadState& s) {
+  const uint16_t buttons = s.buttons;
+  for (int code : kPadTargets) {
+    if (code == kPadLt ? s.left_trigger > 128 : code == kPadRt ? s.right_trigger > 128 : (buttons & code) != 0)
+      return PadLabel(code);
+  }
+  if (g_set.pad_extra) {
+    for (int code : kExtraSources)
+      if (s.extra & ExtraBit(code)) return PadLabel(code);
+  }
+  return {};
+}
+
+bool PadExtraBindable() { return g_set.pad_remap && g_set.pad_extra; }
+
+bool PadRemapOn() { return g_set.pad_remap; }
+
+std::string PadSourceList() {
+  std::string s;
+  for (int code : kPadTargets) s += (s.empty() ? "" : " ") + PadLabel(code);
+  if (g_set.pad_extra)
+    for (int code : kExtraSources) s += " " + PadLabel(code);
+  return s;
 }
 
 uint32_t SettingsGeneration() { return g_settings_generation.load(std::memory_order_relaxed); }
@@ -1496,6 +1731,15 @@ void ApplyStartupSettings(rex::SettingsRegistry& settings) {
     return;
   }
   FCPLOG("setting hid.drivers = {} (file layer, pad backend {} from {})", drivers, BackendName(backend), from);
+  // The paddles, misc and touchpad buttons apart from A/B/X/Y and guide, for [pad] pad_bind_* (the default bindings
+  // put the paddles back on A/B/X/Y). FCP_PAD_EXTRA=0 / FCP_PAD_REMAP=0: the SDK folds them as before.
+  const bool extra = fcp::env::Flag("FCP_PAD_REMAP", true) && fcp::env::Flag("FCP_PAD_EXTRA", true);
+  if (auto r = settings.SetText(rex::SettingLayer::kFile, "hid.sdl.fold_extra_buttons", extra ? "false" : "true"); !r) {
+    FCPLOG("pad: hid.sdl.fold_extra_buttons FAILED: {}", r.error().GetDescription());
+  } else {
+    FCPLOG("setting hid.sdl.fold_extra_buttons = {} (file layer{})", extra ? "false" : "true",
+           extra ? "" : ", FCP_PAD_EXTRA=0 or FCP_PAD_REMAP=0");
+  }
 }
 
 // After the original look input (r3 aim, r4 command at entry).

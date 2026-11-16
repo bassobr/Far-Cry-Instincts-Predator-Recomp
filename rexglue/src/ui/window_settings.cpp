@@ -29,10 +29,11 @@ void UISystem::State::WatchWindowSettings() {
   auto apply_fullscreen = [this] {
     u32 mode_width = 0;
     u32 mode_height = 0;
-    ui::detail::ResolveModeSize(owner.GetSettings(), mode_width, mode_height);
+    f32 mode_refresh = 0.0f;
+    ui::detail::ResolveFullscreenMode(owner.GetSettings(), mode_width, mode_height, mode_refresh);
     driver->SetFullscreen(owner.GetSettings().fullscreen.Get(),
                           owner.GetSettings().fullscreen_exclusive.Get(),
-                          owner.GetSettings().monitor.Get(), mode_width, mode_height);
+                          owner.GetSettings().monitor.Get(), mode_width, mode_height, mode_refresh);
   };
   auto apply_size = [this] {
     i32 width = 0;
@@ -51,6 +52,7 @@ void UISystem::State::WatchWindowSettings() {
   watches.push_back(
       owner.GetSettings().fullscreen_exclusive.OnChange(on_ui_thread(apply_fullscreen)));
   watches.push_back(owner.GetSettings().monitor.OnChange(on_ui_thread(apply_fullscreen)));
+  watches.push_back(owner.GetSettings().fullscreen_mode.OnChange(on_ui_thread(apply_fullscreen)));
   watches.push_back(owner.GetSettings().window_width.OnChange(on_ui_thread(apply_size)));
   watches.push_back(owner.GetSettings().window_height.OnChange(on_ui_thread(apply_size)));
   watches.push_back(

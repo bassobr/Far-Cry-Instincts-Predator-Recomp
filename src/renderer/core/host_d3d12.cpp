@@ -191,8 +191,46 @@ class D3D12Host final : public HostDevice {
           FAILED(sc1.As(&swapchain_)))
         return error && (*error = "CreateSwapChainForHwnd failed", false);
       factory_->MakeWindowAssociation(static_cast<HWND>(o.window), DXGI_MWA_NO_ALT_ENTER);
+      if (o.hdr) {
+        // HDR10: the buffers in R10G10B10A2, colour space G2084/P2020; SDR as before when it cannot present that.
+        back_buffers_.clear();
+        if (!ApplyHdr(true)) LogLine("[d3d12] HDR10: %s", hdr_note_.c_str());
+      }
       return WrapBuffers();
     }
+    return true;
+  }
+
+  // Switches the (unwrapped) buffers between SDR (RGBA8, G22/P709) and HDR10 (R10G10B10A2, G2084/P2020).
+  bool ApplyHdr(bool on) {
+    hdr_note_.clear();
+    const DXGI_FORMAT want = on ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+    if (FAILED(swapchain_->ResizeBuffers(0, options_.width, options_.height, want, 0))) {
+      const std::string note = on ? "ResizeBuffers R10G10B10A2 failed" : "ResizeBuffers RGBA8 failed";
+      if (on) ApplyHdr(false);
+      hdr_note_ = note;
+      return false;
+    }
+    if (on) {
+      UINT support = 0;
+      const DXGI_COLOR_SPACE_TYPE cs = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+      if (FAILED(swapchain_->CheckColorSpaceSupport(cs, &support)) || !(support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT)) {
+        ApplyHdr(false);
+        hdr_note_ = "the swapchain cannot present in G2084/P2020";
+        return false;
+      }
+      if (FAILED(swapchain_->SetColorSpace1(cs))) {
+        ApplyHdr(false);
+        hdr_note_ = "SetColorSpace1(G2084/P2020) failed";
+        return false;
+      }
+      LogLine("[d3d12] HDR10 swapchain: R10G10B10A2, G2084/P2020 (support %s%s)",
+              support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT ? "present" : "-",
+              support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_OVERLAY_PRESENT ? ", overlay" : "");
+    } else if (hdr_active_) {
+      swapchain_->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+    }
+    hdr_active_ = on;
     return true;
   }
 
@@ -205,7 +243,7 @@ class D3D12Host final : public HostDevice {
       nvrhi::TextureDesc td;
       td.width = sd.Width;
       td.height = sd.Height;
-      td.format = nvrhi::Format::RGBA8_UNORM;
+      td.format = hdr_active_ ? nvrhi::Format::R10G10B10A2_UNORM : nvrhi::Format::RGBA8_UNORM;
       td.debugName = "Swapchain";
       td.isRenderTarget = true;
       td.initialState = nvrhi::ResourceStates::Present;
@@ -283,8 +321,27 @@ class D3D12Host final : public HostDevice {
     if (device()) device()->waitForIdle();
   }
 
+  bool SetVsync(bool on) override {
+    options_.vsync = on;  // Present's sync interval (1 / 0), from the next present
+    return true;
+  }
+
   uint32_t swapchain_width() const override { return swapchain_ ? options_.width : 0; }
   uint32_t swapchain_height() const override { return swapchain_ ? options_.height : 0; }
+  nvrhi::Format back_buffer_format() const override { return hdr_active_ ? nvrhi::Format::R10G10B10A2_UNORM : nvrhi::Format::RGBA8_UNORM; }
+  bool hdr_active() const override { return hdr_active_; }
+  std::string hdr_note() const override { return hdr_note_; }
+  bool SetHdr(bool on) override {
+    if (!swapchain_) return false;
+    if (hdr_active_ == on) return hdr_active_;
+    device()->waitForIdle();
+    back_buffers_.clear();
+    buffers_.clear();
+    device()->runGarbageCollection();
+    if (!ApplyHdr(on)) LogLine("[d3d12] HDR10: %s", hdr_note_.c_str());
+    WrapBuffers();
+    return hdr_active_;
+  }
 
   bool Resize(uint32_t width, uint32_t height) override {
     if (!swapchain_ || !width || !height) return false;
@@ -319,6 +376,8 @@ class D3D12Host final : public HostDevice {
   std::unique_ptr<D3D12Occlusion> occlusion_;
   std::string description_;
   uint64_t frame_ = 0;
+  bool hdr_active_ = false;  // buffers in R10G10B10A2, colour space G2084/P2020
+  std::string hdr_note_;
 };
 
 }  // namespace

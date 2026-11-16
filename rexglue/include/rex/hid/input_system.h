@@ -14,6 +14,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <rex/hid/binding.h>
 #include <rex/input_keys.h>
@@ -251,6 +252,23 @@ REX_DECLARE_INTERFACE(IInputSystem, 1)
    * @return The text ParseInputSource reads back, or empty when the source names nothing.
    */
   [[nodiscard]] virtual std::string InputSourceToString(const InputSource& source) const = 0;
+
+  /** Predator change: a real pad the input system sees (settings page). */
+  struct PadListing {
+    u32 user = kMaxUsers; /**< The user (port) it feeds, kMaxUsers when none (more pads than users). */
+    std::string name;
+    PadInfo info;
+    std::string driver; /**< The driver's name, such as "sdl3" or "xinput". */
+  };
+
+  /** Predator change: lists the real pads (not keyboard and mouse, not the idle pad) in user order. */
+  [[nodiscard]] virtual std::vector<PadListing> ListPads() = 0;
+
+  /**
+   * Predator change: the PadState::extra bits of the user's last GetState reading, 0 while blocked.
+   * Any thread.
+   */
+  virtual u32 GetLastExtraButtons(u32 user) const = 0;
 };
 
 }  // namespace rex::hid

@@ -580,6 +580,49 @@ void ShaderRecompiler::recompile(const TextureFetchInstruction& instr, uint32_t 
             else
             {
                 body("kto", "kc", 2, "float2(ktd)");
+                // Shadow filter (fcshaders change 8): the game's BilinearSampleShadow (shaders\hlsl\SampleShadow.fx)
+                // is getWeights2D plus four tfetch2D of the same coordinate at offsets (+-0.5, +-0.5), then
+                // dot(step(depths, z), bilinear weights from getWeights). When the renderer flags the bound texture
+                // (b3 kk_TexInvScale[slot].z != 0: a depth resolve with [graphics] shadow_filter = soft), getWeights
+                // returns the filtered result F as x (y = 0) and the fetches depths that make that sum F: the
+                // (-0.5, -0.5) sample (weight 1 - F) one no receiver is behind, the (+0.5, -0.5) sample (weight F)
+                // one every receiver is behind. This holds for either comparison order (step(d, z) or step(z, d)).
+                // z is the third component of the getWeights source (the projected shadow coordinate).
+                if (isPixelShader && input->renderScaleAware && dim == TextureDimension::Texture2D)
+                {
+                    const bool weights = instr.opcode == FetchOpcode::GetTextureWeights;
+                    const bool corner = instr.opcode == FetchOpcode::TextureFetch && (instr.offsetX == 1 || instr.offsetX == -1) &&
+                        (instr.offsetY == 1 || instr.offsetY == -1);
+                    if (weights || corner)
+                    {
+                        indent();
+                        println("[branch] if (kk_TexInvScale[{}].z != 0.0)", instr.constIndex);
+                        indent();
+                        out += "{\n";
+                        ++indentation;
+                        if (weights)
+                        {
+                            indent();
+                            out += "uint2 ksd;\n";
+                            indent();
+                            out += "kto.GetDimensions(ksd.x, ksd.y);\n";
+                            indent();
+                            println("kt.x = kk_ShadowSoft(kto, kts, kc, {}.{}, float2(ksd));",
+                                reg(instr.srcRegister, instr.srcRegisterAm), SWIZZLES[(instr.srcSwizzle >> 4) & 3]);
+                            indent();
+                            out += "kt.y = 0.0;\n";
+                        }
+                        else
+                        {
+                            const bool lit = instr.offsetX == 1 && instr.offsetY == -1;  // the sample weighted F
+                            indent();
+                            println("kt = float4({0}, {0}, {0}, {0});", lit ? "-1.0e30" : "1.0e30");
+                        }
+                        --indentation;
+                        indent();
+                        out += "}\n";
+                    }
+                }
             }
             break;
         }
@@ -1626,6 +1669,21 @@ bool ShaderRecompiler::recompile(const RecompilerInput& in, std::string_view inc
         // constant xy = the inverse scale of the texture bound there (1 for ordinary textures).
         out += "cbuffer KKScaleConstants : register(b3, space0)\n{\n\tfloat4 kk_RenderScale;\n\tfloat4 kk_TexInvScale[32];\n};\n\n";
         out += "uint2 kk_GuestSize(uint2 hostSize, uint slot)\n{\n\treturn uint2(float2(hostSize) * kk_TexInvScale[slot].xy + 0.5);\n}\n\n";
+        if (isPixelShader)
+        {
+            // Soft shadow filter (fcshaders change 8): 3x3 bilinear comparisons, i.e. 4x4 host texels around uv with
+            // tent weights (1 - f, 1, 1, f) per axis, normalised by 9; the fraction of the shadow map's depths <= z.
+            out += "float kk_ShadowSoft(Texture2D<float4> t, SamplerState s, float2 uv, float z, float2 size)\n{\n"
+                   "\tfloat2 p = uv * size - 0.5;\n\tfloat2 b = floor(p);\n\tfloat2 f = p - b;\n"
+                   "\tfloat wx[4] = { 1.0 - f.x, 1.0, 1.0, f.x };\n\tfloat wy[4] = { 1.0 - f.y, 1.0, 1.0, f.y };\n"
+                   "\tfloat sum = 0.0;\n"
+                   "\t[unroll] for (int j = 0; j < 4; ++j)\n\t{\n"
+                   "\t\t[unroll] for (int i = 0; i < 4; ++i)\n\t\t{\n"
+                   "\t\t\tfloat d = t.SampleLevel(s, (b + float2(i - 1, j - 1) + 0.5) / size, 0.0).x;\n"
+                   "\t\t\tsum += (d <= z) ? wx[i] * wy[j] : 0.0;\n"
+                   "\t\t}\n\t}\n"
+                   "\treturn sum / 9.0;\n}\n\n";
+        }
     }
     const bool ambient = isPixelShader && in.ambientOcclusion.kind != RecompilerAmbientTerm::Kind::None;
     if (ambient)

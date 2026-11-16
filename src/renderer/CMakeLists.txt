@@ -158,11 +158,15 @@ add_library(
   core/builtin_shaders.cpp
   core/overlay_pass.cpp
   core/smaa_pass.cpp
+  core/ao_pass.cpp
+  core/hdr_pass.cpp
+  core/display_hdr.cpp
   core/game_renderer.cpp
   core/deferred_list.cpp
   core/host_vulkan.cpp
   core/host_d3d12.cpp
   core/present_pacer.cpp
+  core/texture_pack.cpp
   kk/backend/pipeline_cache.cpp
   kk/backend/render_thread.cpp
   kk/backend/vk_pipeline_cache.cpp
@@ -171,12 +175,12 @@ add_library(
   kk/backend/file_lock.cpp
 )
 target_include_directories(predator_renderer PUBLIC include "${CMAKE_CURRENT_SOURCE_DIR}")
-target_include_directories(predator_renderer SYSTEM PRIVATE "${FCP_DEPS_DIR}/tomlplusplus/include")
+target_include_directories(predator_renderer SYSTEM PRIVATE "${FCP_DEPS_DIR}/tomlplusplus/include" "${FCP_RENDERER_DEPS_DIR}/xxHash")
 target_compile_definitions(predator_renderer PUBLIC VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 NOMINMAX WIN32_LEAN_AND_MEAN)
 target_compile_options(predator_renderer PRIVATE ${_warn})
 target_link_libraries(
   predator_renderer PUBLIC predator_renderer_resources fcshaders nvrhi_vk nvrhi_d3d12 nvrhi Vulkan::Headers
-                           Microsoft::DirectX-Headers d3d12 dxgi
+                           Microsoft::DirectX-Headers d3d12 dxgi windowscodecs ole32 uuid
 )
 
 # At run time DXC sits next to the programs (NCSA licence; dxil.dll is not needed).
@@ -199,6 +203,7 @@ add_executable(
   tests/interface_tests.cpp
   tests/shader_pack_tests.cpp
   tests/gpu_tests.cpp
+  tests/texture_pack_tests.cpp
   kk/backend/tests/pipeline_cache_tests.cpp
   kk/backend/tests/pipeline_demand_tests.cpp
   kk/backend/tests/background_file_writer_tests.cpp

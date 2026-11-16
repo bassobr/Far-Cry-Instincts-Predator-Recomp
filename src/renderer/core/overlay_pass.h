@@ -25,8 +25,10 @@ class OverlayPass {
   void UpdateTexture(nvrhi::ICommandList* cl, uint64_t id, const uint8_t* rgba);
   void DestroyTexture(uint64_t id);
 
-  // Draws into fb (color target 0, framebuffer size). Returns the number of draws.
-  uint32_t Draw(nvrhi::ICommandList* cl, nvrhi::IFramebuffer* fb, const OverlayFrame& frame);
+  // Draws into fb (color target 0, framebuffer size). Returns the number of draws. hdr: null for an SDR target; for an
+  // HDR10 target (PQ / BT.2020) {paper white / 10000, gamma}: the colours go through the HDR10 mapping (core/hdr_pass.h)
+  // at paper white, without the highlight stretch, and blend over the PQ picture.
+  uint32_t Draw(nvrhi::ICommandList* cl, nvrhi::IFramebuffer* fb, const OverlayFrame& frame, const float* hdr = nullptr);
 
   size_t texture_count() const { return textures_.size(); }
 
@@ -37,17 +39,17 @@ class OverlayPass {
     uint32_t width = 0, height = 0;
   };
   bool EnsureBuffers(size_t vertices, size_t indices);
-  nvrhi::IGraphicsPipeline* Pipeline(nvrhi::IFramebuffer* fb);
+  nvrhi::IGraphicsPipeline* Pipeline(nvrhi::IFramebuffer* fb, bool hdr);
 
   bool ok_ = false;
   nvrhi::IDevice* dev_ = nullptr;
-  nvrhi::ShaderHandle vs_, ps_;
+  nvrhi::ShaderHandle vs_, ps_, ps_hdr_;
   nvrhi::InputLayoutHandle input_;
   nvrhi::BindingLayoutHandle layout_;
   nvrhi::SamplerHandle sampler_;
   nvrhi::BufferHandle vb_, ib_;
   size_t vb_capacity_ = 0, ib_capacity_ = 0;
-  std::map<nvrhi::Format, nvrhi::GraphicsPipelineHandle> pipelines_;
+  std::map<std::pair<nvrhi::Format, bool>, nvrhi::GraphicsPipelineHandle> pipelines_;
   std::unordered_map<uint64_t, Tex> textures_;
   uint64_t next_id_ = 1;
 };

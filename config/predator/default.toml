@@ -72,7 +72,9 @@ plain_memory = true
 0x82870848 = "Bink_NextFrame"            # Bink: from the video update 0x82340A48 after BinkWait 0x8286FCB8 (timing) and BinkDoFrame 0x828702A8
 # Frame rate audit part 2. Roles read from the image (as in FCI, offsets +4):
 0x821E64E8 = "Boat_WaterModel"           # (CVehicle r3, f1 step time): water model of the boats, from the post-step 0x821E63C8 in mode 1/2 (+0xAC); drag Dampv +0xC0 / Dampvs +0xC4 per call
-0x82556AA8 = "Vehicle_WheelForces"       # CWheeledVehicleEntity (vtable 0x8207E228) +0xD8: wheel forces per physics step (r3, f1 step time, r5 contact mask), from the rigid step 0x825455E8
+0x82556AA8 = "Vehicle_WheelForces"       # CWheeledVehicleEntity (vtable 0x8207E228) +0xD8, from the rigid step 0x825455E8 (0x82545CC4): in fact the wheels' ground contacts (box/ray queries 0x82511940/0x82511400/0x82511520, r5 contact list); f1 is never read (overwritten at 0x82556D00). Name kept from audit 2
+0x82554FD8 = "Vehicle_Action"            # CWheeledVehicleEntity +0x18 Action (r3 entity, r4 pe_action*): type 3 pe_action_drive: +4 pedal, +8 dpedal (pedal += dpedal per call, clamped), +0xC steer, +0x10 dsteer; body pedal +0xE0C, steer +0xE10; trace only (FCP_TRACE_WHEELS=2)
+0x82558368 = "Vehicle_WheelImpulses"     # CWheeledVehicleEntity +0xDC, from the end of the rigid step 0x825455E8 (0x82546A6C, after the body moved): wheel impulses per physics step (r3 entity, f1 step time kept at 0x15AC(r1)); role of FCI 0x003CC9A0
 0x82108EB8 = "Player_IsUnderWater"       # Lua Player:IsUnderWater (r3 script object, CPlayer [+0x10], flag +0x39C)
 0x8254DC60 = "Living_Action"             # CLivingEntity +0x18 Action (r3, r4 = pe_action*): type 1 movement (air control 1: v = direction + [+0x730]), type 0x0A sets +0x724
 0x82553710 = "Living_Step"              # CLivingEntity (vtable 0x8207E120) +0x44: step (f1 step time)
@@ -89,6 +91,9 @@ plain_memory = true
 0x8228BC78 = "Player_LookInput"          # (target controller r3, command r4 = client +0x38C, f1 TURNLR, f2 TURNUD): yaw/pitch of the frame -> command +0xBC/+0xC0 (degrees)
 # Graphics extras, FOV factor (src/fcp/camera_fov.cpp). Role read statically from the image:
 0x825C37D8 = "CCamera_Update"            # (camera r3 = camera object + 4): projection +0x23C from fov +0x3C / aspect +0x1B4 (ortho +0x32C = 0), frustum from tan(fov/2); second projection +0x2BC with angle +0x40
+# PC level of detail and shadows (src/fcp/detail_distance.cpp, shadow_distance.cpp). Roles read from the image:
+0x82602330 = "Game_EngineCVars"          # (block r3, 0x104 bytes) registers the e_* variables bound to its fields: +0xF4 e_obj_lod_ratio, +0xF8 e_obj_view_dist_ratio, +0xFC e_obj_sprite_switch_dist_ratio; only caller the renderer init 0x825D0270
+0x825EF248 = "Game_ShadowPass"           # (engine r3, r5 = view environment [engine +0x1424]): the frame's shadow maps (one 1344x1344 or four 672x672); sun camera 0x825D2220 over a square of side max(R, 2 R sin(fov/2)), R = env +0x34 (copied from the eased radius env +0x424 by the only caller 0x825EDB98 before the call)
 # Cache for the game's shader compiler. Roles read from the image:
 0x82657460 = "D3DX_CreateBuffer"         # (size, &buffer) -> HRESULT; 0x10 object vtable 0x82005A68, init via vtable +0x18; target of the thunk 0x82657530
 0x8230BEA0 = "XMemAlloc"                 # (size, attributes) -> pointer; D3DX passes attributes 0x24810000

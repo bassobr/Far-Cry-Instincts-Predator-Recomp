@@ -46,6 +46,26 @@ enum PadButton : u16 {
   kPadY = 0x8000,
 };
 
+/**
+ * Bits of PadState::extra: controller buttons the title's pad has no bit for (SDL's misc, paddle and touchpad
+ * buttons), and the guide button unmasked. Bit n of kPadExtraMisc1..kPadExtraMisc6 is SDL button 15 + n.
+ * Predator change: reported beside the title's bits so the application can bind them.
+ */
+enum PadExtraButton : u32 {
+  kPadExtraMisc1 = 1u << 0,         /**< Xbox Series share, PS5 microphone, Switch capture. */
+  kPadExtraRightPaddle1 = 1u << 1,  /**< Upper or primary right paddle (Xbox Elite P1). */
+  kPadExtraLeftPaddle1 = 1u << 2,   /**< Upper or primary left paddle (Xbox Elite P3). */
+  kPadExtraRightPaddle2 = 1u << 3,  /**< Lower or secondary right paddle (Xbox Elite P2). */
+  kPadExtraLeftPaddle2 = 1u << 4,   /**< Lower or secondary left paddle (Xbox Elite P4). */
+  kPadExtraTouchpad = 1u << 5,      /**< PlayStation touchpad click. */
+  kPadExtraMisc2 = 1u << 6,
+  kPadExtraMisc3 = 1u << 7,
+  kPadExtraMisc4 = 1u << 8,
+  kPadExtraMisc5 = 1u << 9,
+  kPadExtraMisc6 = 1u << 10,
+  kPadExtraGuide = 1u << 16,        /**< The guide button, also while hid.guide_button masks kPadGuide. */
+};
+
 /** One reading of a pad. Sticks are centered on 0, positive right and up. */
 struct PadState {
   u16 buttons = 0;
@@ -55,6 +75,7 @@ struct PadState {
   i16 thumb_ly = 0;
   i16 thumb_rx = 0;
   i16 thumb_ry = 0;
+  u32 extra = 0; /**< PadExtraButton bits; the title never sees them. */
 };
 
 /** Motor speeds, 0 for off to 65535 for full. */

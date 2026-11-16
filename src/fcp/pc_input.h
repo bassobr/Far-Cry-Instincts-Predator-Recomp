@@ -25,6 +25,9 @@
 //   FCP_PAD_BACKEND=sdl|xinput|off, FCP_PAD_DEAD_ZONE=<0..0.9>, FCP_PAD_RUMBLE=<percent>,
 //   FCP_MOUSE_ACCEL=<gain per count/ms>, FCP_MOUSE_ACCEL_CAP=<factor>, FCP_MOUSE_SMOOTHING=<ms>,
 //   FCP_MOUSE_ZOOM_SCALE=fov|tan|off, FCP_MOUSE_ZOOM_SENSITIVITY=<factor>: win over predator_input.toml
+//   FCP_PAD_EXTRA=0           paddles, misc and touchpad as before (the SDK folds the paddles onto A/B/X/Y, misc1
+//                             and the touchpad onto the guide bit); they are not bindable
+//   FCP_PAD_REMAP=0           no controller remapping at all: [pad] pad_bind_* ignored, the SDK folds as before
 //   FCP_PAUSE_ON_FOCUS_LOSS=1 (predator.toml [game] pause_on_focus_loss): XN_SYS_UI, mute, motors off while the
 //                             window has no focus
 //   FCP_TEST_FOCUS=<t>:<s>,... test: a focus loss at t (script clock) for s wall seconds
@@ -49,6 +52,7 @@ class SettingsRegistry;
 }
 namespace rex::hid {
 class IInputSystem;
+struct PadState;
 }
 namespace rex::ui {
 class IUISystem;
@@ -97,6 +101,8 @@ struct Live {
   std::string backend;
 };
 Live GetLive();
+/** The same settings as predator_input.toml's defaults ("Defaults" in the settings menu). */
+Live Defaults();
 
 /** predator_input.toml (the file in use). */
 std::filesystem::path ConfigFile();
@@ -118,6 +124,26 @@ std::string DefaultBindingKeys(int index);
 /** Name of a key code (Windows virtual key, mouse buttons as VK_LBUTTON...) as the file writes it; "" if none. */
 std::string KeyName(int code);
 std::string WheelName(bool down);
+
+/** The controller bindings ([pad] pad_bind_<button>, Controller page): the 16 buttons of the Xbox pad. */
+int PadBindingCount();
+std::string PadBindingName(int target);            // "a", "lt", "start", ...
+std::string PadBindingSources(int target);         // the controller buttons in force: "a, lpaddle2", "none"
+std::string DefaultPadBindingSources(int target);  // the defaults
+/**
+ * Binds the controller button `source` (a pad_bind_ name) to the target, in place of its list or added to it; it
+ * leaves every other target (as FCI). Stores the changed lines and pad_bind_none, reads the file again (in force at
+ * once). Returns an error text or "".
+ */
+std::string SetPadBinding(int target, const std::string& source, bool add);
+std::string ClearPadBinding(int target);
+std::string DefaultPadBinding(int target);  // this target back to its defaults (they leave other targets)
+std::string ResetPadBindings();             // every target back to its defaults
+/** The first controller button held in a reading (a trigger past half; the extra buttons too), "" for none. */
+std::string PressedPadSource(const rex::hid::PadState& state);
+bool PadExtraBindable();  // false with FCP_PAD_EXTRA=0 / FCP_PAD_REMAP=0
+bool PadRemapOn();        // false with FCP_PAD_REMAP=0
+std::string PadSourceList();  // every controller button name the bindings take
 
 // ---- button prompts (fcp/button_prompts.h) ----
 

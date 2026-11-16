@@ -77,6 +77,7 @@ struct WindowConfig {
   bool vulkan_surface = false; /**< The graphics driver presents through Vulkan. */
   u32 mode_width = 0;          /**< Exclusive fullscreen mode width, 0 for the desktop. */
   u32 mode_height = 0;         /**< Exclusive fullscreen mode height, 0 for the desktop. */
+  f32 mode_refresh = 0.0f;     /**< Exclusive mode refresh rate in Hz, 0 for the desktop's (FCP, 351). */
   // FCP (rexglue/UPSTREAM.md, local change 110): applied before the window shows.
   bool has_position = false; /**< True to place the client area at x, y instead of centering. */
   i32 x = 0;

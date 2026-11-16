@@ -18,6 +18,8 @@
 #include <rex/apu/audio_driver.h>
 #include <rex/types.h>
 
+#include "apu/mix.h"  // change 371: LimiterStats
+
 namespace rex::apu::fcp {
 
 /** What the mix saw in one period. */
@@ -31,6 +33,14 @@ struct PeriodInfo {
 
 /** Called by the mix for every period. planar: 6 channels of kAudioChannelSamples, one after another. */
 void OnPeriod(const f32* planar, const PeriodInfo& info);
+
+/**
+ * FCP: change 371. With apu.limiter, every period after the limiter (device channels, interleaved,
+ * before mute and the final clamp): FCP_RECORD_AUDIO_OUT=<file.wav> records it (float WAV with the
+ * device's channel count, also when muted), and every 10 s of audio a line "fcp limiter: ..." gives
+ * peak and samples above 1.0 before and after, limited frames and the smallest gain.
+ */
+void OnOutput(const f32* interleaved, u32 frames, u32 channels, const LimiterStats* stats);
 
 /** Flushes and closes the recording (mix stopped). Safe to call more than once. */
 void Shutdown();

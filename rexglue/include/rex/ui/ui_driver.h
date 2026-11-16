@@ -70,9 +70,10 @@ class IUIDriver : public IDriver {
    * @param exclusive True for exclusive fullscreen, false for borderless.
    * @param mode_width Exclusive mode width, 0 for the desktop mode.
    * @param mode_height Exclusive mode height, 0 for the desktop mode.
+   * @param mode_refresh Exclusive mode refresh rate in Hz, 0 for the desktop's (FCP, local change 351).
    */
   virtual void SetFullscreen(bool fullscreen, bool exclusive, i32 monitor, u32 mode_width,
-                             u32 mode_height) = 0;
+                             u32 mode_height, f32 mode_refresh) = 0;
 
   virtual void RaiseWindow() = 0;
 

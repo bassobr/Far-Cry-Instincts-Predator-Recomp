@@ -101,7 +101,14 @@ void ParseStartLevel(const std::string& value) {
   std::string command = "-map " + level;
   if (parts.size() > 2 && !parts[2].empty()) {
     const char players = parts[2][0];
-    if (parts[2].size() == 1 && players >= '1' && players <= '4') {
+    if (parts[2].size() == 1 && players >= '2' && players <= '4' && !fcp::env::Flag("FCP_START_LEVEL_PLAYERS", false)) {
+      // Measured 2026-11-15 (m01_mercycreek::2): the game takes "StartLevel ... localplayers=2" and crashes 0.4 s later
+      // in the level start (guest read of 0x8): the split screen needs the menu's lobby (Multiplayer -> Splitscreen),
+      // which this path skips. FCP_START_LEVEL_PLAYERS=1 passes -lpc<n> anyway.
+      FCPLOG("FCP_START_LEVEL: players '{}' ignored: -lpc{} crashes at the level start; start a split screen from the "
+             "menu (Multiplayer -> Splitscreen), or FCP_START_LEVEL_PLAYERS=1",
+             parts[2], players);
+    } else if (parts[2].size() == 1 && players >= '1' && players <= '4') {
       command += std::string(" -lpc") + players;
     } else {
       FCPLOG("FCP_START_LEVEL: players '{}' ignored (1..4)", parts[2]);

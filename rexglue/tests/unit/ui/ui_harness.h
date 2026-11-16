@@ -125,7 +125,7 @@ class FakeUIDriver : public rex::ui::IUIDriver {
     g_ui.min_height = min_height;
     g_ui.ratio = ratio;
   }
-  void SetFullscreen(bool fullscreen, bool exclusive, i32 monitor, u32, u32) override {
+  void SetFullscreen(bool fullscreen, bool exclusive, i32 monitor, u32, u32, f32) override {
     g_ui.thread_of_last_call = std::this_thread::get_id();
     ++g_ui.set_fullscreen_calls;
     g_ui.fullscreen = fullscreen;

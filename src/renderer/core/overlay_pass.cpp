@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "fcshaders/compiler.h"
+#include "hdr_pass.h"
 
 namespace fcp::nr {
 
@@ -15,7 +16,7 @@ namespace {
 // Vulkan: texture on binding 0, sampler on 128 (NVRHI's default sampler offset), projection as push constants.
 // D3D12: t0, s0, root constants b0. Vertex shader without -fvk-invert-y: NVRHI flips the viewport (like the blits).
 constexpr const char* kShader = R"(
-struct Projection { float2 scale; float2 translate; };
+struct Projection { float2 scale; float2 translate; float4 hdr; };  // hdr: paper white / 10000, gamma (ps_hdr only)
 [[vk::push_constant]] ConstantBuffer<Projection> pc : register(b0);
 [[vk::binding(0, 0)]] Texture2D<float4> tex : register(t0);
 [[vk::binding(128, 0)]] SamplerState smp : register(s0);
@@ -29,11 +30,17 @@ VsOut vs_main(VsIn i) {
   return o;
 }
 float4 ps_main(VsOut i) : SV_Target0 { return i.col * tex.Sample(smp, i.uv); }
+// HDR10 target ([display] hdr): the SDR colour at paper white in PQ / BT.2020 (core/hdr_pass.h), alpha as it is
+float4 ps_hdr(VsOut i) : SV_Target0 {
+  const float4 c = i.col * tex.Sample(smp, i.uv);
+  return float4(Pq(mul(k709To2020, pow(saturate(c.rgb), pc.hdr.y)) * pc.hdr.x), c.a);
+}
 )";
 
 struct Projection {
   float scale[2];
   float translate[2];
+  float hdr[4];
 };
 
 }  // namespace
@@ -46,17 +53,21 @@ bool OverlayPass::Init(nvrhi::IDevice* device, HostApi api, std::string* error) 
     return false;
   }
   const auto target = api == HostApi::kVulkan ? fcshaders::CompileTarget::Spirv : fcshaders::CompileTarget::Dxil;
-  const fcshaders::CompileOutput vs = compiler.compileEntry(kShader, L"vs_6_0", L"vs_main", target, false);
-  const fcshaders::CompileOutput ps = compiler.compileEntry(kShader, L"ps_6_0", L"ps_main", target, false);
-  if (!vs.ok || !ps.ok) {
-    if (error) *error = "overlay shader: " + vs.messages + ps.messages;
+  const std::string hlsl = std::string(kHdrCommonHlsl) + kShader;
+  const fcshaders::CompileOutput vs = compiler.compileEntry(hlsl, L"vs_6_0", L"vs_main", target, false);
+  const fcshaders::CompileOutput ps = compiler.compileEntry(hlsl, L"ps_6_0", L"ps_main", target, false);
+  const fcshaders::CompileOutput ps_hdr = compiler.compileEntry(hlsl, L"ps_6_0", L"ps_hdr", target, false);
+  if (!vs.ok || !ps.ok || !ps_hdr.ok) {
+    if (error) *error = "overlay shader: " + vs.messages + ps.messages + ps_hdr.messages;
     return false;
   }
+  ps_hdr_ = dev_->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel).setEntryName("ps_hdr").setDebugName("overlay ps hdr10"),
+                               ps_hdr.blob.data(), ps_hdr.blob.size());
   vs_ = dev_->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex).setEntryName("vs_main").setDebugName("overlay vs"),
                            vs.blob.data(), vs.blob.size());
   ps_ = dev_->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel).setEntryName("ps_main").setDebugName("overlay ps"),
                            ps.blob.data(), ps.blob.size());
-  if (!vs_ || !ps_) {
+  if (!vs_ || !ps_ || !ps_hdr_) {
     if (error) *error = "overlay shader: createShader failed";
     return false;
   }
@@ -132,13 +143,13 @@ bool OverlayPass::EnsureBuffers(size_t vertices, size_t indices) {
          make(ib_, ib_capacity_, indices * sizeof(uint32_t), true);
 }
 
-nvrhi::IGraphicsPipeline* OverlayPass::Pipeline(nvrhi::IFramebuffer* fb) {
+nvrhi::IGraphicsPipeline* OverlayPass::Pipeline(nvrhi::IFramebuffer* fb, bool hdr) {
   const nvrhi::FramebufferInfoEx& info = fb->getFramebufferInfo();
   const nvrhi::Format format = info.colorFormats.empty() ? nvrhi::Format::UNKNOWN : info.colorFormats[0];
-  auto it = pipelines_.find(format);
+  auto it = pipelines_.find({format, hdr});
   if (it != pipelines_.end()) return it->second;
   nvrhi::GraphicsPipelineDesc d;
-  d.setInputLayout(input_).setVertexShader(vs_).setPixelShader(ps_).addBindingLayout(layout_);
+  d.setInputLayout(input_).setVertexShader(vs_).setPixelShader(hdr ? ps_hdr_ : ps_).addBindingLayout(layout_);
   d.primType = nvrhi::PrimitiveType::TriangleList;
   nvrhi::BlendState::RenderTarget rt;
   rt.enableBlend()
@@ -152,14 +163,14 @@ nvrhi::IGraphicsPipeline* OverlayPass::Pipeline(nvrhi::IFramebuffer* fb) {
   d.renderState.depthStencilState.disableDepthTest().disableDepthWrite().disableStencil();
   d.renderState.rasterState.setCullNone().setScissorEnable(true);
   nvrhi::GraphicsPipelineHandle p = dev_->createGraphicsPipeline(d, info);
-  pipelines_[format] = p;
+  pipelines_[{format, hdr}] = p;
   return p;
 }
 
-uint32_t OverlayPass::Draw(nvrhi::ICommandList* cl, nvrhi::IFramebuffer* fb, const OverlayFrame& f) {
+uint32_t OverlayPass::Draw(nvrhi::ICommandList* cl, nvrhi::IFramebuffer* fb, const OverlayFrame& f, const float* hdr) {
   if (!ok_ || !f.vertex_count || !f.index_count || !f.command_count || f.display_size[0] <= 0 || f.display_size[1] <= 0)
     return 0;
-  nvrhi::IGraphicsPipeline* pipeline = Pipeline(fb);
+  nvrhi::IGraphicsPipeline* pipeline = Pipeline(fb, hdr != nullptr);
   if (!pipeline || !EnsureBuffers(f.vertex_count, f.index_count)) return 0;
   cl->writeBuffer(vb_, f.vertices, f.vertex_count * sizeof(OverlayVertex));
   cl->writeBuffer(ib_, f.indices, f.index_count * sizeof(uint32_t));
@@ -168,7 +179,8 @@ uint32_t OverlayPass::Draw(nvrhi::ICommandList* cl, nvrhi::IFramebuffer* fb, con
   // Display coordinates -> framebuffer pixels (the window can have a different size than the display area,
   // e.g. with DPI scaling or during a resize)
   const float sx = fw / f.display_size[0], sy = fh / f.display_size[1];
-  Projection proj;
+  Projection proj{};
+  if (hdr) proj.hdr[0] = hdr[0], proj.hdr[1] = hdr[1];
   proj.scale[0] = 2.0f / f.display_size[0];
   proj.scale[1] = -2.0f / f.display_size[1];
   proj.translate[0] = -1.0f - f.display_pos[0] * proj.scale[0];

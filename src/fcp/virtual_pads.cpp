@@ -122,7 +122,10 @@ int ButtonOf(std::string_view n) {
       {"rs", SDL_GAMEPAD_BUTTON_RIGHT_STICK},   {"lb", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER},
       {"rb", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER}, {"up", SDL_GAMEPAD_BUTTON_DPAD_UP},
       {"down", SDL_GAMEPAD_BUTTON_DPAD_DOWN},   {"left", SDL_GAMEPAD_BUTTON_DPAD_LEFT},
-      {"right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT}};
+      {"right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT}, {"misc1", SDL_GAMEPAD_BUTTON_MISC1},
+      {"rpaddle1", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1}, {"lpaddle1", SDL_GAMEPAD_BUTTON_LEFT_PADDLE1},
+      {"rpaddle2", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2}, {"lpaddle2", SDL_GAMEPAD_BUTTON_LEFT_PADDLE2},
+      {"touchpad", SDL_GAMEPAD_BUTTON_TOUCHPAD}, {"misc2", SDL_GAMEPAD_BUTTON_MISC2}};
   for (const B& b : kButtons) {
     if (n == b.name) {
       return b.button;

@@ -375,3 +375,56 @@ Every local change carries a comment starting with `FCP` at the changed place.
     `Levels\0*.*` .. `Levels\3*.*` for "Load a Map" and `Levels\M*.*` for the multiplayer maps:
     `NtQueryDirectoryFile` returned `STATUS_NO_SUCH_FILE` and the level selection stayed empty (issue #1). Test
     case in `tests/unit/filesystem/wildcard_test.cpp`. `FCP_FIND_STAR_DOT_STRICT=1` restores the literal dot.
+350. **Extra pad buttons apart, a pad list, the last extra bits** (`include/rex/hid/pad.h`, `include/rex/hid/input_system.h`,
+    `src/hid/input_system.{h,cpp}`, `src/hid/merge.cpp`, `src/hid/sdl3/sdl3_input_driver.{h,cpp}`): `PadState` has a
+    new field `extra` (`PadExtraButton` bits: SDL's misc1..misc6, the four paddles, the touchpad, the guide button
+    also while `hid.guide_button` masks it). The SDL driver keeps the title's bits and the extra bits apart and folds
+    the extra ones into the title's bits only at `GetDeviceState`, while the new setting `hid.sdl.fold_extra_buttons`
+    is on (default, Xenia's table as before: paddles on Y/B/X/A, misc1 and the touchpad on guide; misc2..misc6 nothing).
+    A side effect of the separation: releasing a paddle no longer clears a face button that is still held (before,
+    both shared one bit). Merging ORs `extra`; a reading with extra bits is not neutral and counts as a state change
+    (packet number). `IInputSystem::ListPads()` lists the real pads with their user, name, family and driver;
+    `IInputSystem::GetLastExtraButtons(user)` returns the extra bits of the user's last `GetState`. The project sets
+    `hid.sdl.fold_extra_buttons = false` and maps the extra buttons itself (`[pad] pad_bind_*`, the paddles on A/B/X/Y
+    by default); `FCP_PAD_EXTRA=0` or `FCP_PAD_REMAP=0` keep the SDK's folding.
+351. **Exclusive fullscreen mode with its own refresh rate, DPI-sharp ImGui text, a test content scale**
+    (`include/rex/ui/ui_system.h` `ui.fullscreen_mode`, `include/rex/ui/window.h` `WindowConfig::mode_refresh`,
+    `include/rex/ui/ui_driver.h` `SetFullscreen(..., mode_refresh)`, `src/ui/video_mode.{h,cpp}`
+    `ResolveFullscreenMode`, `src/ui/window_settings.cpp`, `src/ui/ui_system.cpp`, `src/ui/sdl3/sdl3_ui_driver.cpp`,
+    `src/ui/imgui_host.cpp`, `tests/unit/ui/ui_harness.h`):
+    (a) `ui.fullscreen_mode` = `WxH` or `WxH@Hz` sets the exclusive fullscreen mode by itself; `ui.resolution` also
+    changed the window size and the video mode the title sees, and the refresh rate was always the desktop's. The SDL
+    driver asks `SDL_GetClosestFullscreenDisplayMode` for that rate (0 = the desktop's, as before) and logs asked and
+    chosen mode; a change applies at once (watched like `ui.fullscreen`). Empty = as before.
+    (b) `ImGuiHost::BuildFrame` sets `io.DisplayFramebufferScale` to the content scale, so ImGui 1.92 rasterizes the
+    fonts at the window's pixel density; the layout stays in points (pixels / content scale) and the renderer maps the
+    display to the framebuffer as before. Measured at 125 %: the menu's 18-point font is drawn at 22.5 pixels instead
+    of being stretched from 18. `REX_IMGUI_DPI_RASTER=0` restores the stretched text.
+    (c) Test aid: `REX_TEST_CONTENT_SCALE=<factor>` (0.5-4) replaces the window's display scale in
+    `SDL3UIDriver::GetContentScale` (Windows; read through `GetEnvironmentVariableA` at every call, so a test can change
+    it while running; the UI system reads it at its next resize or DPI event). Unset = the monitor's scale.
+370. **Speech volume: sound data registered by content and a gain on the XMA output of speech** (new
+    `include/rex/fcp_speech.h`, `src/base/fcp_speech.cpp`; `src/kernel/xma/context.*` `Decode`/`ConvertFrame`;
+    counters in `src/kernel/xma/fcp_xma_stats.h`, a second `fcp xma` line in `src/kernel/apu.cpp`): the title layer
+    registers the sound data it sees the game read, speech or other sound, by content (FNV-1a hash of 64 bytes at
+    every 128 bytes from the start of the sound entry; the same bytes in both kinds count as sound) and sets a gain
+    (0 to 1). For every decoded frame the context hashes the first 64 bytes of its current input buffer; a frame from
+    registered speech is converted with `kScale * gain` instead of `kScale` (the int16 conversion saturates as
+    before). With the gain at 1, the default, the scale and every sample stay as they were. Content instead of
+    addresses because Far Cry Instincts Predator reads its banks through a staging buffer and copies them (measured:
+    eight 64 KiB slots, every bank read goes through them). The decoder counts frames by kind
+    (unknown/sound/speech), their output level and the entry offset modulo 2048 of the matched position. Far Cry
+    Instincts Predator mixes all voices itself (XAudio 1 in the title), so the XMA output is the only place where
+    speech is still apart from music and effects; the title side is `src/fcp/speech_volume.cpp`.
+371. **Output limiter after the downmix** (`apu.limiter`, default `false`; `include/rex/apu/audio_system.h`,
+    `src/apu/mix.*` `PeakLimiter`, `MixSurround`/`MixStereo` with `clamp = false`, `src/apu/audio_system.cpp`
+    mix period; measurement in `src/apu/fcp_audio_tap.*`): with the setting on, the mix period applies the gain,
+    folds to the device's channels without the clamp, runs a peak limiter on the device channels (one gain for all;
+    ceiling 0.966 = -0.3 dBFS; look-ahead 64 frames = 1.33 ms, the output is delayed by 63 frames; the gain is the
+    smallest needed gain of the next 64 frames, averaged over 64 frames, so it is at most the needed gain on every
+    peak; release time constant 100 ms, kept in double: in float the steps near 1 fall below the resolution and the gain stayed at about 0.9999, measured in a synthetic test), then mute (ramped as before) and the clamp to +-1. Below the ceiling the gain
+    is exactly 1 and every sample passes unchanged (only delayed). Mute comes after the limiter so that the
+    measurement also works muted. `FCP_RECORD_AUDIO_OUT=<file.wav>` records the limiter's output (device channels,
+    before mute), and every 10 s a line `fcp limiter: ...` gives peak and samples above 1.0 before and after, limited
+    frames and the smallest gain. `tools/audio/limiter_selftest.cpp` tests the class without the game (synthetic, and a recorded 6 channel mix as a 5.1 device would get it). With the setting off the mix period is unchanged. Test list of the setting keys
+    (`tests/unit/kernel/setting_keys_test.cpp`) extended.

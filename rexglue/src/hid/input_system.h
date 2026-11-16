@@ -70,6 +70,8 @@ class InputSystem final : public rex::hid::IInputSystem {
   void SetInputCaptured(bool captured) override;
   PointerMode GetPointerModeToApply() const override;
   [[nodiscard]] ScopeGuard SetPointerModeListener(MoveOnlyFunction<void()> listener) override;
+  [[nodiscard]] std::vector<PadListing> ListPads() override;
+  u32 GetLastExtraButtons(u32 user) const override;
 
   [[nodiscard]] Result<void> RegisterBindings(ISettingsRegistry& settings);
   void UnregisterBindings();

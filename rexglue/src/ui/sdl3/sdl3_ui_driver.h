@@ -44,7 +44,7 @@ class SDL3UIDriver final : public IUIDriver, public SettingOwner {
   void SetSize(u32 width, u32 height) override;
   void SetLimits(u32 min_width, u32 min_height, AspectRatio ratio) override;
   void SetFullscreen(bool fullscreen, bool exclusive, i32 monitor, u32 mode_width,
-                     u32 mode_height) override;
+                     u32 mode_height, f32 mode_refresh) override;
   void RaiseWindow() override;
   void SetCursorShape(bool visible, CursorShape shape) override;
   void SetPointerMode(PointerMode mode) override;

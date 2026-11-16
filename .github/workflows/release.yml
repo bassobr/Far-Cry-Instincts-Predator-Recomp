@@ -93,7 +93,8 @@ jobs:
           test "$(wc -l < SHA256SUMS)" -eq 2 || { echo "SHA256SUMS must list the release zip and the source archive" >&2; exit 1; }
           for f in predator.exe rexkernel.dll rexffmpeg.dll SDL3.dll dxcompiler.dll fcshaders.exe compiler/bin/clang.exe \
                    compiler/bin/lld-link.exe compiler/bin/rexglue.exe compiler/src/entry.cpp compiler/src/runtime.cpp \
-                   compiler/config/default.toml compiler/LICENSE-LLVM.txt README.md LICENSE THIRD_PARTY_NOTICES.md; do
+                   compiler/config/default.toml compiler/LICENSE-LLVM.txt README.md LICENSE THIRD_PARTY_NOTICES.md \
+                   TEXTURE-PACKS.md; do
             unzip -Z1 "$ZIP" | grep -qx "[^/]*/$f" || { echo "missing $f" >&2; exit 1; }
           done
           # no game code, no generated sources, no game files, no caches, no user data

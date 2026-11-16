@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <string>
@@ -29,6 +30,14 @@
 #if REX_PLATFORM_MAC
 #include <CoreFoundation/CoreFoundation.h>
 #include <SDL3/SDL_metal.h>
+#endif
+
+#if REX_PLATFORM_WIN32
+// FCP (local change 351): the process environment as SetEnvironmentVariable leaves it (the CRT's getenv copy does
+// not see later changes); declared here to keep <windows.h> out of this file.
+extern "C" __declspec(dllimport) unsigned long __stdcall GetEnvironmentVariableA(const char* name,
+                                                                                 char* buffer,
+                                                                                 unsigned long size);
 #endif
 
 namespace rex::ui::sdl3 {
@@ -140,6 +149,7 @@ struct SDL3UIDriver::State {
   bool exclusive = false;
   i32 mode_width = 0;
   i32 mode_height = 0;
+  f32 mode_refresh = 0.0f;  // FCP (local change 351): 0 = the desktop's refresh rate
   i32 monitor = 0;
   bool has_focus = false;
   bool text_input = false;
@@ -200,7 +210,8 @@ struct SDL3UIDriver::State {
       height = desktop->h;
     }
     SDL_DisplayMode mode = {};
-    if (!SDL_GetClosestFullscreenDisplayMode(display, width, height, 0.0f, true, &mode)) {
+    // FCP (local change 351): the requested refresh rate (0 = the desktop's, as before)
+    if (!SDL_GetClosestFullscreenDisplayMode(display, width, height, mode_refresh, true, &mode)) {
       REXUI_WARN("Display {} has no mode near {}x{}, staying borderless", static_cast<u32>(display),
                  width, height);
       SDL_SetWindowFullscreenMode(window, nullptr);
@@ -210,8 +221,9 @@ struct SDL3UIDriver::State {
       REXUI_WARN("SDL_SetWindowFullscreenMode({}x{}) failed: {}", mode.w, mode.h, SDL_GetError());
       return;
     }
-    REXUI_INFO("Exclusive fullscreen mode {}x{} @ {:.3g}Hz on display {}", mode.w, mode.h,
-               mode.refresh_rate, static_cast<u32>(display));
+    REXUI_INFO("Exclusive fullscreen mode {}x{} @ {:.3g}Hz on display {} (asked {}x{} @ {})", mode.w,
+               mode.h, mode.refresh_rate, static_cast<u32>(display), width, height,
+               mode_refresh > 0.0f ? std::format("{:.3g}Hz", mode_refresh) : std::string("desktop Hz"));
   }
 
   void Deliver(const UIEvent& event) const {
@@ -507,6 +519,7 @@ Result<void> SDL3UIDriver::OpenWindow(const WindowConfig& config) {
   s.exclusive = config.fullscreen_exclusive;
   s.mode_width = static_cast<i32>(config.mode_width);
   s.mode_height = static_cast<i32>(config.mode_height);
+  s.mode_refresh = config.mode_refresh;
   s.monitor = config.monitor;
   SetLimits(config.min_width, config.min_height, config.aspect_ratio);
   s.CenterOnMonitor();
@@ -573,7 +586,7 @@ void SDL3UIDriver::SetLimits(u32 min_width, u32 min_height, AspectRatio ratio) {
 }
 
 void SDL3UIDriver::SetFullscreen(bool fullscreen, bool exclusive, i32 monitor, u32 mode_width,
-                                 u32 mode_height) {
+                                 u32 mode_height, f32 mode_refresh) {
   State& s = *state_;
   if (!s.window) {
     return;
@@ -583,6 +596,7 @@ void SDL3UIDriver::SetFullscreen(bool fullscreen, bool exclusive, i32 monitor, u
   s.exclusive = exclusive;
   s.mode_width = static_cast<i32>(mode_width);
   s.mode_height = static_cast<i32>(mode_height);
+  s.mode_refresh = mode_refresh;
   s.monitor = monitor;
   if (monitor_changed) {
     const bool was_fullscreen = (SDL_GetWindowFlags(s.window) & SDL_WINDOW_FULLSCREEN) != 0;
@@ -659,6 +673,18 @@ f32 SDL3UIDriver::GetContentScale() const {
   if (scale <= 0.0f) {
     scale = 1.0f;
   }
+#if REX_PLATFORM_WIN32
+  // FCP (local change 351), test aid: REX_TEST_CONTENT_SCALE=<factor> stands for the monitor's scale (1.25 = 125 %),
+  // read at every call so a test can change it while the game runs (the next resize or DPI event picks it up).
+  char fake[32] = {};
+  if (const unsigned long n = GetEnvironmentVariableA("REX_TEST_CONTENT_SCALE", fake, sizeof(fake));
+      n > 0 && n < sizeof(fake)) {
+    const f32 value = static_cast<f32>(std::atof(fake));
+    if (value >= 0.5f && value <= 4.0f) {
+      scale = value;
+    }
+  }
+#endif
 #if REX_PLATFORM_MAC
   return density;
 #else

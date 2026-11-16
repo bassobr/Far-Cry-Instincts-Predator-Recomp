@@ -24,6 +24,7 @@
 #include "fcp/cpu_stats.h"
 #include "fcp/d3d_hooks.h"
 #include "fcp/devstart.h"
+#include "fcp/display.h"
 #include "fcp/relaunch.h"
 #include "fcp/save_guard.h"
 #include "fcp/virtual_pads.h"
@@ -90,6 +91,7 @@ void StartLog() {
     FCPLOG("  {}={}", name, value.size() > 120 ? value.substr(0, 120) + "..." : value);
   }
   fcp::relaunch::LogStart();
+  fcp::display::LogStart();  // DPI awareness, monitors and their scale, FCP_TEST_DPI
   fcp::paths::LogSummary();
   fcp::paths::Migrate();
   fcp::settings::Load();  // predator.toml -> FCP_* switches the environment leaves open
@@ -147,6 +149,9 @@ class PredatorApp : public rex::app::TitleApp {
     if (fcp::env::Flag("FCP_MUTE")) {
       Set(settings, L::kTitle, "apu.mute", "true", "FCP_MUTE");
     }
+    // [audio] limiter: peak limiter after the downmix (UPSTREAM 371); on unless FCP_AUDIO_LIMITER=0.
+    Set(settings, L::kTitle, "apu.limiter", fcp::env::Flag("FCP_AUDIO_LIMITER", true) ? "true" : "false",
+        "FCP_AUDIO_LIMITER");
     // Relaunch: the new window opens where the previous one was, in its mode (window, maximized, fullscreen on
     // its monitor), before it shows.
     fcp::relaunch::ApplyWindowHandover(settings);
@@ -252,6 +257,9 @@ namespace {
 // REX_TITLE_APP with the game code step first; `predator.exe --fcp-build-game-code <settings>` is the build of
 // predator_code.dll the development build runs (src/fcp/game_code_build.h).
 int PredatorEntry(const rex::CLIArgList& args) {
+  // Per-monitor DPI awareness v2 before any window (the first start's progress window too); FCP_DPI_EARLY=0: SDL
+  // declares it when its video starts, as before (src/fcp/display.h).
+  fcp::display::DeclareDpiAware();
   if (int code = 0; fcp::game_code_build::RunCommand(code)) {
     return code;
   }

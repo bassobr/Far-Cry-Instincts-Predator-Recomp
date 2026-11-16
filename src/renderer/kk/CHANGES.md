@@ -26,7 +26,7 @@ of the copied files names a GPL origin.
 | Here | Source (`native-renderer/`) | Manual changes |
 |---|---|---|
 | `resources/{buffers,endian,guest_texture,render_targets,resolve,texture_cache,texture_convert,texture_workers,tiling,xenos}.{h,cpp}`, `resources/{nvrhi_format,resident_snapshot,resource_work}.h` | `resources/include/kknr/`, `resources/src/` | Comment with a King Kong guest address in `render_targets.h` removed. Otherwise unchanged. Not taken: `texture_pack.*` (King Kong's HD texture packs) |
-| `resources/image_io.{h,cpp}` | `resources/tools/` | unchanged (PNG/DDS output, decoders for previews) |
+| `resources/image_io.{h,cpp}` | `resources/tools/` | `EncodePng`/`EncodeDds` split off `WritePng`/`WriteDds` (the same bytes in memory; texture dumps write them with wide paths). Otherwise unchanged (PNG/DDS output, decoders for previews) |
 | `resources/tests/*` | `resources/tests/` | unchanged; `test_texture_pack.cpp` not taken. The fetch constants in `test_roundtrip.cpp` are King Kong's test data (no addresses) |
 | `backend/pipeline_cache.{h,cpp}` | `backend/` | Magic `KGPC` → `FCPC`, version 3 → 1 (own file format, same record); motion records (`MotionPipelineRecord`, `kRecordMotion`, `kRecordTessellation`) of the upscaler/tessellation removed; references to the `nr_pipelines` tool and to game names removed from comments |
 | `backend/pipeline_demand.h`, `pipeline_workers.h`, `thread_scheduling.h`, `cpu_profile.h`, `driver_pipeline_cache.h`, `background_file_writer.h`, `file_lock.{h,cpp}`, `vk_pipeline_cache.{h,cpp}` | `backend/` | Comments with King Kong switches and game names cleaned up; code unchanged |

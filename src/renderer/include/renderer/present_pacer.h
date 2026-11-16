@@ -53,6 +53,9 @@ class PresentPacer {
   // Starts the waiter thread (only when the host has display timing). Again after Stop for a new host.
   void Start(HostDevice* host, const PacerOptions& options);
   void Stop();
+  // Settings menu (any thread): a new display pacing target (PacerOptions::target_fps), at once; the cadence follows
+  // from the measured refresh (pacing on, off, or another number of refreshes per frame).
+  void SetTarget(double target_fps);
   // Present thread, right before the present, without the renderer lock: holds the present for the cadence.
   void BeforePresent();
   // Present thread, right after HostDevice::Present: the present carried guest swap `swap` (1, 2, ...).

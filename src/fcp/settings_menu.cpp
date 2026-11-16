@@ -40,8 +40,12 @@
 #include <rex/ui/ui_system.h>
 
 #include "fcp/button_prompts.h"
+#include "fcp/detail_distance.h"
+#include "fcp/device_preset.h"
 #include "fcp/devstart.h"
+#include "fcp/display.h"
 #include "fcp/env.h"
+#include "fcp/framerate.h"
 #include "fcp/gametime.h"
 #include "fcp/guest.h"
 #include "fcp/log.h"
@@ -50,6 +54,7 @@
 #include "fcp/pc_input.h"
 #include "fcp/relaunch.h"
 #include "fcp/render_bridge.h"
+#include "fcp/speech_volume.h"
 #include "fcp/user_settings.h"
 #include "fcp_version.h"
 
@@ -70,7 +75,18 @@ bool g_pause = true;
 ImFont* g_font = nullptr;
 std::string g_font_name = "built in";
 int g_select_tab = -1;     // set by the test script: that tab once
+float g_scroll_to = -1;    // set by the test script: the page scrolled to this share of its height once
+int g_page = 0;            // the tab shown (Defaults applies to it)
+bool g_defaults = true;    // FCP_MENU_DEFAULTS=0: no Defaults button, no default marks (as before)
+bool g_short_mark = true;  // FCP_MENU_SHORT_MARK=0: a closed choice field always shows the full default mark
+bool g_wrap_hints = true;  // FCP_MENU_WRAP_HINTS=0: the grey hints of the Controller page stay on one line (cut)
 int g_capture = -1;        // binding target waiting for a key, -1 none
+// Controller page: the pad binding target waiting for a controller button (-1 none), added or in place of the list,
+// armed once every button was let go, given up at that time (wall seconds)
+int g_pad_capture = -1;
+bool g_pad_capture_add = false, g_pad_capture_armed = false;
+double g_pad_capture_until = 0;
+constexpr double kPadCaptureSeconds = 8.0;
 bool g_pad_armed = false;  // the pad counts once every button was let go after opening
 uint16_t g_pad_prev = 0;
 int g_saved_config_flags = 0;
@@ -110,11 +126,16 @@ struct Row {
   std::function<std::string()> override_note;          // "FCP_X=... wins" or ""
   std::string start;                                   // value at the title launch (restart required?)
   std::string id;                                      // "section.key" / "input:section.key" (test script)
+  // "Defaults" of the page (ResetPage): the value it sets (the device's default where it has one), and the device's
+  // name when the default is the device's ("" = the built-in one). No `def`: Defaults leaves the row alone.
+  std::function<std::string()> def;
+  std::string def_from;
 };
 std::vector<Row> g_rows;
 
-const char* const kTabs[] = {"Display", "Graphics", "Input", "Game", "About"};
-constexpr int kTabCount = 5;
+const char* const kTabs[] = {"Display", "Graphics", "Input", "Controller", "Game", "About"};
+constexpr int kTabCount = 6;
+constexpr int kInputTab = 2, kControllerTab = 3, kGameTab = 4, kAboutTab = 5;
 
 std::string Lower(std::string s) {
   for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
@@ -148,6 +169,8 @@ Row SettingsRow(int tab, const char* label, Kind kind, When when, const char* se
   };
   r.override_note = [s, k] { return fcp::settings::EnvironmentOverride(s, k); };
   r.id = s + "." + k;
+  r.def = [s, k] { return fcp::settings::DefaultText(s, k); };
+  r.def_from = fcp::settings::DefaultSource(s, k);
   return r;
 }
 
@@ -174,6 +197,44 @@ std::string Num(double v, int digits = 2) {
 
 std::string BoolText(bool b) { return b ? "true" : "false"; }
 
+// ---- Defaults (per page) ----
+// The predator_input.toml rows' defaults (pc_input::Defaults), by row id; a row added later sets its own `def`.
+void SetInputDefaults() {
+  const fcp::pc_input::Live d = fcp::pc_input::Defaults();
+  const std::map<std::string, std::string> values = {
+      {"input:mouse.sensitivity", Num(d.sensitivity_x)},
+      {"input:mouse.sensitivity_y", Num(d.sensitivity_y)},
+      {"input:mouse.invert_y", BoolText(d.invert_y)},
+      {"input:mouse.acceleration", Num(d.acceleration, 3)},
+      {"input:mouse.acceleration_cap", Num(d.acceleration_cap)},
+      {"input:mouse.smoothing", Num(d.smoothing_ms, 0)},
+      {"input:mouse.zoom_scale", d.zoom_scale},
+      {"input:mouse.zoom_sensitivity", Num(d.zoom_sensitivity)},
+      {"input:keyboard.enabled", BoolText(d.keyboard)},
+      {"input:mouse.enabled", BoolText(d.mouse)},
+      {"input:pad.dead_zone", Num(d.dead_zone)},
+      {"input:pad.rumble", std::to_string(d.rumble)},
+      {"input:pad.backend", d.backend},
+  };
+  for (Row& r : g_rows) {
+    if (r.def) continue;
+    if (const auto it = values.find(r.id); it != values.end()) r.def = [v = it->second] { return v; };
+  }
+}
+
+// "1" = "1.0", "True" = "true"
+bool SameValue(const std::string& a, const std::string& b) {
+  if (Lower(a) == Lower(b)) return true;
+  char *ea = nullptr, *eb = nullptr;
+  const double x = std::strtod(a.c_str(), &ea), y = std::strtod(b.c_str(), &eb);
+  return ea && ea != a.c_str() && !*ea && eb && eb != b.c_str() && !*eb && std::fabs(x - y) < 1e-6;
+}
+
+// "Default: ..." for tooltips and the choice marked as the default
+std::string DefaultNote(const Row& r) {
+  return r.def_from.empty() ? std::string("default") : r.def_from + " default";
+}
+
 void BuildRows() {
   using fcp::pc_input::GetLive;
   g_rows.clear();
@@ -186,6 +247,17 @@ void BuildRows() {
                           SetRuntime("ui.fullscreen", v == "windowed" ? "false" : "true");
                         });
     r.choices = {{"windowed", "Window"}, {"borderless", "Borderless fullscreen"}, {"exclusive", "Exclusive fullscreen"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    // the video mode of exclusive fullscreen: the modes of the window's monitor (fcp/display.h); at once
+    Row r = SettingsRow(0, "Exclusive mode", Kind::kChoice, When::kLive, "display", "exclusive_mode",
+                        "Resolution and refresh rate of exclusive fullscreen, from the monitor's list. Desktop: the "
+                        "monitor's own mode. The desktop gets its mode back on Alt+Tab and when the game ends.",
+                        [](const std::string& v) { SetRuntime("ui.fullscreen_mode", Lower(v) == "desktop" ? "" : v); });
+    const fcp::display::Mode desk = fcp::display::DesktopMode(g_ui);
+    r.choices = {{"desktop", desk.width > 0 ? "Desktop (" + desk.Label() + ")" : std::string("Desktop")}};
+    for (const fcp::display::Mode& m : fcp::display::MonitorModes(g_ui)) r.choices.push_back({m.Value(), m.Label()});
     g_rows.push_back(std::move(r));
   }
   {
@@ -204,7 +276,13 @@ void BuildRows() {
     Row r{0, "Window size", Kind::kChoice, When::kLive, {}, 0, 1, 0.01f, "%.2f",
           "Client size of the window (not fullscreen; fullscreen uses the monitor's). Narrower or wider than 16:9 "
           "fills the window (see Picture shape); the render resolution is under Graphics."};
-    r.choices = {{"0x0", "Default (1280x720, Steam Deck 1280x800)"}};
+    // short enough for the combo with " - default" behind it (at most about 38 characters at 1280x720): on a Steam
+    // Deck its own size; elsewhere 1280x720 at 100 % display scale, growing with the scale (fcp/display.h);
+    // FCP_DPI_WINDOW=0: 1280x720 pixels at every scale, as before
+    const bool deck = fcp::device::Name().starts_with("Steam Deck");
+    r.choices = {{"0x0", deck ? "Built in (1280x800)"
+                              : fcp::env::Flag("FCP_DPI_WINDOW", true) ? "Built in (1280x720 at 100 % scale)"
+                                                                       : "Built in (1280x720, Deck 1280x800)"}};
     if (g_ui) {
       // the monitor's own size (native) first; the monitor of [display] monitor, else the first one
       const auto displays = g_ui->GetDisplays();
@@ -231,33 +309,108 @@ void BuildRows() {
       std::string e = fcp::settings::Store("display", "width", w);
       if (e.empty()) e = fcp::settings::Store("display", "height", h);
       if (e.empty() && fcp::settings::EnvironmentOverride("display", "width").empty()) {
-        SetRuntime("ui.window_width", w == "0" ? "1280" : w);
-        SetRuntime("ui.window_height", h == "0" ? "720" : h);
+        // built in: 1280x720 at 100 %, scaled with the monitor's scale (fcp/display.h)
+        int bw = 1280, bh = 720;
+        fcp::display::BuiltInWindowSize(std::atoi(fcp::settings::Value("display", "monitor").c_str()), bw, bh);
+        SetRuntime("ui.window_width", w == "0" ? std::to_string(bw) : w);
+        SetRuntime("ui.window_height", h == "0" ? std::to_string(bh) : h);
       }
       return e;
     };
     r.override_note = [] { return fcp::settings::EnvironmentOverride("display", "width"); };
     r.id = "display.size";
+    r.def = [] { return fcp::settings::DefaultText("display", "width") + "x" + fcp::settings::DefaultText("display", "height"); };
+    r.def_from = fcp::settings::DefaultSource("display", "width");
+    g_rows.push_back(std::move(r));
+  }
+  // Frame rate, VSync, pacing: at once through fcp::framerate::Reconfigure (FCP_FPS_LIVE=0: at the next start)
+  const bool live_fps = fcp::framerate::LiveChanges();
+  const auto reconfigure = [](const std::string&) { fcp::framerate::Reconfigure("settings menu"); };
+  {
+    Row r = SettingsRow(0, "Frame rate", Kind::kChoice, live_fps ? When::kLive : When::kRestart, "display", "fps",
+                        "Highest frame rate: 30 as the console, 40 to 120, or Auto (the monitor's refresh rate, at most "
+                        "120). Smooth when the display's refresh rate is a multiple (90 Hz: 30, 45, 90; 60 Hz: 30, 60; "
+                        "120 Hz: 30, 40, 60, 120). On a 90 Hz display (Steam Deck OLED) 45 is smoother: Auto means 90 "
+                        "there, without display pacing. predator.toml takes any whole number from 40 to 120 "
+                        "(with unsupported_uncapped_fps = true up to 240: not supported, see FRAMERATE.md).",
+                        live_fps ? std::function<void(const std::string&)>(reconfigure) : nullptr);
+    r.choices = {{"auto", std::format("Auto (this monitor: {})", fcp::framerate::AutoTarget())}, {"30", "30 (console)"}};
+    for (int f : {40, 45, 50, 60, 72, 75, 90, 100, 120}) r.choices.push_back({std::to_string(f), std::to_string(f)});
+    // above 120 only with unsupported_uncapped_fps in predator.toml (as FCI's menu): marked as not supported
+    const auto label = [](int f) {
+      return f > fcp::framerate::kMaxFps ? std::to_string(f) + " (unsupported)" : std::to_string(f);
+    };
+    if (fcp::framerate::UncappedAllowed()) {
+      for (int f : {144, 165, 240}) r.choices.push_back({std::to_string(f), label(f)});
+    }
+    // the monitor's own rate and half of it, when they are not listed and the game logic takes them
+    const int monitor = fcp::framerate::AutoTarget();
+    for (int f : {monitor, monitor / 2}) {
+      bool listed = f == 30 || f < fcp::framerate::kMinFree || f > fcp::framerate::MaxFps();
+      for (const Choice& c : r.choices) listed = listed || c.value == std::to_string(f);
+      if (!listed)
+        r.choices.push_back({std::to_string(f), label(f) + (f == monitor ? " (this monitor)" : " (half of this monitor)")});
+    }
+    std::sort(r.choices.begin() + 2, r.choices.end(),
+              [](const Choice& a, const Choice& b) { return std::atoi(a.value.c_str()) < std::atoi(b.value.c_str()); });
     g_rows.push_back(std::move(r));
   }
   {
-    Row r = SettingsRow(0, "Frame rate", Kind::kChoice, When::kRestart, "display", "fps",
-                        "30 as the console, or 45 / 60 / 90 / 120 frames per second. Smooth when the display's refresh "
-                        "rate is a multiple (90 Hz: 30, 45, 90; 60 Hz: 30, 60).");
-    r.choices = {{"30", "30 (console)"}, {"45", "45"}, {"60", "60"}, {"90", "90"}, {"120", "120"}};
-    g_rows.push_back(std::move(r));
-  }
-  {
-    Row r = SettingsRow(0, "VSync", Kind::kChoice, When::kRestart, "display", "vsync",
-                        "Wait for the monitor when presenting. Auto: on up to 60 frames per second, off above.");
+    Row r = SettingsRow(0, "VSync", Kind::kChoice, live_fps ? When::kLive : When::kRestart, "display", "vsync",
+                        "Wait for the monitor when presenting. Auto: on up to 60 frames per second, off above.",
+                        live_fps ? std::function<void(const std::string&)>(reconfigure) : nullptr);
     r.choices = {{"auto", "Auto"}, {"on", "On"}, {"off", "Off"}};
     g_rows.push_back(std::move(r));
   }
   {
-    Row r = SettingsRow(0, "Frame pacing", Kind::kChoice, When::kRestart, "display", "pacing",
+    Row r = SettingsRow(0, "Frame pacing", Kind::kChoice, live_fps ? When::kLive : When::kRestart, "display", "pacing",
                         "Display: every frame stays equally long on the display, timed by the display's refresh "
-                        "(needs a frame rate the refresh rate is a multiple of). Game: the game's own timing.");
+                        "(needs Vulkan and a frame rate the refresh rate is a multiple of). Game: the game's own timing.",
+                        live_fps ? std::function<void(const std::string&)>(reconfigure) : nullptr);
     r.choices = {{"display", "Display"}, {"game", "Game"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(0, "Frames ahead", Kind::kChoice, When::kLive, "display", "frame_queue",
+                        "Game frames that may wait on the GPU before the game waits for it. 1: least input latency. "
+                        "3: evens out single slow frames, up to one frame more latency.",
+                        [](const std::string& v) { fcp::render::SetFramesAhead(std::atoi(v.c_str())); });
+    r.choices = {{"1", "1 (least latency)"}, {"2", "2"}, {"3", "3"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(0, "HDR10 output", Kind::kChoice, When::kLive, "display", "hdr",
+                        "HDR10 on an HDR display. Auto: on when Windows HDR is on for this monitor. The game's picture "
+                        "keeps its SDR look at the paper white. Off = SDR as before. Switches with the next frame.",
+                        [](const std::string& v) { fcp::render::SetHdr(v); });
+    r.choices = {{"off", "Off (SDR)"}, {"on", "On"}, {"auto", "Auto (Windows HDR)"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(0, "HDR paper white", Kind::kSlider, When::kLive, "display", "hdr_paper_white",
+                        "HDR10: brightness of the game's white, HUD, menus and this menu in nits. Switches at once.",
+                        [](const std::string&) { fcp::render::SetHdrLevels(); });
+    r.min = 80.0f, r.max = 1000.0f, r.step = 10.0f, r.format = "%.0f nits";
+    r.get = [] {  // "auto" (Windows' value) shows as 200 here
+      const std::string v = fcp::settings::Value("display", "hdr_paper_white");
+      return std::atof(v.c_str()) >= 80.0 ? v : std::string("200");
+    };
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(0, "HDR peak brightness", Kind::kChoice, When::kLive, "display", "hdr_peak",
+                        "HDR10: the display's peak brightness, the limit of the highlight boost. Switches at once.",
+                        [](const std::string&) { fcp::render::SetHdrLevels(); });
+    r.choices = {{"0", "As Windows reports"}, {"400", "400 nits"}, {"600", "600 nits"}, {"800", "800 nits"},
+                 {"1000", "1000 nits"}, {"1500", "1500 nits"}, {"2000", "2000 nits"}, {"4000", "4000 nits"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(0, "HDR highlight boost", Kind::kSlider, When::kLive, "display", "hdr_boost",
+                        "HDR10: stretches the bright parts of the picture towards the peak (1: the game's white, also the "
+                        "HUD's, reaches it). 0 = off, the picture as in SDR. Switches at once.",
+                        [](const std::string&) { fcp::render::SetHdrLevels(); });
+    r.min = 0.0f, r.max = 1.0f, r.step = 0.05f;
     g_rows.push_back(std::move(r));
   }
   // ---- Graphics ----
@@ -298,6 +451,46 @@ void BuildRows() {
     g_rows.push_back(std::move(r));
   }
   {
+    Row r = SettingsRow(1, "Shadow distance", Kind::kChoice, When::kRestart, "graphics", "shadow_distance",
+                        "How far the sun's shadows reach, as a multiple of the console's (about 15 m ahead). The shadow map "
+                        "grows with it, so the shadows stay as sharp.");
+    r.choices = {{"1", "1x (console)"}, {"1.5", "1.5x"}, {"2", "2x"}, {"3", "3x"}, {"4", "4x"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(1, "Shadow filter", Kind::kChoice, When::kLive, "graphics", "shadow_filter",
+                        "Edges of the shadows. Console: the game's own filter over 2x2 shadow map texels. Soft: an even "
+                        "filter over 4x4 texels, smoother edges without stair steps. Switches at once.",
+                        [](const std::string& v) { fcp::render::SetShadowFilter(v); });
+    r.choices = {{"console", "As the console"}, {"soft", "Soft"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(1, "Ambient occlusion", Kind::kChoice, When::kLive, "graphics", "ao",
+                        "Darker creases, corners and contact areas on the opaque scene (not on sky, water, particles, the "
+                        "HUD or the weapon; fades out with distance). SSAO: 16 samples. GTAO: ground truth AO, a little "
+                        "sharper. Costs GPU time. Switches at once.",
+                        [](const std::string& v) { fcp::render::SetAo(v); });
+    r.choices = {{"off", "Off (console)"}, {"ssao", "SSAO"}, {"gtao", "GTAO"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(1, "Detail distance", Kind::kChoice, When::kLive, "graphics", "lod_distance",
+                        "How far vegetation, buildings and characters keep their detailed models (and trees stay "
+                        "trees instead of sprites), as a multiple of the console's. Switches at once.",
+                        [](const std::string& v) { fcp::detail::SetLodDistance(float(std::atof(v.c_str()))); });
+    r.choices = {{"0.5", "0.5x"}, {"1", "1x (console)"}, {"1.5", "1.5x"}, {"2", "2x"}, {"3", "3x"}, {"4", "4x"}, {"8", "8x"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(1, "Object view distance", Kind::kChoice, When::kLive, "graphics", "view_distance",
+                        "How far vegetation, buildings and characters are drawn, as a multiple of the console's. The "
+                        "level's fog still ends the view. Switches at once.",
+                        [](const std::string& v) { fcp::detail::SetViewDistance(float(std::atof(v.c_str()))); });
+    r.choices = {{"0.5", "0.5x"}, {"1", "1x (console)"}, {"1.5", "1.5x"}, {"2", "2x"}, {"3", "3x"}, {"4", "4x"}, {"8", "8x"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
     Row r = SettingsRow(1, "Anisotropic filtering", Kind::kChoice, When::kRestart, "graphics", "aniso",
                         "Sharper textures at a slant. 1 = as the game sets it.");
     r.choices = {{"1", "As the game (console)"}, {"2", "2x"}, {"4", "4x"}, {"8", "8x"}, {"16", "16x"}};
@@ -316,6 +509,14 @@ void BuildRows() {
                         "the console (bars).");
     r.choices = {{"auto", "Auto (the window's shape)"}, {"16:9", "16:9 (console)"}, {"16:10", "16:10"}, {"4:3", "4:3"},
                  {"21:9", "21:9"}, {"32:9", "32:9"}};
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(1, "HUD layout", Kind::kChoice, When::kLive, "graphics", "hud_aspect",
+                        "With a wider or narrower picture: radar, health, ammunition, hints and compass at the edges of "
+                        "the picture or of a 21:9 box (experimental). 16:9 = all of the HUD in the middle band.",
+                        [](const std::string& v) { fcp::render::SetHudAspect(v); });
+    r.choices = {{"16:9", "16:9 band (as before)"}, {"auto", "Picture edges"}, {"21:9", "21:9 box"}};
     g_rows.push_back(std::move(r));
   }
   {
@@ -342,6 +543,15 @@ void BuildRows() {
     Row r = SettingsRow(1, "Gamma ramp", Kind::kBool, When::kLive, "graphics", "gamma",
                         "The game's brightness curve (its brightness setting), as on the console.",
                         [](const std::string& v) { fcp::render::SetGammaRamp(v == "true"); });
+    g_rows.push_back(std::move(r));
+  }
+  {
+    Row r = SettingsRow(1, "Colour blind mode", Kind::kChoice, When::kLive, "graphics", "colour_blind",
+                        "Shifts the colours a colour blind eye cannot tell apart into ones it can (daltonization), "
+                        "on the finished picture. Off = as the console.",
+                        [](const std::string& v) { fcp::render::SetColourBlind(v); });
+    r.choices = {{"off", "Off (console)"}, {"protanopia", "Protanopia (red)"}, {"deuteranopia", "Deuteranopia (green)"},
+                 {"tritanopia", "Tritanopia (blue)"}};
     g_rows.push_back(std::move(r));
   }
   // ---- Input ----
@@ -403,8 +613,9 @@ void BuildRows() {
                             "Keyboard as player 1's controller.", [] { return BoolText(GetLive().keyboard); }));
   g_rows.push_back(InputRow(2, "Mouse", Kind::kBool, When::kLive, "mouse", "enabled",
                             "Mouse look and mouse buttons.", [] { return BoolText(GetLive().mouse); }));
+  // ---- Controller (the ports and the buttons: DrawController) ----
   {
-    Row r = InputRow(2, "Controller dead zone", Kind::kSlider, When::kLive, "pad", "dead_zone",
+    Row r = InputRow(kControllerTab, "Dead zone", Kind::kSlider, When::kLive, "pad", "dead_zone",
                      "0 = only the game's own. A stick inside this share of full deflection counts as centred "
                      "(drifting sticks).",
                      [] { return Num(GetLive().dead_zone); });
@@ -412,20 +623,20 @@ void BuildRows() {
     g_rows.push_back(std::move(r));
   }
   {
-    Row r = InputRow(2, "Vibration", Kind::kSlider, When::kLive, "pad", "rumble", "Vibration strength, 0 = off.",
-                     [] { return std::to_string(GetLive().rumble); });
+    Row r = InputRow(kControllerTab, "Vibration", Kind::kSlider, When::kLive, "pad", "rumble",
+                     "Vibration strength, 0 = off.", [] { return std::to_string(GetLive().rumble); });
     r.min = 0.0f, r.max = 100.0f, r.step = 5.0f, r.format = "%.0f %%";
     g_rows.push_back(std::move(r));
   }
   {
-    Row r = InputRow(2, "Controller driver", Kind::kChoice, When::kRestart, "pad", "backend",
+    Row r = InputRow(kControllerTab, "Controller driver", Kind::kChoice, When::kRestart, "pad", "backend",
                      "SDL: every controller, up to four players. XInput: Xbox pads only. Off: no controllers.",
                      [] { return GetLive().backend; }, true);
     r.choices = {{"sdl", "SDL (all controllers)"}, {"xinput", "XInput"}, {"off", "Off"}};
     g_rows.push_back(std::move(r));
   }
   {
-    Row r = SettingsRow(2, "Button prompts", Kind::kChoice, When::kLive, "input", "button_prompts",
+    Row r = SettingsRow(kInputTab, "Button prompts", Kind::kChoice, When::kLive, "input", "button_prompts",
                         "Button symbols in hints and menus. Auto: the device used last (the bound key with keyboard "
                         "and mouse, the controller's own buttons). Xbox: as the console.",
                         [](const std::string&) { fcp::prompts::Reload(); });
@@ -434,23 +645,38 @@ void BuildRows() {
     g_rows.push_back(std::move(r));
   }
   // ---- Game ----
-  g_rows.push_back(SettingsRow(3, "Pause on focus loss", Kind::kBool, When::kLive, "game", "pause_on_focus_loss",
+  g_rows.push_back(SettingsRow(kGameTab, "Pause on focus loss", Kind::kBool, When::kLive, "game", "pause_on_focus_loss",
                                "While the window is in the background the game pauses (its own pause menu in a "
                                "level), the sound is muted and the vibration stops.",
                                [](const std::string&) { fcp::pc_input::Reload(); }));
-  g_rows.push_back(SettingsRow(3, "Skip intro videos", Kind::kBool, When::kLive, "game", "skip_intro",
+  g_rows.push_back(SettingsRow(kGameTab, "Skip intro videos", Kind::kBool, When::kLive, "game", "skip_intro",
                                "The logo and intro videos at start are not shown. The story's own cutscenes stay. "
                                "Holds from the next start (or the next of these videos)."));
-  g_rows.push_back(SettingsRow(3, "Frame rate display", Kind::kBool, When::kLive, "game", "fps_counter",
+  g_rows.push_back(SettingsRow(kGameTab, "Frame rate display", Kind::kBool, When::kLive, "game", "fps_counter",
                                "Frames per second and frame time in the top left corner."));
   {
-    Row r = SettingsRow(3, "Language", Kind::kChoice, When::kRestart, "game", "language",
+    Row r = SettingsRow(kGameTab, "Speech volume", Kind::kSlider, When::kLive, "audio", "speech_volume",
+                        "Dialogue, radio and shouts, apart from music and effects. 100 % = as the console.",
+                        [](const std::string& v) { fcp::speech::SetVolume(std::atoi(v.c_str())); });
+    r.min = 0.0f, r.max = 100.0f, r.step = 5.0f, r.format = "%.0f %%";
+    g_rows.push_back(std::move(r));
+  }
+  g_rows.push_back(SettingsRow(kGameTab, "Audio limiter", Kind::kBool, When::kLive, "audio", "limiter",
+                               "Turns the loudest moments (explosions) down for an instant instead of clipping them. "
+                               "Below full scale the sound is unchanged. Off = as before.",
+                               [](const std::string& v) { SetRuntime("apu.limiter", v == "true" ? "true" : "false"); }));
+  {
+    Row r = SettingsRow(kGameTab, "Language", Kind::kChoice, When::kRestart, "game", "language",
                         "Text and speech of the game, as the console's system language (the disc has all five). "
                         "Auto: the Windows display language (English when it is none of these). The game reads it at "
                         "start: Apply (restarts the game) below.");
     r.choices = {{"english", "English"}, {"french", "Francais"}, {"german", "Deutsch"},
                  {"spanish", "Espanol"}, {"italian", "Italiano"}, {"auto", "Auto (Windows)"}};
     g_rows.push_back(std::move(r));
+  }
+  SetInputDefaults();
+  if (!g_defaults) {
+    for (Row& r : g_rows) r.def = nullptr;  // FCP_MENU_DEFAULTS=0
   }
   for (Row& r : g_rows) r.start = r.get();
 }
@@ -467,6 +693,74 @@ int ChoiceIndex(const Row& r, const std::string& v) {
     for (size_t i = 0; i < r.choices.size(); ++i)
       if (std::strtod(r.choices[i].value.c_str(), nullptr) == d && r.choices[i].value != "auto") return int(i);
   return -1;
+}
+
+// "Defaults" (footer, one page): every row of the page with a default back to it, the rows the environment decides
+// left alone; the Input page also resets the key bindings, the Controller page the controller buttons. Device defaults (Steam Deck, ROG Xbox Ally X) are the
+// target where the device has one. Idea after FCI's settings menu (Far Cry Instincts Recomp, src/app/menu.cpp,
+// Defaults(), MIT, same author).
+bool HasDefaults(int tab) {
+  if (!g_defaults) return false;
+  for (const Row& r : g_rows)
+    if (r.tab == tab && r.def) return true;
+  return false;
+}
+
+void ResetPage(int tab, const char* why) {
+  int changed = 0, same = 0, env = 0, failed = 0;
+  bool restart = false;
+  for (Row& r : g_rows) {
+    if (r.tab != tab || !r.def) continue;
+    if (!r.override_note().empty()) {
+      ++env;
+      continue;
+    }
+    const std::string d = r.def();
+    if (SameValue(r.get(), d)) {
+      ++same;
+      continue;
+    }
+    const std::string error = r.set(d);
+    FCPLOG("settings menu: defaults: {} = {}{}", r.label, d, error.empty() ? "" : " FAILED: " + error);
+    if (!error.empty()) {
+      ++failed;
+      continue;
+    }
+    ++changed;
+    restart = restart || (r.when == When::kRestart && r.get() != r.start);
+  }
+  int bindings = 0;
+  if (tab == kInputTab) {
+    for (int i = 0; i < fcp::pc_input::BindingCount(); ++i) {
+      if (fcp::pc_input::BindingKeys(i) == fcp::pc_input::DefaultBindingKeys(i)) continue;
+      const std::string e = fcp::pc_input::Store("bindings", fcp::pc_input::BindingName(i),
+                                                 "\"" + fcp::pc_input::DefaultBindingKeys(i) + "\"");
+      e.empty() ? ++bindings : ++failed;
+    }
+  }
+  // the Controller page: the controller buttons of all 16 Xbox buttons too (as "All controller buttons to
+  // defaults"); with FCP_PAD_REMAP=0 there is no remapping to reset
+  if (tab == kControllerTab && fcp::pc_input::PadRemapOn()) {
+    for (int i = 0; i < fcp::pc_input::PadBindingCount(); ++i)
+      if (fcp::pc_input::PadBindingSources(i) != fcp::pc_input::DefaultPadBindingSources(i)) ++bindings;
+    if (bindings) {
+      const std::string e = fcp::pc_input::ResetPadBindings();
+      if (!e.empty()) {
+        FCPLOG("settings menu: defaults: controller buttons FAILED: {}", e);
+        bindings = 0;
+        ++failed;
+      }
+    }
+  }
+  FCPLOG("settings menu: defaults for the {} page ({}): {} changed, {} bindings, {} already default, {} set by the "
+         "environment, {} failed", kTabs[tab], why, changed, bindings, same, env, failed);
+  std::string text = std::format("{} defaults: {} setting{} changed", kTabs[tab], changed, changed == 1 ? "" : "s");
+  if (tab == kInputTab) text += std::format(", {} binding{}", bindings, bindings == 1 ? "" : "s");
+  if (tab == kControllerTab) text += std::format(", {} controller button{}", bindings, bindings == 1 ? "" : "s");
+  if (env) text += std::format(", {} set by the environment kept", env);
+  if (failed) text += std::format(", {} FAILED", failed);
+  if (restart) text += "; restart required";
+  Status(text);
 }
 
 void Change(Row& r, const std::string& value) {
@@ -512,6 +806,7 @@ void SetOpen(bool open, const char* why) {
     g_pad_armed = false;
   } else {
     g_capture = -1;
+    g_pad_capture = -1;
     g_ask = Ask::kNone;   // closing answers a pending question with no
     g_hide_chord = true;  // a held Back/Start does not reach the game after closing
   }
@@ -536,6 +831,7 @@ uint16_t ReadPads(rex::hid::PadState& merged) {
       auto bigger = [](int16_t a, int16_t b) { return std::abs(int(b)) > std::abs(int(a)) ? b : a; };
       merged.thumb_lx = bigger(merged.thumb_lx, s.thumb_lx);
       merged.thumb_ly = bigger(merged.thumb_ly, s.thumb_ly);
+      merged.extra |= s.extra;  // paddles, misc, touchpad, guide (the Controller page's capture)
     }
   }
   merged.buttons |= g_script_pad.load();
@@ -553,7 +849,7 @@ void FeedPads(ImGuiIO& io, const rex::hid::PadState& pad) {
     if (held) p = {}, b = 0;
     else g_pad_armed = true;
   }
-  if (g_capture >= 0) p = {}, b = 0;
+  if (g_capture >= 0 || g_pad_capture >= 0) p = {}, b = 0;
   auto key = [&](ImGuiKey k, uint16_t bit) { io.AddKeyEvent(k, (b & bit) != 0); };
   key(ImGuiKey_GamepadFaceDown, rex::hid::kPadA);
   key(ImGuiKey_GamepadFaceRight, rex::hid::kPadB);
@@ -653,6 +949,28 @@ void StoreBinding(int target, const std::string& keys) {
   Status(e.empty() ? std::format("binding {} = {}: applied and stored", name, keys) : "binding FAILED: " + e);
 }
 
+// The help text and, when the row has one, its default ("Default: 45 (Steam Deck OLED default)").
+std::string HelpText(const Row& r) {
+  std::string help = r.help ? r.help : "";
+  if (!r.def) return help;
+  const std::string d = r.def();
+  const int at = r.kind == Kind::kChoice ? ChoiceIndex(r, d) : -1;
+  const std::string shown = at >= 0 ? r.choices[size_t(at)].label : d;
+  return help + (help.empty() ? "" : "\n\n") + "Default: " + shown + (r.def_from.empty() ? "" : " (" + DefaultNote(r) + ")");
+}
+
+// A grey hint line that wraps at the page's edge (the Controller page's port hint was cut on the Deck at 1280x800).
+// FCP_MENU_WRAP_HINTS=0: one line as before.
+void HintText(const std::string& s) {
+  if (!g_wrap_hints) {
+    ImGui::TextDisabled("%s", s.c_str());
+    return;
+  }
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::TextWrapped("%s", s.c_str());
+  ImGui::PopStyleColor();
+}
+
 void DrawRowControl(Row& r, int index) {
   ImGui::PushID(index);
   const std::string value = r.get();
@@ -666,11 +984,37 @@ void DrawRowControl(Row& r, int index) {
     }
     case Kind::kChoice: {
       const int at = ChoiceIndex(r, value);
-      const std::string preview = at >= 0 ? r.choices[size_t(at)].label : value;
+      // the default's choice is marked ("- default", on a device "- Steam Deck OLED default")
+      const int def_at = r.def ? ChoiceIndex(r, r.def()) : -1;
+      const auto label = [&](int i) {
+        return r.choices[size_t(i)].label + (i == def_at ? " - " + DefaultNote(r) : std::string());
+      };
+      std::string preview = at >= 0 ? label(at) : value;
+      // A device's name makes the mark long ("Native (1280 x 800) - Steam Deck OLED default" was cut on the Deck at
+      // 1280x800): when the closed field is too narrow for it, it shows "- default"; the list and the help keep the
+      // device's name. A long choice can be too wide even then ("Desktop (1280 x 800 @ 90 Hz) - default" was cut on
+      // the Deck): the closed field then drops the mark, and a text that still does not fit ends in "...".
+      // FCP_MENU_SHORT_MARK=0: always the full mark, never shortened.
+      if (at >= 0 && g_short_mark) {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        const float room = ImGui::CalcItemWidth() - ImGui::GetFrameHeight() - st.FramePadding.x * 2;
+        const auto fits = [&](const std::string& s) { return ImGui::CalcTextSize(s.c_str()).x <= room; };
+        if (!fits(preview) && at == def_at && !r.def_from.empty()) preview = r.choices[size_t(at)].label + " - default";
+        if (!fits(preview) && at == def_at) preview = r.choices[size_t(at)].label;
+        if (!fits(preview)) {
+          std::string s = preview;
+          while (!s.empty() && !fits(s + "...")) {
+            while (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0x80) s.pop_back();  // UTF-8 tail
+            if (!s.empty()) s.pop_back();
+          }
+          while (!s.empty() && s.back() == ' ') s.pop_back();
+          preview = s + "...";
+        }
+      }
       if (ImGui::BeginCombo("##v", preview.c_str())) {
         for (size_t i = 0; i < r.choices.size(); ++i) {
           const bool selected = int(i) == at;
-          if (ImGui::Selectable(r.choices[i].label.c_str(), selected)) Change(r, r.choices[i].value);
+          if (ImGui::Selectable(label(int(i)).c_str(), selected)) Change(r, r.choices[i].value);
           if (selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
@@ -693,7 +1037,8 @@ void DrawRowControl(Row& r, int index) {
       break;
     }
   }
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && r.help) ImGui::SetItemTooltip("%s", r.help);
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && (r.help || r.def))
+    ImGui::SetItemTooltip("%s", HelpText(r).c_str());
   ImGui::PopID();
 }
 
@@ -710,7 +1055,7 @@ void DrawRows(int tab, float em) {
     ImGui::TableNextColumn();
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(r.label);
-    if (ImGui::IsItemHovered() && r.help) ImGui::SetTooltip("%s", r.help);
+    if (ImGui::IsItemHovered() && (r.help || r.def)) ImGui::SetTooltip("%s", HelpText(r).c_str());
     ImGui::TableNextColumn();
     DrawRowControl(r, int(i));
     ImGui::TableNextColumn();
@@ -753,6 +1098,7 @@ void DrawBindings(float em) {
     ImGui::TableNextColumn();
     if (ImGui::SmallButton("Change")) {
       g_capture = i;
+      g_pad_capture = -1;
       Status(std::format("waiting for a key for {}", name));
     }
     ImGui::SameLine();
@@ -762,7 +1108,179 @@ void DrawBindings(float em) {
     ImGui::PopID();
   }
   ImGui::EndTable();
-  ImGui::TextDisabled("Controller buttons can be remapped in predator_input.toml ([pad] pad_bind_<button>).");
+  ImGui::TextDisabled("Controller buttons: see the Controller page.");
+}
+
+// ---- Controller page: the ports, the pad settings, the controller buttons per Xbox button ----
+// After FCI's CONTROLLER page (Far Cry Instincts Recomp, src/app/menu.cpp DrawController / PollPadCapture, MIT, same
+// author): a port list, the general rows, a row per Xbox button with a capture that waits until every button was let
+// go, then takes the next one pressed; a controller button is bound once. Rewritten for this menu's table layout.
+void PadStatus(const std::string& what, const std::string& error) {
+  Status(error.empty() ? what + ": applied and stored" : what + " FAILED: " + error);
+}
+
+void StartPadCapture(int target, bool add) {
+  g_capture = -1;
+  g_pad_capture = target;
+  g_pad_capture_add = add;
+  g_pad_capture_armed = false;
+  g_pad_capture_until = Now() + kPadCaptureSeconds;
+  Status(std::format("press a controller button for {} ({}; Escape or {:.0f} s: unchanged)",
+                     BindingLabel(fcp::pc_input::PadBindingName(target)), add ? "added" : "in place of the list",
+                     kPadCaptureSeconds));
+}
+
+// UI thread, every frame while the menu is open: the pads' merged reading (ReadPads)
+void PollPadCapture(const rex::hid::PadState& pad) {
+  if (g_pad_capture < 0) return;
+  const std::string source = fcp::pc_input::PressedPadSource(pad);
+  const bool held = !source.empty() || pad.buttons != 0;
+  if (Now() > g_pad_capture_until) {
+    Status(std::format("binding unchanged (no controller button within {:.0f} s)", kPadCaptureSeconds));
+    g_pad_capture = -1;
+    return;
+  }
+  if (!g_pad_capture_armed) {
+    g_pad_capture_armed = !held;  // the button that started the capture (A) is let go first
+    return;
+  }
+  if (source.empty()) return;
+  const int target = g_pad_capture;
+  g_pad_capture = -1;
+  g_pad_armed = false;  // the button that bound acts in the menu only once let go
+  const std::string name = fcp::pc_input::PadBindingName(target);
+  PadStatus(std::format("controller {} {} {}", name, g_pad_capture_add ? "+=" : "=", source),
+            fcp::pc_input::SetPadBinding(target, source, g_pad_capture_add));
+}
+
+const char* PadTypeName(rex::hid::PadType t) {
+  using T = rex::hid::PadType;
+  switch (t) {
+    case T::kX360: return "Xbox 360";
+    case T::kXOne: return "Xbox One / Series";
+    case T::kPS3: return "PlayStation 3";
+    case T::kPS4: return "PlayStation 4";
+    case T::kPS5: return "PlayStation 5";
+    case T::kSwitchPro: return "Switch Pro";
+    case T::kSwitchJoyCon: return "Joy-Con";
+    case T::kStandard: return "generic";
+    default: return "";
+  }
+}
+
+// the SDK's pad list, read at most twice a second
+std::vector<rex::hid::IInputSystem::PadListing> g_pads;
+double g_pads_at = -1;
+
+void DrawPorts(float em) {
+  if (g_pads_at < 0 || Now() - g_pads_at > 0.5) {
+    g_pads_at = Now();
+    rex::hid::IInputSystem* input = fcp::pc_input::Input();
+    g_pads = input ? input->ListPads() : std::vector<rex::hid::IInputSystem::PadListing>{};
+  }
+  ImGui::SeparatorText("Controllers");
+  const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+  if (ImGui::BeginTable("ports", 2, flags)) {
+    ImGui::TableSetupColumn("port", ImGuiTableColumnFlags_WidthFixed, em * 14);
+    ImGui::TableSetupColumn("pad", ImGuiTableColumnFlags_WidthStretch);
+    const bool off = fcp::pc_input::GetLive().backend == "off";
+    auto line = [](const rex::hid::IInputSystem::PadListing& p) {
+      const char* type = PadTypeName(p.info.type);
+      std::string s = p.name.empty() ? std::string("controller") : p.name;
+      s += *type ? std::format(" ({}, {})", type, p.driver) : std::format(" ({})", p.driver);
+      return s;
+    };
+    for (uint32_t port = 0; port < 4; ++port) {
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::AlignTextToFramePadding();
+      ImGui::Text("Port %u%s", port + 1, port == 0 ? " (also keyboard and mouse)" : "");
+      ImGui::TableNextColumn();
+      std::string text;
+      for (const auto& p : g_pads)
+        if (p.user == port) text += (text.empty() ? "" : " + ") + line(p);
+      ImGui::AlignTextToFramePadding();
+      if (text.empty()) ImGui::TextDisabled("-");
+      else if (off) ImGui::TextDisabled("%s (driver off: the game does not see it)", text.c_str());
+      else ImGui::TextUnformatted(text.c_str());
+    }
+    for (const auto& p : g_pads) {
+      if (p.user < 4) continue;
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextDisabled("No port");
+      ImGui::TableNextColumn();
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextDisabled("%s", line(p).c_str());
+    }
+    ImGui::EndTable();
+  }
+  HintText("A controller keeps its port until it is unplugged; the next one takes the lowest free port "
+           "(XInput pads their XInput number).");
+}
+
+void DrawPadBindings(float em) {
+  ImGui::SeparatorText("Controller buttons (all ports)");
+  if (!fcp::pc_input::PadRemapOn()) {
+    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "FCP_PAD_REMAP=0 is set: every button acts as itself.");
+    return;
+  }
+  if (g_pad_capture >= 0) {
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Press a controller button for %s (Escape or %.0f s: unchanged)",
+                       BindingLabel(fcp::pc_input::PadBindingName(g_pad_capture)).c_str(),
+                       std::max(0.0, g_pad_capture_until - Now()));
+  }
+  const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+  if (ImGui::BeginTable("padbinds", 3, flags)) {
+    ImGui::TableSetupColumn("target", ImGuiTableColumnFlags_WidthFixed, em * 14);
+    ImGui::TableSetupColumn("sources", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("buttons", ImGuiTableColumnFlags_WidthFixed, em * 15);
+    for (int i = 0; i < fcp::pc_input::PadBindingCount(); ++i) {
+      ImGui::PushID(1000 + i);
+      const std::string name = fcp::pc_input::PadBindingName(i);
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted(BindingLabel(name).c_str());
+      ImGui::TableNextColumn();
+      ImGui::AlignTextToFramePadding();
+      const std::string sources = fcp::pc_input::PadBindingSources(i);
+      std::string shown = sources;
+      for (char& c : shown) c = char(std::toupper(static_cast<unsigned char>(c)));
+      if (g_pad_capture == i) ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "...");
+      else if (sources == fcp::pc_input::DefaultPadBindingSources(i)) ImGui::TextUnformatted(shown.c_str());
+      else ImGui::TextColored(ImVec4(0.55f, 0.85f, 1.0f, 1.0f), "%s", shown.c_str());
+      ImGui::TableNextColumn();
+      if (ImGui::SmallButton("Change")) StartPadCapture(i, false);
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetItemTooltip("Waits for a controller button: it acts as this button (and leaves any other).");
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Add")) StartPadCapture(i, true);
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetItemTooltip("Waits for a further controller button for this button.");
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Clear")) PadStatus("controller " + name + " = none", fcp::pc_input::ClearPadBinding(i));
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Default"))
+        PadStatus("controller " + name + " = default", fcp::pc_input::DefaultPadBinding(i));
+      ImGui::PopID();
+    }
+    ImGui::EndTable();
+  }
+  if (ImGui::Button("All controller buttons to defaults"))
+    PadStatus("controller buttons = defaults", fcp::pc_input::ResetPadBindings());
+  HintText("Blue: changed. The menu itself always uses the controller's own buttons.");
+  ImGui::TextWrapped("Buttons: %s.", fcp::pc_input::PadSourceList().c_str());
+  if (!fcp::pc_input::PadExtraBindable())
+    HintText("FCP_PAD_EXTRA=0: paddles, misc and touchpad act as before (paddles on A/B/X/Y).");
+}
+
+void DrawController(float em) {
+  DrawPorts(em);
+  ImGui::SeparatorText("General");
+  DrawRows(kControllerTab, em);
+  DrawPadBindings(em);
 }
 
 std::string ReadVersionFile() {
@@ -927,6 +1445,15 @@ void DrawAsk(const ImGuiIO& io, float em) {
 void DrawMenu(ImGuiIO& io) {
   const float px = FontPx(io);
   const float em = px;
+  {
+    // DPI check in the log: layout in points, font rasterized at the framebuffer scale (rexglue change 351)
+    static float last_w = 0, last_h = 0, last_scale = 0;
+    if (io.DisplaySize.x != last_w || io.DisplaySize.y != last_h || io.DisplayFramebufferScale.x != last_scale) {
+      last_w = io.DisplaySize.x, last_h = io.DisplaySize.y, last_scale = io.DisplayFramebufferScale.x;
+      FCPLOG("settings menu: display {:.0f}x{:.0f} points, framebuffer scale {:.2f}, font {:.1f} points = {:.1f} pixels",
+             last_w, last_h, last_scale, px, px * last_scale);
+    }
+  }
   ImGui::PushFont(g_font, px);
   const float k = px / 13.0f;
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12 * k, 10 * k));
@@ -964,10 +1491,19 @@ void DrawMenu(ImGuiIO& io) {
       for (int t = 0; t < kTabCount; ++t) {
         const ImGuiTabItemFlags tf = g_select_tab == t ? ImGuiTabItemFlags_SetSelected : 0;
         if (ImGui::BeginTabItem(kTabs[t], nullptr, tf)) {
+          g_page = t;
           ImGui::BeginChild("page", ImVec2(0, -footer), ImGuiChildFlags_NavFlattened);
-          if (t < 4) DrawRows(t, em);
-          if (t == 2) DrawBindings(em);
-          if (t == 4) DrawAbout();
+          if (t == kControllerTab) DrawController(em);
+          else if (t < kAboutTab) DrawRows(t, em);
+          if (t == kInputTab) DrawBindings(em);
+          if (t == kAboutTab) DrawAbout();
+          // a line of room below the last line: scrolled to the end, the page's last text line (the Controller
+          // page's button names, the Input page's note) was cut off at the bottom edge (seen in staging-v030)
+          ImGui::Dummy(ImVec2(0, ImGui::GetFrameHeightWithSpacing()));
+          if (g_scroll_to >= 0) {
+            ImGui::SetScrollY(g_scroll_to * ImGui::GetScrollMaxY());
+            g_scroll_to = -1;
+          }
           ImGui::EndChild();
           ImGui::EndTabItem();
         }
@@ -995,7 +1531,18 @@ void DrawMenu(ImGuiIO& io) {
                                     "checkpoint is lost)."
                                   : "Restarts the game now; the window and display mode stay.");
     }
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - em * 5);
+    // Defaults (this page only) left of Close; not on About
+    const float right = ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX();
+    if (HasDefaults(g_page)) {
+      ImGui::SameLine(right - em * 11 - ImGui::GetStyle().ItemSpacing.x);
+      if (ImGui::Button("Defaults", ImVec2(em * 6, 0))) ResetPage(g_page, "button");
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetItemTooltip("Sets the settings of this page (%s) back to their defaults%s. Other pages stay.",
+                              kTabs[g_page], g_page == kInputTab        ? ", the key bindings too"
+                                             : g_page == kControllerTab ? ", the controller buttons too"
+                                                                        : "");
+    }
+    ImGui::SameLine(right - em * 5);
     if (ImGui::Button("Close", ImVec2(em * 5, 0))) keep = false;
   }
   if (!asking) ImGui::End();
@@ -1024,7 +1571,7 @@ void PostKey(const std::string& name) {
   auto native = g_ui->GetNativeWindow();
   HWND hwnd = native ? static_cast<HWND>(native->window) : nullptr;
   const std::string n = Lower(name);
-  const int vk = n == "f10" ? VK_F10 : n == "escape" ? VK_ESCAPE : n == "enter" ? VK_RETURN : n == "up" ? VK_UP
+  const int vk = n == "f10" ? VK_F10 : n == "f11" ? VK_F11 : n == "escape" ? VK_ESCAPE : n == "enter" ? VK_RETURN : n == "up" ? VK_UP
                  : n == "down" ? VK_DOWN : n == "left" ? VK_LEFT : n == "right" ? VK_RIGHT : n == "space" ? VK_SPACE : 0;
   if (!hwnd || !vk) {
     FCPLOG("FCP_TEST_MENU: post={}: {}", name, hwnd ? "unknown key" : "no window");
@@ -1069,9 +1616,17 @@ void RunScript() {
     if (verb == "open") SetOpen(true, "FCP_TEST_MENU");
     else if (verb == "close") SetOpen(false, "FCP_TEST_MENU");
     else if (verb == "toggle") SetOpen(!g_open.load(), "FCP_TEST_MENU");
+    else if (verb == "scroll") g_scroll_to = std::clamp(float(std::atof(arg.c_str())), 0.0f, 1.0f);
     else if (verb == "tab") {
       for (int t = 0; t < kTabCount; ++t)
         if (Lower(kTabs[t]) == Lower(arg)) g_select_tab = t;
+    } else if (verb == "defaults") {
+      // as a click on Defaults: the page shown, or defaults=<tab>
+      int tab = g_page;
+      for (int t = 0; t < kTabCount; ++t)
+        if (!arg.empty() && Lower(kTabs[t]) == Lower(arg)) tab = t;
+      if (HasDefaults(tab)) ResetPage(tab, "FCP_TEST_MENU");
+      else FCPLOG("FCP_TEST_MENU: the {} page has no defaults", kTabs[tab]);
     } else if (verb == "dump") {
       fcp::render::RequestPresentDump(arg.empty() ? "menu.png" : arg);
     } else if (verb == "set" || verb == "input") {
@@ -1112,6 +1667,29 @@ void RunScript() {
       g_script.push_back({now + 0.2, "padup=" + arg});
     } else if (verb == "padup") {
       g_script_pad = uint16_t(g_script_pad.load() & ~PadBits(arg));
+    } else if (verb == "padbind" || verb == "padadd" || verb == "padclear" || verb == "paddefault" ||
+               verb == "padcapture" || verb == "padcaptureadd") {
+      // the Controller page's buttons: <target>[:<source>] (target and source as pad_bind_ names)
+      const size_t colon = arg.find(':');
+      const std::string name = Lower(Trim(arg.substr(0, colon)));
+      const std::string source = colon == std::string::npos ? "" : Lower(Trim(arg.substr(colon + 1)));
+      int target = -1;
+      for (int t = 0; t < fcp::pc_input::PadBindingCount(); ++t)
+        if (fcp::pc_input::PadBindingName(t) == name) target = t;
+      if (target < 0) {
+        FCPLOG("FCP_TEST_MENU: '{}': unknown controller button '{}'", w, name);
+      } else if (verb == "padbind" || verb == "padadd") {
+        PadStatus(std::format("controller {} {} {}", name, verb == "padadd" ? "+=" : "=", source),
+                  fcp::pc_input::SetPadBinding(target, source, verb == "padadd"));
+      } else if (verb == "padclear") {
+        PadStatus("controller " + name + " = none", fcp::pc_input::ClearPadBinding(target));
+      } else if (verb == "paddefault") {
+        PadStatus("controller " + name + " = default", fcp::pc_input::DefaultPadBinding(target));
+      } else {
+        StartPadCapture(target, verb == "padcaptureadd");
+      }
+    } else if (verb == "padreset") {
+      PadStatus("controller buttons = defaults", fcp::pc_input::ResetPadBindings());
     } else {
       FCPLOG("FCP_TEST_MENU: unknown action '{}'", w);
     }
@@ -1165,9 +1743,12 @@ class MenuDialog final : public rex::ui::DialogBase {
       g_pad_armed = false;
     }
     if (g_open.load()) {
+      const bool capturing = g_pad_capture >= 0;
+      PollPadCapture(pad);
       FeedPads(io, pad);
-      // B closes, as Escape does (not while a binding waits for a key)
-      if (g_pad_armed && g_capture < 0 && (buttons & rex::hid::kPadB) && !(g_pad_prev & rex::hid::kPadB) &&
+      // B closes, as Escape does (not while a binding waits for a key or a controller button)
+      if (g_pad_armed && g_capture < 0 && !capturing && g_pad_capture < 0 && (buttons & rex::hid::kPadB) &&
+          !(g_pad_prev & rex::hid::kPadB) &&
           !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
         if (g_ask != Ask::kNone) CancelAsk("B");  // Exit Game's / Apply's question: back to the settings
         else SetOpen(false, "B");
@@ -1197,6 +1778,13 @@ class Hotkeys final : public rex::ui::IUIEventListener {
   void OnUIEvent(const rex::ui::UIEvent&) override {}
   void OnInputEvent(rex::InputEvent& e) override {
     using T = rex::InputEvent::Type;
+    if (g_pad_capture >= 0 && g_open.load() && e.type == T::kKeyDown && !e.repeat &&
+        e.key == rex::VirtualKey::kEscape) {
+      e.handled = true;
+      Status("binding unchanged");
+      g_pad_capture = -1;
+      return;
+    }
     if (g_capture >= 0 && g_open.load()) {
       std::string key;
       if (e.type == T::kKeyDown && !e.repeat) {
@@ -1269,6 +1857,9 @@ void Attach(rex::ui::IUISystem& ui) {
   }
   g_ui = &ui;
   g_pause = fcp::env::Flag("FCP_MENU_PAUSE", true);
+  g_defaults = fcp::env::Flag("FCP_MENU_DEFAULTS", true);
+  g_short_mark = fcp::env::Flag("FCP_MENU_SHORT_MARK", true);
+  g_wrap_hints = fcp::env::Flag("FCP_MENU_WRAP_HINTS", true);
   ParseScript();
   g_hotkeys_guard = ui.AddEventListener(g_hotkeys);
   ui.PostTask([&ui] {

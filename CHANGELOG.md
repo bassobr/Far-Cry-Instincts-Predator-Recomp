@@ -4,6 +4,165 @@ All notable changes of Far Cry Instincts Predator Recomp. Versions follow `VERSI
 Statements about behaviour are measurements from test runs on a Windows PC unless marked otherwise; see the
 [README](README.md) and [docs/en](docs/en) for the details.
 
+## 0.9.0 (2026-11-16)
+
+### Added
+
+- **Controller page in the F10 menu:** the connected controllers and their port (1-4), dead zone, vibration and
+  controller driver (moved from Input), and the controller buttons of all 16 Xbox buttons with a "press a button"
+  capture (Change, Add, Clear, Default, all to defaults), stored in `predator_input.toml` (`[pad] pad_bind_*`) and in
+  force at once. The further buttons SDL 3 reports are bindable too: `guide`, `misc1` (share/capture/mic), the four
+  paddles (Xbox Elite, Steam Deck back buttons without Steam Input), `touchpad`, `misc2`..`misc6`. Without an entry
+  the paddles still act as A/B/X/Y as before. Only buttons are mapped onto buttons (no turbo, no macros).
+  `FCP_PAD_EXTRA=0` restores the earlier handling of the extra buttons, `FCP_PAD_REMAP=0` turns all controller
+  remapping off. Tested with virtual SDL pads; not yet with a real controller.
+- **Free frame rate limit:** `[display] fps` takes 30 or any whole number from 40 to 120, or `auto` (the refresh
+  rate of the window's monitor, at most 120). 31 to 39 and over 120 stay out: the game logic corrections need frames
+  well under 30 ms and were not checked above 120 (see [FRAMERATE.md](docs/en/FRAMERATE.md)). The F10 menu lists
+  Auto, 30, 40, 45, 50, 60, 72, 75, 90, 100, 120 and the monitor's own rate.
+- **Frame rate, VSync and frame pacing switch at once** in the F10 menu, without a restart (`FCP_FPS_LIVE=0`: at the
+  next start, as before).
+- **`[display] frame_queue`** (F10 → Display → Frames ahead): 1-3 game frames that may wait on the GPU (2 as before;
+  1 less input latency). Switches at once. Earlier only `FCP_RENDER_FRAMES_AHEAD`.
+- **F11** switches between window and fullscreen like Alt+Enter (`FCP_F11=0` turns it off).
+- **"Defaults" on every page of the F10 menu** sets only that page's settings back (the Input page also its key
+  bindings, the Controller page also the controller buttons). On a Steam Deck or ROG Xbox Ally X the device's
+  defaults are the target, and the menu marks the default of each choice ("- default", "- Steam Deck OLED default";
+  `FCP_MENU_DEFAULTS=0` turns both off). A closed field too narrow for the device's name shows "- default"
+  (`FCP_MENU_SHORT_MARK=0`: always the full mark).
+- On a 90 Hz display (Steam Deck OLED) `auto` means 90 frames/s without display pacing, which the Deck does not
+  hold in every level (73-77 in `21_dunea`, measured): 45 is smoother there. The frame rate help in the F10 menu,
+  the README and CONFIGURATION say so.
+- **Speech volume** (`[audio] speech_volume`, 0-100 %, default 100 = as the console; F10 menu, Game tab): the game's
+  speech (dialogue, radio, enemy shouts) apart from music and effects. The port recognises the speech by the game's
+  language sound banks and lowers it in the XMA decoder before the game mixes it; the game's mix, 3D placement and
+  timing stay as they are. Measured in `00_training` and `21_dunea`: every decoded XMA frame was assigned (0 unknown);
+  at 50 % the speech is 6.0 dB quieter, at 0 % silent, music and effects unchanged. Speech can only be lowered.
+  `FCP_SPEECH_VOLUME=100` (or `FCP_SPEECH_TRACK=0`) keeps the decoder's output as before.
+- **Audio limiter** (`[audio] limiter`, default on; F10 menu, Game tab): a peak limiter after the downmix to the
+  speakers (ceiling -0.3 dBFS, 1.3 ms look-ahead, 100 ms release) instead of hard clipping. Below the ceiling every
+  sample passes unchanged (measured bit for bit, only 63 samples later). Measured in `21_dunea`: on a stereo device
+  the mix stayed below full scale (the limiter acted once, -0.01 dB for 0.7 s); for a 5.1 device the left surround
+  reaches +4.1 dBFS, which the limiter turns into short dips (more than 1 dB in under 1 % of the time) instead of
+  clipping. `FCP_AUDIO_LIMITER=0` restores the clipping.
+- **Colour blind mode** (`[graphics] colour_blind` = off | protanopia | deuteranopia | tritanopia, default off; F10
+  menu, Graphics tab): daltonization of the finished picture in the last blit before the output (Vulkan and Direct3D
+  12; measured against the expected colour matrix: at least 99.8 % of the pixels within 1 of 255). `off` leaves the
+  final blit exactly as before (shown picture bit for bit equal to the game's frame).
+- **Exclusive fullscreen with a chosen video mode:** `[display] exclusive_mode` = `desktop` (the default) or
+  `"WxH@Hz"`; the F10 menu (Display, "Exclusive mode") lists the modes of the window's monitor and switches at once.
+  Measured with Vulkan and Direct3D 12 on one monitor: Alt+Tab gives the desktop its mode back and the game its own
+  mode on return, F11 / Alt+Enter, menu changes and a restart work without a black picture, and the frame rate
+  settles at the mode's rate again. A game started behind another program no longer keeps the video mode
+  (`FCP_EXCLUSIVE_BACKGROUND_MINIMIZE=0`). Vulkan makes an out-of-date swapchain anew at once
+  (`FCP_RENDER_RECREATE_LOST=0`).
+- **Per-monitor display scaling (DPI):** the process is per-monitor DPI aware (v2) from its first step. The built-in
+  window size 1280x720 is meant at 100 % and grows with the monitor's scale (125 %: 1600x900); a window moved to a
+  monitor with another scale keeps its size on the screen; the F10 menu's text is rasterized at the display's pixel
+  density (sharp at 125-200 %). Sizes set in `predator.toml` stay exact pixels. `FCP_DPI_WINDOW=0`,
+  `FCP_DPI_EARLY=0`, `REX_IMGUI_DPI_RASTER=0` restore the earlier behaviour. Measured at a real 125 %; 100, 150,
+  200 % and moving between monitors only with a simulated scale (no second monitor available).
+- **HUD at the picture's edges** (`[graphics] hud_aspect`, experimental, F10 menu "HUD layout", switches at once):
+  `auto` moves radar, health, stance, ammunition, the hints at the top left and the compass to the edges of a 21:9 or
+  32:9 picture (to the sides) or a 16:10 picture (up and down); a shape such as `"21:9"` uses the edges of a box of that
+  shape. Crosshair, prompts in the middle, scope and binocular views, the pause menu, menus, loading screens and videos
+  stay in the 16:9 band. Default `"16:9"`: the whole HUD in the band as before.
+- **PC level of detail:** `[graphics] lod_distance` (distance at which vegetation, buildings and characters switch to
+  simpler models and trees to sprites) and `view_distance` (how far they are drawn), each a multiple of the
+  console's (0.5 to 8; default `1` = the console's values, also on the Steam Deck). They scale the engine's own
+  variables `e_obj_lod_ratio`, `e_obj_sprite_switch_dist_ratio` and `e_obj_view_dist_ratio`; only drawing changes,
+  not the game logic. In the F10 menu under Graphics, switch at once. `FCP_LOD_DISTANCE`, `FCP_VIEW_DISTANCE`.
+- **Shadow distance:** `[graphics] shadow_distance` (1 to 4, default `1` = the console) makes the sun's dynamic
+  shadows reach that many times further (the console: a square of 16-20 m ahead); the shadow map grows with it, so
+  the shadows stay as sharp (at most 8192x8192). Needs a restart; in the F10 menu under Graphics.
+  `FCP_SHADOW_DISTANCE`.
+- **Soft shadow edges:** `[graphics] shadow_filter = "soft"` filters the dynamic shadows over 4x4 shadow map texels
+  (3x3 bilinear comparisons) instead of the game's 2x2, without stair steps at the edges. Default `console`. In the
+  F10 menu under Graphics, switches at once. `FCP_RENDER_SHADOW_FILTER`. The shader translator's version is now 8:
+  the shader pack is built again at the first start.
+- **Ambient occlusion:** `[graphics] ao = "ssao"` or `"gtao"` darkens creases, corners and contact areas of the
+  opaque 3D scene (screen space, from the scene's depth and the game camera's projection; GTAO after Intel's XeGTAO).
+  It goes in after the opaque world and before the sky, water, particles, alpha-blended grass, the weapon and the
+  HUD, and fades out between 35 and 90 m. Default `off` = the console's picture (no pass at all). In the F10 menu
+  under Graphics, switches at once. `FCP_RENDER_AO`; diagnostics in [DEBUG-SWITCHES](docs/en/DEBUG-SWITCHES.md).
+- **Texture packs** ([docs/en/TEXTURE-PACKS.md](docs/en/TEXTURE-PACKS.md)): `[graphics] texture_dump = true` writes
+  every texture the game uses once into `textures\dump\` of the user folder, named by a hash of its content, format
+  and size (`<hash>_<w>x<h>_<format>.png|dds`; the same name in every run and level). Block compressed textures are
+  written unchanged as DDS with their mip levels, 8-bit colour textures as uncompressed PNG, cube maps as DDS.
+  `[graphics] texture_replace = true` draws images from `textures\replace\` (PNG, or DDS with BC1-BC5, BC7 or RGBA8,
+  cube maps as cube DDS) instead, at any resolution, with their own mips or a generated chain; loaded on a background
+  thread, uploaded with a per-frame budget, and picked up while the game runs when the folder changes. Render
+  targets, resolve targets and textures the game keeps rewriting (videos) are never dumped or replaced. Both off by
+  default (`FCP_TEXTURE_DUMP`, `FCP_TEXTURE_REPLACE`).
+- **HDR10 output:** `[display] hdr = "on"` or `"auto"` (on when Windows HDR is on for the game's monitor) presents
+  through an HDR10 swapchain (PQ, BT.2020; Vulkan and Direct3D 12). The game's SDR picture keeps its look and is shown
+  with its white at `hdr_paper_white` (default 200 nits); HUD, menus and the F10 menu stay at paper white.
+  `hdr_boost` (0 to 1, default 0 = off) optionally stretches the highlights towards `hdr_peak` (default: what Windows
+  reports for the monitor). Without an HDR10 swapchain the log says why and the output stays SDR. Default `off` =
+  the SDR output as before. In the F10 menu under Display, switches at once. `FCP_HDR`; checking without an HDR
+  display: `tools\hdr_check.py` ([DEBUG-SWITCHES](docs/en/DEBUG-SWITCHES.md)).
+- **Frame rates above 120, unsupported:** `[display] unsupported_uncapped_fps = true` lets `fps` and `auto` go up to
+  240; the F10 menu then lists 144, 165 and 240 marked "unsupported". The game logic was audited at 144 and 240
+  (falls, landing, turning, swimming, boats, drowning, fire rate, vehicles): what still differs is listed in
+  [FRAMERATE.md](docs/en/FRAMERATE.md#above-120-unsupported), among it a rifle fire rate 7-12 % off at 144 and 165.
+
+### Fixed
+
+- **Split screen on 21:9 and 16:10** (2-4 players; Main menu → Multiplayer → Splitscreen): every player's HUD,
+  crosshair and binoculars are round and inside their own view again (before they were stretched by the picture's
+  shape), the views on the right no longer show a duplicated strip at their left edge, with 3 players at 16:10 no
+  leftover of the lobby shows between the right-hand views, and 2 players side by side get the wider (or taller) view
+  like the single player game instead of a stretched picture. `hud_aspect = "auto"` moves the HUD to the edges of each
+  view; the team score and time stay together in the middle. Ambient occlusion is applied to every view (before only
+  the first one). At 16:9 nothing changes. `FCP_RENDER_SPLIT_VIEW=0` restores the earlier handling. Tested with
+  virtual controllers on one map with 2, 3 and 4 players, both "widescreen split" layouts, Vulkan and Direct3D 12;
+  32:9 and the sniper scope in split screen are not tested.
+- **Binoculars and scopes on 21:9, 32:9 and 16:10:** the mask now stays round in the middle and covers the whole
+  picture; before, its frame or bars were stretched over the picture and the world showed beside the lenses or the
+  circle (21:9, 32:9) or above and below them (16:10). `FCP_RENDER_SCREEN_MASK=0` restores the old classification.
+- **Even camera turns above 30 frames/s** (issue #2): the game's frame timer counts whole milliseconds, so at
+  60 frames/s the world moved by 15-18 ms per frame while frames reach the display every 16.7 ms, and turning moved
+  the view 4 % more or less from frame to frame. Above 30 frames/s the game now gets the target frame time plus a
+  tenth of the time still owed; the sum stays the clock's (measured: turn per frame sd 0.3 % instead of 3.7-4.1 %, 1 s
+  of full stick 250.1 degrees as before). `FCP_FRAME_DT_SMOOTH=0` restores the whole milliseconds. The fire rate
+  and script timer corrections keep reading the clock's whole milliseconds (with the even values the assault rifle
+  fired 2-8 % slower and drowning hurt 8-10 % more at 60 and 120 frames/s; measured now: 8.8-9.1 shots/s and
+  7.14 HP/s at 30, 45, 60 and 120, as at 30). `FCP_FRAME_DT_RAW_CLOCK=0` lets them read the even values.
+- **Drowning above 30 frames/s:** a 50 ms script timer measured at 49 ms on the whole-millisecond clock took the
+  correction's fallback (whole frames, 64 ms at 60 frames/s), so drowning dealt 7.3-7.4 instead of 7.14 HP/s at 60
+  and 120 frames/s. The measured interval now counts from 3 ms below the period (measured: 7.14 HP/s, death after
+  13.9 s at 30, 45, 60 and 120). `FCP_FRAME_TIMER_SLACK_MS=0` restores the earlier test.
+- **Device allocations that run short** (issue #1, missing textures or flat objects after a long session; the cause
+  of the report is not confirmed): a texture or buffer the graphics driver refuses is now logged (`refused by the
+  device`) and tried again later instead of staying black or empty, and entries not bound for a while (textures,
+  vertex and index buffers) are evicted after a refusal or once the estimated allocation count reaches 3/4 of the
+  driver's limit (`FCP_RENDER_ALLOC_EVICT=0` turns the eviction off). Under Vulkan guest textures share 64 MiB memory
+  blocks when the driver allows at most 65536 allocations (`FCP_RENDER_VK_TEXTURE_POOL=0|1`). The log states the
+  driver's limit (`[vulkan] memory:`) and the allocations (`renderer: allocations:`).
+- **Wheeled vehicles above 50 frames/s:** the wheel impulses (engine, brakes, suspension, tyre grip) now run at most
+  50 times per second, as the console's physics does. Measured before: the Humvee in Dead Marshes reached 19.1-19.2
+  instead of 17.3-17.4 m/s at 120-240 frames/s, the quad was 3 % slower at 240; now the quad accelerates as at 30 and
+  the Humvee is within 1-3 % of its speed at 30 (20 m from rest up to 5 % sooner or later). `FCP_FRAME_VEHICLE=1`
+  restores the old behaviour.
+- **`predator.toml` stays valid TOML when the first start stores the disc image it found:** the path was written as
+  `image = "D:\Games\..."`, which the game reads but other TOML tools reject (`\G` is no valid escape there). A value
+  with a backslash is now written as a literal string, `image = 'D:\Games\...'` (the game reads both).
+  `FCP_TOML_LITERAL=0` writes `"..."` as before.
+- **F10 menu at 1280x800 (Steam Deck):** "Exclusive mode" showed "Desktop (1280 x 800 @ 90 Hz) - defau"; a closed
+  field whose text does not fit now drops the default mark and, if still too long, ends in "..." (the list and the
+  help show the full text; `FCP_MENU_SHORT_MARK=0` as before). The grey hints of the Controller page ("... their
+  XInput number") wrap instead of being cut (`FCP_MENU_WRAP_HINTS=0` as before).
+- **Release folder:** `TEXTURE-PACKS.md` is part of it; the comment of `texture_replace` in `predator.toml` points to
+  it.
+
+### Known issues
+
+- HDR10 is checked by measurement only, not yet on a real HDR display; under Proton (Steam Deck) the game gets no HDR
+  surface and stays SDR.
+- Split screen: a thin strip of the world can show beside the binoculars of the right-hand player at 21:9.
+- At 144 and 165 frames/s (unsupported) the assault rifle fires 7-12 % off.
+- The graphics glitches of issue #1 and the lighting switch of issue #2 are not reproduced yet.
+
 ## 0.2.0 (2026-11-15)
 
 ### Added

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -82,6 +83,72 @@ double ReadDouble(uint8_t* base, uint32_t address) {
   uint64_t v;
   std::memcpy(&v, fcp::guest::Ptr(base, address), 8);
   return std::bit_cast<double>(__builtin_bswap64(v));
+}
+
+void WriteDouble(uint8_t* base, uint32_t address, double d) {
+  const uint64_t v = __builtin_bswap64(std::bit_cast<uint64_t>(d));
+  std::memcpy(fcp::guest::Ptr(base, address), &v, 8);
+}
+
+// ---- even frame time (FCP_FRAME_DT_SMOOTH=0: the game's whole-ms frame time, as before) ----
+// The frame timer's clock gives whole ms (0x823177E8, docs/phase0/engine-abgleich.md), so at 60 frames/s the frame
+// time the game moves the world by is 15-18 ms (measured, 06_cliffs: sd 0.7 ms, 1.0 ms against the wall interval)
+// while the frames reach the display every 16.7 ms: a turn moves by 4 % more or less from frame to frame (GitHub
+// issue #2, the camera's micro stutter while turning). Above 30 frames/s the frame time handed out (+0x68) is the
+// target frame time plus a tenth of the time still owed (an average over about ten frames); a frame off the target by
+// more than a quarter (a hitch, a slower rate) is handed out whole, with all that is owed. The sum over many frames
+// stays the clock's (owed is bounded), the game time +0x28 follows if the update itself added the frame time.
+// At 30 frames/s (the console's rate) nothing changes.
+// The game logic corrections that model the console's whole-ms frame clock (fire rate on the console's frames, the
+// entity timers' _frametime in fcp/frame_coupling.cpp) must not see the evened values: they take the unsmoothed ones
+// (RawGameSeconds, RawFrameDt, RawClockScope; FCP_FRAME_DT_RAW_CLOCK=0: the evened ones, as in staging-v060).
+struct DtSmooth {
+  bool on = true;
+  bool raw_clock = true;    // FCP_FRAME_DT_RAW_CLOCK: corrections on the unsmoothed clock
+  double owed = 0.0;        // game time the clock has and the game has not been given yet (s)
+  double last_game = -1.0;  // +0x28 after the previous update
+  double offset = 0.0;      // unsmoothed game time minus +0x28 (s; what the evening has held back so far)
+  double raw_dt = 0.0;      // this frame's frame time as the clock measured it (s)
+  uint64_t frames = 0, whole = 0;
+};
+DtSmooth g_dts;
+
+void SmoothFrameTime(uint8_t* base, uint32_t t) {
+  constexpr uint32_t kGameTime = 0x28, kFrameTime = 0x68;
+  const double raw = ReadDouble(base, t + kFrameTime);
+  const double game = ReadDouble(base, t + kGameTime);
+  const bool added_here = g_dts.last_game >= 0.0 && std::fabs((game - g_dts.last_game) - raw) < 1e-7;
+  // a game time set anew (backwards) or an offset no evening can build up: the unsmoothed clock starts from here
+  if ((g_dts.last_game >= 0.0 && game < g_dts.last_game) || std::fabs(g_dts.offset) > 0.5) g_dts.offset = 0.0;
+  g_dts.raw_dt = raw;
+  const int fps = fcp::framerate::TargetFps();
+  if (!g_dts.on || fps <= 30 || !(raw > 0.0) || raw > 0.1) {
+    g_dts.owed = 0.0;
+    g_dts.last_game = game;
+    return;
+  }
+  const double nominal = 1.0 / fps;
+  g_dts.owed += raw;
+  double used;
+  if (std::fabs(raw - nominal) <= 0.25 * nominal && g_dts.owed < 4.0 * nominal) {
+    used = std::clamp(nominal + 0.1 * (g_dts.owed - nominal), 0.75 * nominal, 1.25 * nominal);
+    ++g_dts.frames;
+  } else {
+    used = g_dts.owed;  // a hitch or another rate: everything owed at once
+    ++g_dts.whole;
+  }
+  g_dts.owed -= used;
+  WriteDouble(base, t + kFrameTime, used);
+  double game_now = game;
+  if (added_here) {
+    WriteDouble(base, t + kGameTime, game_now = game + (used - raw));
+    g_dts.offset += raw - used;
+  }
+  g_dts.last_game = game_now;
+}
+
+bool RawClockDiffers() {
+  return g_dts.raw_clock && g_dts.on && (g_dts.offset != 0.0 || g_dts.raw_dt != g_dt.load(std::memory_order_relaxed));
 }
 
 double Since(Clock::time_point t) {
@@ -248,6 +315,18 @@ void OnFrameTimer(uint8_t* base) {
   if (!fcp::guest::Readable(base, t, 0x70)) {
     return;
   }
+  static const bool dts_init = [] {
+    g_dts.on = fcp::env::Flag("FCP_FRAME_DT_SMOOTH", true);
+    g_dts.raw_clock = fcp::env::Flag("FCP_FRAME_DT_RAW_CLOCK", true);
+    FCPLOG("frame time: {} above 30 frames/s (FCP_FRAME_DT_SMOOTH=0: the game's whole-ms frame times)",
+           g_dts.on ? "even (target frame time plus a tenth of the time owed)" : "whole ms as the game measures it");
+    if (g_dts.on)
+      FCPLOG("frame time: fire rate and entity timer corrections on the {} clock (FCP_FRAME_DT_RAW_CLOCK=0: the even one)",
+             g_dts.raw_clock ? "unsmoothed whole-ms" : "even");
+    return true;
+  }();
+  (void)dts_init;
+  SmoothFrameTime(base, t);
   const double game = ReadDouble(base, t + kTimerGameTime);
   g_game.store(game, std::memory_order_relaxed);
   g_dt.store(ReadDouble(base, t + kTimerFrameTime), std::memory_order_relaxed);
@@ -345,6 +424,31 @@ double GameSeconds() {
 
 double FrameDt() {
   return g_dt.load(std::memory_order_relaxed);
+}
+
+double RawGameSeconds() {
+  return RawClockDiffers() ? GameSeconds() + g_dts.offset : GameSeconds();
+}
+
+double RawFrameDt() {
+  return RawClockDiffers() ? g_dts.raw_dt : FrameDt();
+}
+
+RawClockScope::RawClockScope(uint8_t* base) : base_(base) {
+  const uint32_t t = fcp::addr::frame_timer;
+  if (!RawClockDiffers() || !fcp::guest::Readable(base, t, 0x70)) return;
+  game_ = ReadDouble(base, t + kTimerGameTime);
+  dt_ = ReadDouble(base, t + kTimerFrameTime);
+  WriteDouble(base, t + kTimerGameTime, game_ + g_dts.offset);
+  WriteDouble(base, t + kTimerFrameTime, g_dts.raw_dt);
+  active_ = true;
+}
+
+RawClockScope::~RawClockScope() {
+  if (!active_) return;
+  const uint32_t t = fcp::addr::frame_timer;
+  WriteDouble(base_, t + kTimerGameTime, game_);
+  WriteDouble(base_, t + kTimerFrameTime, dt_);
 }
 
 bool InLevel() {

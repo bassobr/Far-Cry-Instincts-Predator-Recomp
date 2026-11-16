@@ -9,6 +9,8 @@
 #include <mutex>
 #include <vector>
 
+#include "fcp/env.h"
+
 namespace fcp::toml {
 namespace {
 
@@ -36,7 +38,17 @@ size_t CodeEnd(const std::string& line) {
 
 }  // namespace
 
-std::string Quote(std::string_view text) { return std::format("\"{}\"", text); }
+// A Windows path in a basic string ("Z:\home\...", "D:\Games\...") is no valid TOML: there \h and \G are no
+// escapes (release check v0.6.0: the image the first start found was written so). Our reader takes "..." and
+// '...' as written, so a text with a backslash goes into a literal string '...', which TOML also takes as written.
+// Not possible with a ' or a line break in the text (then "..." as before). FCP_TOML_LITERAL=0: always "...".
+std::string Quote(std::string_view text) {
+  static const bool literal = fcp::env::Flag("FCP_TOML_LITERAL", true);
+  if (literal && text.find('\\') != std::string_view::npos && text.find_first_of("'\r\n") == std::string_view::npos) {
+    return std::format("'{}'", text);
+  }
+  return std::format("\"{}\"", text);
+}
 
 bool SetValue(const std::filesystem::path& file, std::string_view section, std::string_view key,
               std::string_view literal) {

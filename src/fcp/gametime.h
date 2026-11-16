@@ -48,6 +48,28 @@ uint64_t Frame();
 double GameSeconds();
 /** Engine frame time of the last frame in seconds. */
 double FrameDt();
+/** Game time and frame time as the frame timer's whole-ms clock gave them, before FCP_FRAME_DT_SMOOTH evened the
+ *  frame time (equal to GameSeconds/FrameDt while the evening is off, idle at 30 or FCP_FRAME_DT_RAW_CLOCK=0). For the
+ *  corrections that model the console's frame clock (fire rate, entity timers). Main thread. */
+double RawGameSeconds();
+double RawFrameDt();
+
+/** While it lives, the frame timer holds the unsmoothed game time (+0x28) and frame time (+0x68), so that a game
+ *  function called in it (Weapon_TryFire) and the correction around it see the clock as without the evening; the
+ *  evened values go back at its end. Does nothing when both are the same. Main thread, between two frame timer
+ *  updates. */
+class RawClockScope {
+ public:
+  explicit RawClockScope(uint8_t* base);
+  ~RawClockScope();
+  RawClockScope(const RawClockScope&) = delete;
+  RawClockScope& operator=(const RawClockScope&) = delete;
+
+ private:
+  uint8_t* base_;
+  double game_ = 0.0, dt_ = 0.0;
+  bool active_ = false;
+};
 /** True after the first level start of this process. */
 bool InLevel();
 /** Game time since the level start (0 before). */

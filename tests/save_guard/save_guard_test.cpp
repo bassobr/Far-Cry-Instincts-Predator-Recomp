@@ -5,6 +5,7 @@
 // Exit code 0 = all checks passed. The log lines go to stdout.
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -70,10 +71,14 @@ std::string Read(const fs::path& p) {
   return std::string((std::istreambuf_iterator<char>(in)), {});
 }
 
+// A shorter size gives the first bytes of a complete header (a truncated file). The header is built at full size
+// first: before, a size below 0x108 + name length wrote the name past the end of the string (heap corruption, the
+// rare 0xC0000374/0xC0000005/0xC0000409 ends of this test; found with an ASan build, release check v0.6.0).
 std::string HeaderBytes(const std::string& name, size_t size = 0x148) {
-  std::string h(size, '\0');
+  std::string h(std::max<size_t>(size, 0x148), '\0');
   h[7] = 1;  // content type 1 (big endian at +4)
   for (size_t i = 0; i < name.size() && i < 42; ++i) h[0x108 + i] = name[i];
+  h.resize(size);
   return h;
 }
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 
@@ -22,6 +23,7 @@
 #include "kernel/thread_wait.h"
 #include "kernel/xma/decoder.h"
 #include "kernel/xma/fcp_xma_stats.h"  // FCP: changes 31, 32
+#include <rex/fcp_speech.h>             // FCP: change 370
 #include <rex/platform/process.h>
 #include "kernel/title_state.h"
 
@@ -97,6 +99,24 @@ void APU::FcpLogStats(bool final) {
       x.rate_index[3].load(), x.channels[0].load(), x.channels[1].load(),
       x.clients_registered.load(), x.clients_unregistered.load(), x.client_callbacks.load(),
       x.callbacks_after_unregister.load(), x.unregister_waits.load());
+  // FCP: change 370, speech volume: decoded frames by the mark of their input, marked memory
+  u64 sound = 0, speech = 0;
+  fcp_speech::Registered(&sound, &speech);
+  std::string phases;
+  for (int i = 0; i < 16; ++i) {
+    phases += (i ? "/" : "") + std::to_string(x.frames_by_phase[i].load());
+  }
+  auto rms = [&](int k) {
+    const u64 n = x.samples_by_kind[k].load();
+    const f64 e = x.energy_by_kind[k].load();
+    return n && e > 0 ? 10.0 * std::log10(e / f64(n)) : -999.0;
+  };
+  REXAPU_INFO(
+      "fcp xma{}: frames by input unknown/sound/speech={}/{}/{} (output RMS {:.1f}/{:.1f}/{:.1f} dBFS) | "
+      "registered positions sound={} speech={} | speech gain {:.2f} | known frames by entry offset "
+      "%2048 in 128 byte steps {}",
+      final ? " (final)" : "", x.frames_by_kind[0].load(), x.frames_by_kind[1].load(),
+      x.frames_by_kind[2].load(), rms(0), rms(1), rms(2), sound, speech, fcp_speech::Gain(), phases);
 }
 
 void APU::WorkerMain() {
