@@ -130,6 +130,24 @@ struct GameRendererOptions {
   bool lock_readback_async = true;
   // FCP_RENDER_BUFFER_WATCH=0: hash vertex buffers every frame instead of using the write watch.
   bool buffer_watch = true;
+  // Write watch bookkeeping (GitHub issue #4): every cached texture, vertex and index buffer remembers the write epoch
+  // it last read its pages at, so entries over the same pages (one texture under several fetch constants, buffers
+  // sharing a page) each see a write. FCP_RENDER_WATCH_EPOCH=0: the old shared dirty bits, cleared by whichever entry
+  // checks first (the others then keep stale content).
+  bool watch_epoch = true;
+  // FCP_RENDER_WATCH_VERIFY=1 (diagnostics): hash entries the write watch would skip anyway and count those whose
+  // content changed without a reported write (statistics line "write watch verify"); the image is not changed by it.
+  bool watch_verify = false;
+  // Safety net for the write watch (GitHub issue #4): cached textures, vertex and index buffers up to this many bytes
+  // are hashed at their first use in every frame even when no write was reported. Measured: some small per-frame
+  // index and vertex buffers (and a few small textures) change without any write the watch sees and were drawn with
+  // their old content. FCP_RENDER_WATCH_REHASH=<bytes>, 0: off (the watch alone, as before).
+  uint32_t watch_rehash = 128u << 10;
+  // Resolve targets (and front buffers) whose guest memory the CPU wrote after their last resolve are always logged
+  // (GitHub issue #4: suspected cause of the flickering loading screen, never seen on our PC). With
+  // FCP_RENDER_RESOLVE_CPU_WRITES=1 such a texture or front buffer is then taken from guest memory, as on the console
+  // (test switch, default off: not verified).
+  bool resolve_cpu_writes = false;
   // Log frames at or above this duration with breakdown (FCP_TRACE_HITCHES=<ms>, 0: off).
   double slow_frame_ms = 0;
   // Endianness per vertex element from the D3DDECLTYPE instead of from the buffer's fetch constant (King Kong's

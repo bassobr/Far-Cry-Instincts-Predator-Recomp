@@ -817,12 +817,13 @@ void SetOpen(bool open, const char* why) {
 }
 
 // ---- the pads (every connected one, through the SDK; also while the game polls nothing) ----
-uint16_t ReadPads(rex::hid::PadState& merged) {
+// ui: the UI reading, also while a title's keyboard prompt hides the pads from the title (UPSTREAM 381)
+uint16_t ReadPads(rex::hid::PadState& merged, bool ui = false) {
   merged = {};
   rex::hid::IInputSystem* input = fcp::pc_input::Input();
   if (input) {
     for (uint32_t u = 0; u < 4; ++u) {
-      auto r = input->GetState(u);
+      auto r = ui ? input->GetUIState(u) : input->GetState(u);
       if (!r) continue;
       const rex::hid::PadState& s = r->state;
       merged.buttons |= s.buttons;
@@ -840,7 +841,8 @@ uint16_t ReadPads(rex::hid::PadState& merged) {
 
 constexpr uint16_t kChord = rex::hid::kPadBack | rex::hid::kPadStart;
 
-void FeedPads(ImGuiIO& io, const rex::hid::PadState& pad) {
+// prompt: also Start and the triggers (the on-screen keyboard of a title's text prompt, UPSTREAM 381)
+void FeedPads(ImGuiIO& io, const rex::hid::PadState& pad, bool prompt = false) {
   uint16_t b = pad.buttons;
   const bool held = b || pad.left_trigger > 30 || pad.right_trigger > 30 || std::abs(int(pad.thumb_lx)) > 8000 ||
                     std::abs(int(pad.thumb_ly)) > 8000;
@@ -861,6 +863,11 @@ void FeedPads(ImGuiIO& io, const rex::hid::PadState& pad) {
   key(ImGuiKey_GamepadDpadRight, rex::hid::kPadDPadRight);
   key(ImGuiKey_GamepadL1, rex::hid::kPadLeftShoulder);
   key(ImGuiKey_GamepadR1, rex::hid::kPadRightShoulder);
+  if (prompt) {
+    key(ImGuiKey_GamepadStart, rex::hid::kPadStart);
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadL2, p.left_trigger > 30, float(p.left_trigger) / 255.0f);
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadR2, p.right_trigger > 30, float(p.right_trigger) / 255.0f);
+  }
   auto analog = [&](ImGuiKey k, int v, int v0, int v1) {
     const float n = float(v - v0) / float(v1 - v0);
     io.AddKeyAnalogEvent(k, n > 0.1f, std::clamp(n, 0.0f, 1.0f));
@@ -1572,7 +1579,8 @@ void PostKey(const std::string& name) {
   HWND hwnd = native ? static_cast<HWND>(native->window) : nullptr;
   const std::string n = Lower(name);
   const int vk = n == "f10" ? VK_F10 : n == "f11" ? VK_F11 : n == "escape" ? VK_ESCAPE : n == "enter" ? VK_RETURN : n == "up" ? VK_UP
-                 : n == "down" ? VK_DOWN : n == "left" ? VK_LEFT : n == "right" ? VK_RIGHT : n == "space" ? VK_SPACE : 0;
+                 : n == "down" ? VK_DOWN : n == "left" ? VK_LEFT : n == "right" ? VK_RIGHT : n == "space" ? VK_SPACE
+                 : n == "backspace" ? VK_BACK : n == "tab" ? VK_TAB : 0;
   if (!hwnd || !vk) {
     FCPLOG("FCP_TEST_MENU: post={}: {}", name, hwnd ? "unknown key" : "no window");
     return;
@@ -1583,6 +1591,23 @@ void PostKey(const std::string& name) {
   PostMessageW(hwnd, vk == VK_F10 ? WM_SYSKEYUP : WM_KEYUP, WPARAM(vk), 1 | scan | (LPARAM(1) << 30) | (LPARAM(1) << 31));
 }
 
+// type=<text>: characters as the window gets them from a keyboard (WM_CHAR; SDL makes text input events of them
+// while text input is on, i.e. while an ImGui text field has the focus)
+void PostText(const std::string& text) {
+  if (!g_ui) return;
+  auto native = g_ui->GetNativeWindow();
+  HWND hwnd = native ? static_cast<HWND>(native->window) : nullptr;
+  if (!hwnd) {
+    FCPLOG("FCP_TEST_MENU: type={}: no window", text);
+    return;
+  }
+  const int wn = MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), nullptr, 0);
+  std::wstring wide(size_t(wn), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), wide.data(), wn);
+  FCPLOG("FCP_TEST_MENU: type \"{}\" ({} characters)", text, wide.size());
+  for (wchar_t c : wide) PostMessageW(hwnd, WM_CHAR, WPARAM(c), 1);
+}
+
 uint16_t PadBits(const std::string& list) {
   static constexpr struct {
     const char* name;
@@ -1590,7 +1615,8 @@ uint16_t PadBits(const std::string& list) {
   } kPad[] = {{"a", rex::hid::kPadA},           {"b", rex::hid::kPadB},          {"x", rex::hid::kPadX},
               {"y", rex::hid::kPadY},           {"back", rex::hid::kPadBack},    {"start", rex::hid::kPadStart},
               {"up", rex::hid::kPadDPadUp},     {"down", rex::hid::kPadDPadDown}, {"left", rex::hid::kPadDPadLeft},
-              {"right", rex::hid::kPadDPadRight}, {"combo", kChord}};
+              {"right", rex::hid::kPadDPadRight}, {"lb", rex::hid::kPadLeftShoulder},
+              {"rb", rex::hid::kPadRightShoulder}, {"combo", kChord}};
   uint16_t bits = 0;
   std::stringstream ss(list);
   for (std::string item; std::getline(ss, item, '+');)
@@ -1661,6 +1687,31 @@ void RunScript() {
       RestartGame("FCP_TEST_MENU restart");
     } else if (verb == "post") {
       PostKey(arg);
+    } else if (verb == "type") {
+      PostText(arg);
+    } else if (verb == "raise") {
+      // the window to the foreground: SDL drops key and text events while it has no keyboard focus
+      if (g_ui) g_ui->RaiseWindow();
+      FCPLOG("FCP_TEST_MENU: raise (focused: {})", g_ui && g_ui->IsFocused() ? "yes" : "no");
+    } else if (verb == "imtype") {
+      // characters straight into ImGui (inside its frame), without the window and SDL
+      ImGuiIO& io = ImGui::GetIO();
+      io.AddInputCharactersUTF8(arg.c_str());
+      FCPLOG("FCP_TEST_MENU: imtype \"{}\"", arg);
+    } else if (verb == "imkey") {
+      const std::string n = Lower(arg);
+      const ImGuiKey k = n == "enter" ? ImGuiKey_Enter : n == "escape" ? ImGuiKey_Escape
+                         : n == "backspace" ? ImGuiKey_Backspace : ImGuiKey_None;
+      if (k == ImGuiKey_None) {
+        FCPLOG("FCP_TEST_MENU: imkey={}: unknown key", arg);
+      } else {
+        ImGui::GetIO().AddKeyEvent(k, true);
+        g_script.push_back({now + 0.1, "imkeyup=" + n});
+        FCPLOG("FCP_TEST_MENU: imkey {}", n);
+      }
+    } else if (verb == "imkeyup") {
+      const ImGuiKey k = arg == "enter" ? ImGuiKey_Enter : arg == "escape" ? ImGuiKey_Escape : ImGuiKey_Backspace;
+      ImGui::GetIO().AddKeyEvent(k, false);
     } else if (verb == "pad") {
       const uint16_t bits = PadBits(arg);
       g_script_pad = uint16_t(g_script_pad.load() | bits);
@@ -1723,6 +1774,28 @@ void ParseScript() {
 
 void LoadFont(ImGuiIO& io);
 
+// ---- a title's keyboard prompt (XamShowKeyboardUI, e.g. the cheat code): the pads drive its on-screen keyboard ----
+// The SDK hides the pads from the title while the prompt is open; the UI reading (GetUIState) still sees them and
+// goes to ImGui as gamepad keys, which the prompt reads itself (UPSTREAM 381). FCP_KEYBOARD_UI=0: off (as before).
+bool g_prompt_fed = false;
+void FeedPrompt(ImGuiIO& io) {
+  static const bool enabled = fcp::env::Flag("FCP_KEYBOARD_UI", true);
+  const bool prompt = enabled && !g_open.load() &&
+                      ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+  if (prompt != g_prompt_fed) {
+    g_prompt_fed = prompt;
+    g_pad_armed = false;  // the button that opened the prompt (or closed it) acts only once let go
+    if (!prompt) FeedPads(io, rex::hid::PadState{}, true);  // let go of every key
+    FCPLOG("keyboard prompt: {} at {:.2f} s, the pads {}", prompt ? "open" : "closed", Now(),
+           prompt ? "drive its on-screen keyboard" : "are the game's again");
+  }
+  if (!prompt) return;
+  io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+  rex::hid::PadState pad;
+  ReadPads(pad, true);
+  FeedPads(io, pad, true);
+}
+
 // ---- the dialog (always there: draws the menu, the frame rate display, reads the pads) ----
 class MenuDialog final : public rex::ui::DialogBase {
  public:
@@ -1754,6 +1827,7 @@ class MenuDialog final : public rex::ui::DialogBase {
         else SetOpen(false, "B");
       }
     }
+    FeedPrompt(io);
     g_pad_prev = buttons;
     ApplyIo(io);
     if (fcp::env::Flag("FCP_FPS_COUNTER")) DrawFps(io);

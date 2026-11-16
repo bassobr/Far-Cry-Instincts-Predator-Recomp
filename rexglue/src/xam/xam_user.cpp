@@ -298,12 +298,25 @@ u32 XamUserWriteProfileSettings_entry([[maybe_unused]] u32 title_id, u32 user_in
 #pragma clang diagnostic pop
       return !(v && v[0] == '0');
     }();
+    // FCP (UPSTREAM 380): the same for every other setting whose ID names a type. Predator writes the vibration
+    // setting 0x10040003 (Int32 by its ID) with the same uninitialised byte; after a cheat code the byte was 0
+    // (kContext), the binary branch took the Int32 value and the stack word after it as size and guest pointer and
+    // copied from guest address 0x18: access violation (issue #6, "GiveMeItAll" and "GiveMeTheMaps" save the
+    // profile). FCP_PROFILE_TYPE_FROM_ID=0 restores the byte check for settings that are not title settings.
+    static const bool type_from_id = [] {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+      const char* v = std::getenv("FCP_PROFILE_TYPE_FROM_ID");  // read only
+#pragma clang diagnostic pop
+      return !(v && v[0] == '0');
+    }();
     const u32 written_id = static_cast<u32>(setting.setting_id);
     const u32 written_id_type = (written_id >> 28) & 0xF;
-    if (title_type_from_id && (written_id & 0x3F00) == 0x3F00 && written_id_type >= 1 && written_id_type <= 7) {
+    const bool title_setting = (written_id & 0x3F00) == 0x3F00;
+    if ((title_setting ? title_type_from_id : type_from_id) && written_id_type >= 1 && written_id_type <= 7) {
       if (setting.data.type != written_id_type) {
-        REXXAM_DEBUG("XamUserWriteProfileSettings: title setting {:08X} type byte {}, type {} from the ID",
-                     written_id, setting.data.type, written_id_type);
+        REXXAM_DEBUG("XamUserWriteProfileSettings: setting {:08X} type byte {}, type {} from the ID", written_id,
+                     setting.data.type, written_id_type);
       }
       setting_type = static_cast<rex::xam::UserProfile::Setting::Type>(written_id_type);
     }

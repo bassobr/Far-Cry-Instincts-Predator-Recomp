@@ -191,6 +191,23 @@ REX_TEST_CASE("XAM: a binary profile setting of size 0 is stored with no bytes",
   });
 }
 
+// FCP (UPSTREAM 380): Far Cry Instincts Predator writes the Int32 setting 0x10040003 without setting the type byte.
+// A stale 0 (kContext) must not make XAM read the value and the next word as a binary size and pointer (issue #6:
+// the copy from guest address 0x18 crashed the process).
+REX_TEST_CASE("XAM: an int32 profile setting with a stale type byte 0 takes its type from the ID",
+              "[kernel][xam]") {
+  KernelFixture fixture;
+  fixture.RunOnGuestThread([](Caller& c) {
+    constexpr u32 kVibrationSetting = 0x10040003;
+    const u32 entry = c.Alloc(kEntrySize);
+    c.Store32(entry + 16, kVibrationSetting);
+    c.Store32(entry + 24, 0);  // type byte 0 = kContext, as left on the stack
+    c.Store32(entry + 32, 1);  // the Int32 value, read as a binary size by the old path
+    c.Store32(entry + 36, 0x18);  // stack garbage, read as a binary pointer by the old path
+    REQUIRE(c.XAM("XamUserWriteProfileSettings", {0, 0, 1, entry, 0}) == 0);
+  });
+}
+
 namespace {
 constexpr u32 kXAMApp = 0xFE;
 constexpr u32 kQueryVolumeDeviceType = 0x00020021;

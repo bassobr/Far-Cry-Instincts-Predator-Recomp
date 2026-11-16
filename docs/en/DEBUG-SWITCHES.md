@@ -105,6 +105,10 @@ Local changes of the frozen SDK copy (`rexglue/UPSTREAM.md`):
 | `FCP_RENDER_QUERY=original\|visible` | occlusion queries answer with the null driver's value (`original`) or a fixed "visible" value (`FCP_RENDER_QUERY_SAMPLES`) instead of host queries |
 | `FCP_RENDER_LOCK_READBACK=0\|sync` | resolve targets are not written back to guest memory when the CPU locks them (`0`), or written back synchronously (`sync`) |
 | `FCP_RENDER_TEXTURE_WATCH=0`, `FCP_RENDER_BUFFER_WATCH=0` | guest textures and buffers are hashed instead of watched for writes |
+| `FCP_RENDER_WATCH_EPOCH=0` | the write watch's old bookkeeping: one dirty bit per page, cleared by the first texture or buffer that checks it, so other entries over the same page (the same texture under another sampler, neighbouring buffers) can keep stale content (issue #4); by default every entry remembers the write it last read at |
+| `FCP_RENDER_WATCH_REHASH=<bytes>` | safety net of the write watch (issue #4): cached textures, vertex and index buffers up to this size (default 131072) are hashed at their first use in every frame even without a reported write, and updated when they changed (log `write watch safety net`); `0`: the watch alone (earlier) |
+| `FCP_RENDER_WATCH_VERIFY=1` | diagnostics: entries the write watch skips are hashed anyway; changes without a reported write are logged (`write watch missed a change`) and counted (`write watch verify`). Costs time, does not change the image |
+| `FCP_RENDER_RESOLVE_CPU_WRITES=1` | test switch (issue #4, not verified): a texture or front buffer at a resolve target's address is taken from guest memory once the CPU wrote there after the last resolve, as on the console; by default the resolve target is kept and the case is only logged (`written by the CPU after its resolve`) |
 | `FCP_RENDER_TEXTURE_CHECK=0` | guest textures are read only once |
 | `FCP_RENDER_ELEMENT_ENDIAN=0` | vertex data endianness from the buffer instead of from the declaration element |
 | `FCP_RENDER_PRESENT_UNLOCKED=0` | present waits for the GPU while holding the renderer lock (earlier); `FCP_RENDER_FRAMES_AHEAD=<0..8>` (default 2) bounds the swaps in flight otherwise |

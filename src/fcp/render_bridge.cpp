@@ -291,6 +291,10 @@ bool CreateRenderer() {
     o.lock_readback_async = lr != "sync";
   }
   o.buffer_watch = fcp::env::Flag("FCP_RENDER_BUFFER_WATCH", true);
+  o.watch_epoch = fcp::env::Flag("FCP_RENDER_WATCH_EPOCH", true);
+  o.watch_verify = fcp::env::Flag("FCP_RENDER_WATCH_VERIFY", false);
+  o.watch_rehash = uint32_t(std::clamp<int64_t>(fcp::env::Int("FCP_RENDER_WATCH_REHASH", 128 << 10), 0, 64 << 20));
+  o.resolve_cpu_writes = fcp::env::Flag("FCP_RENDER_RESOLVE_CPU_WRITES", false);
   o.gamma_ramp = fcp::env::Flag("FCP_RENDER_GAMMA", true);
   {
     // [graphics] msaa: console (= 1/true, default) | off (= 0/false) | 2 | 4 | 8

@@ -428,3 +428,25 @@ Every local change carries a comment starting with `FCP` at the changed place.
     before mute), and every 10 s a line `fcp limiter: ...` gives peak and samples above 1.0 before and after, limited
     frames and the smallest gain. `tools/audio/limiter_selftest.cpp` tests the class without the game (synthetic, and a recorded 6 channel mix as a 5.1 device would get it). With the setting off the mix period is unchanged. Test list of the setting keys
     (`tests/unit/kernel/setting_keys_test.cpp`) extended.
+380. **Profile settings: every setting takes its type from the ID** (`src/xam/xam_user.cpp`
+    `XamUserWriteProfileSettings`): extends 340 to the settings that are not title settings. Far Cry Instincts
+    Predator writes the vibration setting `0x10040003` (Int32 by its ID) together with its two title settings and
+    leaves its type byte uninitialised as well. After a cheat code ("GiveMeItAll", "GiveMeTheMaps" save the profile)
+    the byte was 0 (`kContext`), the binary branch took the Int32 value as the size and the next stack word as the
+    guest pointer and copied from guest address `0x18`: access violation (issue #6). A setting whose ID names a type
+    (bits 28-31 = 1..7) now always takes that type. Test case in `tests/unit/kernel/xam_test.cpp`.
+    `FCP_PROFILE_TYPE_FROM_ID=0` restores the byte check for these settings.
+381. **On-screen keyboard for text prompts, pad reading for the application's UI** (`src/ui/prompt.{h,cpp}`,
+    `include/rex/hid/input_system.h` `IInputSystem::GetUIState`, `src/hid/input_system.{h,cpp}`): the prompt of
+    `XamShowKeyboardUI` was a small ImGui text field that only a keyboard could fill, and while it was open the UI
+    block hid every pad, also from the application. (a) A text prompt now has on-screen keys (digits, a..z, `-_.'`,
+    Shift, Space, Del, OK, Cancel) that the mouse or touch press and that ImGui's gamepad keys drive like the
+    console's keyboard (D-pad/left stick move, A presses, X deletes, Y space, LB/LT shift, Start OK, B cancel); the
+    text field keeps the keyboard focus while no other item is held, Escape cancels, the window is centred and its
+    font follows the window height. Text changed by the keys reloads the active field (`ReloadUserBufAndMoveToEnd`);
+    added text stops at `max_length` bytes on a whole UTF-8 character. Test cases in
+    `tests/unit/ui/prompt_dialog_test.cpp`. (b) `IInputSystem::GetUIState(user)` reads the merged pads (deadzones,
+    guide masking) also while a UI block is held, without the keyboard-as-pad and idle sources and without touching
+    the title's packet number or consumed buttons; the default implementation is `GetState`. The project feeds that
+    reading into ImGui while a prompt is open (`src/fcp/settings_menu.cpp` `FeedPrompt`). `FCP_KEYBOARD_UI=0`
+    restores the plain field and leaves the pads alone.

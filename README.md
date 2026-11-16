@@ -237,6 +237,14 @@ Start `predator.exe`. Logs are written to `predator.log` in the user folder (the
 | F10, or Back + Start on a pad | open / close the settings menu |
 | Alt+Enter, F11 | switch between window and fullscreen (the choice is stored in `predator.toml`) |
 
+**Text input (cheat codes, save names).** Where the console shows its on-screen keyboard (Main Menu → Cheats Menu,
+the name of a new save), a small input window opens. Type with the keyboard and press Enter (Escape cancels), or use
+the on-screen keys with the mouse, by touch or with a controller: D-pad or left stick to move, A types the key, X
+deletes, Y types a space, LB shifts, Start accepts, B cancels. Cheat codes are case-sensitive, as on the console. On
+a Steam Deck the controller keys work as above; Steam's own keyboard (Steam + X) should type into the field as well
+(not tested on the Deck yet). `FCP_KEYBOARD_UI=0` restores the plain text
+field without on-screen keys.
+
 Environment switches for the first start:
 
 | Variable | Effect |

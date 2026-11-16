@@ -47,6 +47,10 @@
 #include "colour_blind.h"
 #include "ao_pass.h"
 #include "texture_pack.h"
+
+#ifdef _WIN32
+#include <windows.h>  // VirtualQuery (FCP_RENDER_WATCH_VERIFY diagnostics)
+#endif
 #include "renderer/builtin_shaders.h"
 #include "renderer/diagnostics.h"
 #include "renderer/guest_device.h"
@@ -218,6 +222,7 @@ struct GuestTex {
   res::HostTexturePlan plan;
   bool failed = false;
   bool watched = false;        // ranges are under write watch
+  uint64_t seen_epoch = 0;     // write epoch the ranges were last read at (opt.watch_epoch)
   bool volatile_data = false;  // changes constantly: hash every frame, do not watch
   uint64_t last_change_frame = ~0ull;
   int replace_kind = -1;       // TextureReplaceSource::Classify (button glyphs), -1: never replaced
@@ -243,6 +248,7 @@ struct GuestBuf {
   uint64_t used_frame = 0;  // last frame that bound it (slot recycling)
   bool watched = false, volatile_data = false;
   uint64_t last_change_frame = ~0ull;
+  uint64_t seen_epoch = 0;  // write epoch the data was last read at (opt.watch_epoch)
 };
 
 struct Resolved {
@@ -263,6 +269,12 @@ struct Resolved {
   // line (GitHub issue #2: does a shadow map stop being refreshed or bound?).
   uint32_t interval_resolves = 0, interval_binds = 0;
   bool depth = false;  // written by a depth resolve (shadow map): [graphics] shadow_filter applies to it
+  // CPU writes into the target's guest memory after the last resolve (GitHub issue #4): the range is watched from
+  // each resolve on; seen_epoch is the write epoch of the resolve or of our own write-back.
+  uint32_t bytes = 0;
+  uint64_t seen_epoch = 0;
+  bool watched = false;
+  uint64_t cpu_written_frame = ~0ull;  // last frame a bind found CPU writes (diagnostics)
 };
 
 // Host size of a guest dimension at factor s (exactly the guest dimension at 1).
@@ -2110,13 +2122,131 @@ struct GameRenderer::Impl {
 
   // Separate bits for the index cache: index and vertex data often share a page, and TakeDirty clears.
   std::unique_ptr<std::atomic<uint64_t>[]> dirty_pages_idx{new std::atomic<uint64_t>[(0x20000000u >> 12) / 64]()};
+  // Write epochs (opt.watch_epoch, GitHub issue #4). The dirty bits above are cleared by the first entry that checks a
+  // page; every other entry over the same page (the same texture under another fetch constant: 657 entries on 504 base
+  // addresses in the reporter's log; neighbouring buffers sharing a 4 KB page) then misses the write and keeps stale
+  // content until the next write. Instead each write gets a number (epoch) stored per page and per block of 64 pages;
+  // an entry remembers the epoch it last read its pages at and is dirty if any page has a newer one. Nothing is
+  // cleared, so every entry sees every write.
+  // Order in a check: epoch snapshot, compare, re-watch, read, remember the snapshot. The SDK runs OnGuestWrite under
+  // its watch lock before the faulting write goes ahead, so a write after the re-watch gets an epoch above the
+  // snapshot, and one before it is in the data read.
+  std::atomic<uint64_t> write_epoch{1};
+  std::unique_ptr<std::atomic<uint64_t>[]> page_epoch{new std::atomic<uint64_t>[0x20000]()};
+  std::unique_ptr<std::atomic<uint64_t>[]> block_epoch{new std::atomic<uint64_t>[0x20000 / 64]()};
+  static void StoreMax(std::atomic<uint64_t>& a, uint64_t v) {
+    uint64_t cur = a.load(std::memory_order_relaxed);
+    while (cur < v && !a.compare_exchange_weak(cur, v, std::memory_order_release, std::memory_order_relaxed)) {
+    }
+  }
+  uint64_t EpochNow() const { return write_epoch.load(std::memory_order_acquire); }
+  // True if a page of the range was written after epoch `seen`.
+  bool WrittenSince(uint32_t physical, uint32_t bytes, uint64_t seen) const {
+    if (!bytes) return false;
+    const uint32_t p0 = (physical & 0x1FFFFFFFu) >> 12, p1 = std::min<uint64_t>((uint64_t(physical & 0x1FFFFFFFu) + bytes - 1) >> 12, 0x1FFFF);
+    for (uint32_t b = p0 >> 6; b <= (p1 >> 6); ++b) {
+      if (block_epoch[b].load(std::memory_order_acquire) <= seen) continue;
+      const uint32_t first = std::max(p0, b << 6), last = std::min(p1, (b << 6) | 63);
+      for (uint32_t p = first; p <= last; ++p)
+        if (page_epoch[p].load(std::memory_order_acquire) > seen) return true;
+    }
+    return false;
+  }
+  // Old bookkeeping without clearing (verification of the old path).
+  bool PeekDirtyIn(const std::atomic<uint64_t>* bits, uint32_t physical, uint32_t bytes) const {
+    if (!bytes) return false;
+    const uint32_t p0 = (physical & 0x1FFFFFFFu) >> 12, p1 = std::min<uint64_t>((uint64_t(physical & 0x1FFFFFFFu) + bytes - 1) >> 12, 0x1FFFF);
+    for (uint32_t p = p0; p <= p1; ++p)
+      if (bits[p >> 6].load(std::memory_order_relaxed) & (1ull << (p & 63))) return true;
+    return false;
+  }
+
+  // Verification (opt.watch_verify): an entry the watch skipped whose content changed anyway. kind 0 texture,
+  // 1 vertex buffer, 2 index buffer.
+  uint64_t verify_checks[3] = {}, verify_missed[3] = {}, verify_races[3] = {}, verify_entries[3] = {};
+  std::unordered_set<uint64_t> verify_seen;  // (kind, address, size) already logged
+  // Safety net (opt.watch_rehash): changes found by hashing small entries the watch reported no write for.
+  uint64_t rehash_caught[3] = {}, rehash_entries[3] = {};
+  std::unordered_set<uint64_t> rehash_seen;
+  uint32_t rehash_logged = 0;
+  void RehashCaught(int kind, uint32_t physical, uint32_t bytes) {
+    ++rehash_caught[kind];
+    const uint64_t key = (uint64_t(kind) << 62) ^ (uint64_t(physical) << 30) ^ bytes;
+    if (rehash_seen.size() < 65536 && rehash_seen.insert(key).second) {
+      ++rehash_entries[kind];
+      static const char* const names[3] = {"texture", "vertex buffer", "index buffer"};
+      if (rehash_logged++ < 16)
+        Log("renderer: write watch safety net: %s %08X+%X changed without a reported write (frame %llu), updated", names[kind],
+            physical, bytes, (unsigned long long)frame);
+    }
+  }
+  uint32_t verify_logged = 0, verify_dumps = 0;
+  uint64_t verify_seen_epoch = 0;  // epoch of the entry being verified (log)
+  bool verify_dump_now = false;  // dump this frame (first misses of new entries, FCP_DUMP_FRAMES set)
+  void VerifyMiss(int kind, uint32_t physical, uint32_t bytes, const char* what) {
+    ++verify_missed[kind];
+    const uint64_t key = (uint64_t(kind) << 62) ^ (uint64_t(physical) << 30) ^ bytes;
+    if (!verify_seen.insert(key).second) return;  // each entry logged and counted once
+    ++verify_entries[kind];
+    if (verify_dumps < 24) verify_dump_now = true, ++verify_dumps;  // frame dump (with FCP_DUMP_FRAMES)
+    if (verify_logged++ < 64) {
+      static const char* const names[3] = {"texture", "vertex buffer", "index buffer"};
+      // Pages written around the range since the entry last read it (a write reported one page off?).
+      const uint64_t seen_hint = verify_seen_epoch;
+      const bool before = physical >= 0x1000 && WrittenSince(physical - 0x1000, 0x1000, seen_hint);
+      const bool after = WrittenSince(((physical + bytes + 0xFFFu) & ~0xFFFu), 0x1000, seen_hint);
+      // Host protection of the first page in the three physical views (A0/C0/E0): which view lets writes through?
+      char prot[96] = "";
+#ifdef _WIN32
+      {
+        const uint32_t p = physical & 0x1FFFF000u;
+        const uint32_t views[3] = {0xA0000000u + p, 0xC0000000u + p, p >= 0x1000 ? 0xE0000000u + p - 0x1000u : 0};
+        size_t at = 0;
+        for (int v = 0; v < 3; ++v) {
+          const uint8_t* host = views[v] ? memory.Virtual(views[v]) : nullptr;
+          MEMORY_BASIC_INFORMATION mbi{};
+          const bool ok = host && VirtualQuery(host, &mbi, sizeof(mbi)) == sizeof(mbi);
+          at += size_t(std::snprintf(prot + at, sizeof(prot) - at, "%s%s=%lX", v ? " " : "", v == 0 ? "A0" : v == 1 ? "C0" : "E0",
+                                     ok ? (unsigned long)mbi.Protect : 0ul));
+        }
+      }
+#endif
+      Log("renderer: write watch missed a change: %s %08X+%X %s (frame %llu, %s bookkeeping; page before written %s, "
+          "page after %s; epoch now %llu, entry %llu; host protection %s)", names[kind], physical, bytes, what,
+          (unsigned long long)frame, opt.watch_epoch ? "epoch" : "shared bits", before ? "yes" : "no", after ? "yes" : "no",
+          (unsigned long long)EpochNow(), (unsigned long long)seen_hint, prot);
+    }
+  }
+
+  // Resolve targets and CPU writes (GitHub issue #4). A resolve target's host texture stands for its guest memory
+  // until the next resolve; on the console a CPU write there (the game putting another image into that memory)
+  // replaces the content. Watched from every resolve on; a bind after a CPU write takes the guest data instead
+  // (opt.resolve_cpu_writes), until the next resolve. Only pages wholly inside the range count (a neighbour sharing
+  // the first or last page does not).
+  uint64_t resolve_cpu_binds = 0, resolve_cpu_events = 0, front_cpu_swaps = 0, front_cpu_shown = 0;
+  uint32_t resolve_cpu_logged = 0, front_cpu_logged = 0;
+  void WatchResolved(Resolved& r) {
+    if (!Watching() || !r.bytes) return;
+    r.seen_epoch = EpochNow();
+    watch_fn(watch_ctx, r.base, r.bytes);
+    r.watched = true;
+  }
+  bool ResolvedWrittenByCpu(const Resolved& r) const {
+    if (!r.watched || !r.bytes || !Watching()) return false;
+    const uint32_t first = (r.base + 0xFFFu) & ~0xFFFu, end = (r.base + r.bytes) & ~0xFFFu;
+    return end > first && WrittenSince(first, end - first, r.seen_epoch);
+  }
+
   void MarkDirty(uint32_t physical, uint32_t bytes) {
     if (!bytes) return;
     const uint32_t p0 = (physical & 0x1FFFFFFFu) >> 12, p1 = std::min<uint64_t>((uint64_t(physical & 0x1FFFFFFFu) + bytes - 1) >> 12, 0x1FFFF);
+    const uint64_t e = write_epoch.fetch_add(1, std::memory_order_acq_rel) + 1;
     for (uint32_t p = p0; p <= p1; ++p) {
       dirty_pages[p >> 6].fetch_or(1ull << (p & 63), std::memory_order_relaxed);
       dirty_pages_idx[p >> 6].fetch_or(1ull << (p & 63), std::memory_order_relaxed);
+      StoreMax(page_epoch[p], e);
     }
+    for (uint32_t b = p0 >> 6; b <= (p1 >> 6); ++b) StoreMax(block_epoch[b], e);
   }
   // Checks and clears the bits of a range; true if a page was written.
   bool TakeDirty(uint32_t physical, uint32_t bytes) { return TakeDirtyIn(dirty_pages.get(), physical, bytes); }
@@ -2521,8 +2651,23 @@ struct GameRenderer::Impl {
     tex_inv_x = tex_inv_y = 1.0f;
     tex_depth = false;
     if (f.Type() != 2) return 0;
-    if (auto it = resolved.find(f.BaseAddress()); it != resolved.end() && f.BaseAddress()) {
-      Resolved& r = it->second;
+    auto rit = f.BaseAddress() ? resolved.find(f.BaseAddress()) : resolved.end();
+    if (rit != resolved.end() && ResolvedWrittenByCpu(rit->second)) {
+      // The CPU wrote into the target's memory after its last resolve: the guest data is the newer content.
+      Resolved& r = rit->second;
+      ++resolve_cpu_binds;
+      if (r.cpu_written_frame == ~0ull || r.cpu_written_frame + 1 < frame) {
+        ++resolve_cpu_events;
+        if (resolve_cpu_logged++ < 16)
+          Log("renderer: resolve target base %08X %ux%u written by the CPU after its resolve (frame %llu, now %llu): fetch "
+              "%ux%u format %u %s", r.base, r.gw, r.gh, (unsigned long long)r.frame, (unsigned long long)frame, f.Width(),
+              f.Height(), unsigned(f.Format()), opt.resolve_cpu_writes ? "drawn from guest memory" : "resolve target kept (FCP_RENDER_RESOLVE_CPU_WRITES=1: guest memory)");
+      }
+      r.cpu_written_frame = frame;
+      if (opt.resolve_cpu_writes) rit = resolved.end();
+    }
+    if (rit != resolved.end()) {
+      Resolved& r = rit->second;
       if (f.Width() != r.gw || f.Height() != r.gh) {
         // Diagnostics (issue #1): a fetch at the base of a resolve target with another size, i.e. probably a guest
         // texture that now lives where a resolve target once was.
@@ -2559,10 +2704,32 @@ struct GameRenderer::Impl {
     if (inserted) t.ranges = res::GetTextureRanges(f);
     const bool watch = Watching() && !t.volatile_data;
     if (watch) {
-      // Watched: only hash when the SDK has reported a write to a page. Clear the bits and re-watch first, then
-      // read: a write after that falls into the next check.
-      const bool dirty = TakeDirty(t.ranges.base, t.ranges.base_bytes) | TakeDirty(t.ranges.mip, t.ranges.mip_bytes);
+      // Watched: only hash when the SDK has reported a write to a page. Clear the bits (or take the epoch) and
+      // re-watch first, then read: a write after that falls into the next check.
+      const uint64_t epoch = EpochNow();
+      bool dirty = opt.watch_epoch ? WrittenSince(t.ranges.base, t.ranges.base_bytes, t.seen_epoch) ||
+                                         WrittenSince(t.ranges.mip, t.ranges.mip_bytes, t.seen_epoch)
+                                   : TakeDirty(t.ranges.base, t.ranges.base_bytes) | TakeDirty(t.ranges.mip, t.ranges.mip_bytes);
+      if (!inserted && t.watched && !dirty && uint64_t(t.ranges.base_bytes) + t.ranges.mip_bytes <= opt.watch_rehash &&
+          HashRanges(t.ranges) != t.hash) {
+        dirty = true;  // safety net: changed without a reported write
+        RehashCaught(0, t.ranges.base, t.ranges.base_bytes);
+      }
       if (!inserted && t.watched && !dirty) {
+        if (opt.watch_verify) {
+          ++verify_checks[0];
+          if (HashRanges(t.ranges) != t.hash) {
+            const bool late = opt.watch_epoch ? WrittenSince(t.ranges.base, t.ranges.base_bytes, t.seen_epoch) ||
+                                                    WrittenSince(t.ranges.mip, t.ranges.mip_bytes, t.seen_epoch)
+                                              : PeekDirtyIn(dirty_pages.get(), t.ranges.base, t.ranges.base_bytes) ||
+                                                    PeekDirtyIn(dirty_pages.get(), t.ranges.mip, t.ranges.mip_bytes);
+            char what[96];
+            std::snprintf(what, sizeof(what), "(mip %08X+%X, format %u %ux%u)", t.ranges.mip, t.ranges.mip_bytes,
+                          unsigned(f.Format()), f.Width(), f.Height());
+            if (late) ++verify_races[0];  // a write reported meanwhile: the next check takes it
+            else verify_seen_epoch = t.seen_epoch, VerifyMiss(0, t.ranges.base, t.ranges.base_bytes, what);
+          }
+        }
         t.checked_frame = frame;
         ++watch_skips;
         tex_check_us += uint64_t(MsSince(t0) * 1000);
@@ -2571,6 +2738,7 @@ struct GameRenderer::Impl {
       if (t.ranges.base_bytes) watch_fn(watch_ctx, t.ranges.base, t.ranges.base_bytes);
       if (t.ranges.mip_bytes) watch_fn(watch_ctx, t.ranges.mip, t.ranges.mip_bytes);
       t.watched = true;
+      t.seen_epoch = epoch;
       ++watch_checks;
     }
     const uint64_t h = HashRanges(t.ranges);
@@ -2662,14 +2830,29 @@ struct GameRenderer::Impl {
     const auto t0 = Clock::now();
     const bool watch = Watching() && opt.buffer_watch && !b.volatile_data;
     if (watch) {
-      const bool dirty = TakeDirty(physical, bytes);
+      const uint64_t epoch = EpochNow();
+      bool dirty = opt.watch_epoch ? WrittenSince(physical, bytes, b.seen_epoch) : TakeDirty(physical, bytes);
+      if (!inserted && b.watched && !dirty && bytes <= opt.watch_rehash && fcshaders::containerHash(data, bytes) != b.hash) {
+        dirty = true;  // safety net: changed without a reported write
+        RehashCaught(1, physical, bytes);
+      }
       if (!inserted && b.watched && !dirty) {
+        if (opt.watch_verify) {
+          ++verify_checks[1];
+          if (fcshaders::containerHash(data, bytes) != b.hash) {
+            const bool late = opt.watch_epoch ? WrittenSince(physical, bytes, b.seen_epoch)
+                                              : PeekDirtyIn(dirty_pages.get(), physical, bytes);
+            if (late) ++verify_races[1];
+            else verify_seen_epoch = b.seen_epoch, VerifyMiss(1, physical, bytes, "");
+          }
+        }
         b.checked_frame = frame;
         buffer_us += uint64_t(MsSince(t0) * 1000);
         return b.slot;
       }
       watch_fn(watch_ctx, physical, bytes);
       b.watched = true;
+      b.seen_epoch = epoch;
     }
     const uint64_t h = fcshaders::containerHash(data, bytes);
     b.checked_frame = frame;
@@ -2732,6 +2915,10 @@ struct GameRenderer::Impl {
     bool watched = false, volatile_data = false;
     uint64_t last_change_frame = ~0ull;
     uint64_t used_frame = 0;  // last frame that drew with it (eviction under allocation pressure)
+    uint64_t seen_epoch = 0;  // write epoch the indices were last read at (opt.watch_epoch)
+    uint8_t head[16] = {};    // first bytes at the last conversion (FCP_RENDER_WATCH_VERIFY log)
+    uint64_t converted_frame = 0;
+    uint64_t rehash_frame = ~0ull;  // frame of the last safety-net hash (opt.watch_rehash)
   };
   std::unordered_map<uint64_t, GuestIdx> index_buffers;
   uint64_t idx_hits = 0, idx_converts = 0, idx_volatile = 0, idx_bytes = 0;
@@ -2748,10 +2935,43 @@ struct GameRenderer::Impl {
     GuestIdx& e = it->second;
     e.used_frame = frame;
     if (e.volatile_data) return nullptr;
-    const bool dirty = TakeDirtyIn(dirty_pages_idx.get(), ib.physical, n * isize);
-    if (!inserted && e.watched && !dirty) return ++idx_hits, e.buf.Get();
+    const uint64_t epoch = EpochNow();
+    bool dirty = opt.watch_epoch ? WrittenSince(ib.physical, n * isize, e.seen_epoch)
+                                 : TakeDirtyIn(dirty_pages_idx.get(), ib.physical, n * isize);
+    if (!inserted && e.watched && !dirty && e.rehash_frame != frame && n * isize <= opt.watch_rehash) {
+      // Safety net, once per frame (the watch alone is checked at every draw): changed without a reported write?
+      e.rehash_frame = frame;
+      if (fcshaders::containerHash(data, size_t(n) * isize) != e.hash) {
+        dirty = true;
+        RehashCaught(2, ib.physical, n * isize);
+      }
+    }
+    if (!inserted && e.watched && !dirty) {
+      if (opt.watch_verify) {
+        ++verify_checks[2];
+        if (fcshaders::containerHash(data, size_t(n) * isize) != e.hash) {
+          const bool late = opt.watch_epoch ? WrittenSince(ib.physical, n * isize, e.seen_epoch)
+                                            : PeekDirtyIn(dirty_pages_idx.get(), ib.physical, n * isize);
+          if (late) ++verify_races[2];
+          else {
+            // First bytes then (last conversion) and now, and the IB object's address: what changed?
+            char what[200];
+            int at = std::snprintf(what, sizeof(what), "(%s; converted in frame %llu: ", ib.index32 ? "32 bit" : "16 bit",
+                                   (unsigned long long)e.converted_frame);
+            for (int i = 0; i < 16 && at < 150; ++i) at += std::snprintf(what + at, sizeof(what) - at, "%02X", e.head[i]);
+            at += std::snprintf(what + at, sizeof(what) - at, ", now ");
+            for (int i = 0; i < 16 && at < 190; ++i) at += std::snprintf(what + at, sizeof(what) - at, "%02X", data[i]);
+            std::snprintf(what + at, sizeof(what) - at, ")");
+            verify_seen_epoch = e.seen_epoch;
+            VerifyMiss(2, ib.physical, n * isize, what);
+          }
+        }
+      }
+      return ++idx_hits, e.buf.Get();
+    }
     watch_fn(watch_ctx, ib.physical, n * isize);
     e.watched = true;
+    e.seen_epoch = epoch;
     const uint64_t h = fcshaders::containerHash(data, size_t(n) * isize);
     if (!inserted && h == e.hash) return ++idx_hits, e.buf.Get();
     if (!inserted) {
@@ -2791,6 +3011,8 @@ struct GameRenderer::Impl {
     }
     c->writeBuffer(e.buf, idx_scratch.data(), size_t(n) * 4);
     e.hash = h;
+    std::memcpy(e.head, data, std::min<size_t>(16, size_t(n) * isize));
+    e.converted_frame = frame;
     ++idx_converts;
     idx_bytes += uint64_t(n) * 4;
     return e.buf.Get();
@@ -4295,6 +4517,11 @@ struct GameRenderer::Impl {
     r.height = hh;
     r.format = fmt;
     r.base = base;
+    {
+      res::TextureFetch pf = f;
+      pf.words[1] = (pf.words[1] & 0xFFFu) | (base & 0xFFFFF000u);
+      r.bytes = res::GetTextureRanges(pf).base_bytes;
+    }
     if (it != resolved.end()) {
       retired.emplace_back(frame, it->second.tex);
       r.slot = it->second.slot;
@@ -4359,6 +4586,7 @@ struct GameRenderer::Impl {
     Blit(c, fb, src->srv_slot, uv, nvrhi::Viewport(float(dx0), float(dx1), float(dy0), float(dy1), 0, 1));
     c->setTextureState(dst->tex, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
     dst->frame = frame;
+    WatchResolved(*dst);
     ++dst->interval_resolves;
     if (!readbacks.empty()) StageReadback(dst->base, *dst, c);
     ++frame_resolves;
@@ -4450,7 +4678,7 @@ struct GameRenderer::Impl {
   }
 
   // rgba: rows of `pitch` bytes, RGBA8. Writes the image into guest memory as the content of the destination texture.
-  bool WriteGuestImage(const Resolved& r, const res::TextureFetch& f, uint32_t base, const uint8_t* rgba, size_t pitch) {
+  bool WriteGuestImage(Resolved& r, const res::TextureFetch& f, uint32_t base, const uint8_t* rgba, size_t pitch) {
     // Fetch constant with the physical base (the encoding lays out the ranges relative to it).
     res::TextureFetch pf = f;
     pf.words[1] = (pf.words[1] & 0xFFFu) | (base & 0xFFFFF000u);
@@ -4475,6 +4703,7 @@ struct GameRenderer::Impl {
     if (!dst) return false;
     std::memcpy(dst, image.base.data(), image.base.size());
     MarkDirty(rg.base, uint32_t(image.base.size()));
+    if (r.watched) r.seen_epoch = EpochNow();  // our own write is not a CPU write of the game
     return true;
   }
 
@@ -4602,6 +4831,29 @@ struct GameRenderer::Impl {
       front_h = h;
       front_gw = f->gw;
       front_gh = f->gh;
+      if (ResolvedWrittenByCpu(*f)) {
+        // The CPU wrote the front buffer's memory after its last resolve (GitHub issue #4: a loading screen copying
+        // one front buffer into the other): on the console that memory is what the display shows.
+        ++front_cpu_swaps;
+        if (front_cpu_logged++ < 16)
+          Log("renderer: front buffer base %08X %ux%u written by the CPU after its resolve (frame %llu, now %llu), %s",
+              f->base, f->gw, f->gh, (unsigned long long)f->frame, (unsigned long long)frame,
+              opt.resolve_cpu_writes ? "shown from guest memory" : "resolve target shown (FCP_RENDER_RESOLVE_CPU_WRITES=1: guest memory)");
+        if (opt.resolve_cpu_writes) {
+          const uint8_t* obj = memory.Virtual(r.front_buffer);
+          const res::TextureFetch fetch = res::TextureFetch::FromGuest(obj + layout.texture.get("fetch", 16));
+          GuestTex* gt = nullptr;
+          const uint32_t slot = TextureOf(fetch.words, CL(), gt);
+          if (gt && gt->tex && slot && !(slot & 0x80000000u) && gt->table == Table::kTex2D) {
+            const nvrhi::TextureDesc& d = gt->tex->getDesc();
+            front = gt->tex;
+            front_slot = slot;
+            front_w = d.width;
+            front_h = d.height;
+            ++front_cpu_shown;
+          }
+        }
+      }
     }
     if (opt.probe_x >= 0 && Tracing()) ProbeReport();
     if (k_min_dist < 1e30f) {
@@ -4726,9 +4978,31 @@ struct GameRenderer::Impl {
             (unsigned long long)(async_replayed_bytes >> 10), (unsigned long long)async_materialize_early, async_wait_us / 1000.0,
             async_create_us / 1000.0, pool.threads(), (unsigned long long)pool.jobs_helped(), (unsigned long long)prewarm_done,
             (unsigned long long)prewarm_jobs, pending.size(), (unsigned long long)async_late);
-      if (Watching())
+      if (Watching()) {
         Log("renderer: write watch: %llu checks without writes skipped, %llu hashed, %llu textures changing constantly (hash per frame)",
             (unsigned long long)watch_skips, (unsigned long long)watch_checks, (unsigned long long)watch_volatile);
+        if (opt.watch_rehash)
+          Log("renderer: write watch safety net (up to %u bytes): changes without a reported write: textures %llu, vertex "
+              "buffers %llu, index buffers %llu (different entries %llu/%llu/%llu)",
+              opt.watch_rehash, (unsigned long long)rehash_caught[0], (unsigned long long)rehash_caught[1],
+              (unsigned long long)rehash_caught[2], (unsigned long long)rehash_entries[0],
+              (unsigned long long)rehash_entries[1], (unsigned long long)rehash_entries[2]);
+        if (opt.watch_verify)
+          Log("renderer: write watch verify (%s): skipped and hashed anyway: textures %llu, vertex buffers %llu, index buffers "
+              "%llu; changed without a reported write: textures %llu, vertex buffers %llu, index buffers %llu (different "
+              "entries %llu/%llu/%llu; write reported during the check: %llu/%llu/%llu)",
+              opt.watch_epoch ? "epoch" : "shared bits", (unsigned long long)verify_checks[0], (unsigned long long)verify_checks[1],
+              (unsigned long long)verify_checks[2], (unsigned long long)verify_missed[0], (unsigned long long)verify_missed[1],
+              (unsigned long long)verify_missed[2], (unsigned long long)verify_entries[0], (unsigned long long)verify_entries[1],
+              (unsigned long long)verify_entries[2], (unsigned long long)verify_races[0], (unsigned long long)verify_races[1],
+              (unsigned long long)verify_races[2]);
+        if (resolve_cpu_events || front_cpu_swaps)
+          Log("renderer: resolve targets written by the CPU after their resolve: %llu times, %llu binds; front buffers %llu "
+              "swaps (%llu shown from guest memory) %s",
+              (unsigned long long)resolve_cpu_events, (unsigned long long)resolve_cpu_binds,
+              (unsigned long long)front_cpu_swaps, (unsigned long long)front_cpu_shown,
+              opt.resolve_cpu_writes ? "" : "(resolve targets kept; FCP_RENDER_RESOLVE_CPU_WRITES=1: guest memory)");
+      }
       Log("renderer: constant versions per frame at most VS %u PS %u Draw %u (ring %u); raw data unchanged %llu, converted %llu "
           "(%.0f bytes each)",
           cb_max[0], cb_max[1], cb_max[2], tl.constant_versions(), (unsigned long long)fast_const_skips,
@@ -4811,7 +5085,10 @@ struct GameRenderer::Impl {
     if (opt.dump_pattern.empty() || !front) return;
     const bool listed = std::find(dump_list.begin(), dump_list.end(), frame) != dump_list.end();
     const bool every = opt.dump_every && frame % opt.dump_every == 0;
-    if (!listed && !every) return;
+    const bool missed = verify_dump_now;  // FCP_RENDER_WATCH_VERIFY: a frame drawn with stale data
+    verify_dump_now = false;
+    if (!listed && !every && !missed) return;
+    if (missed) Log("renderer: dump frame %llu: drawn with content the write watch missed", (unsigned long long)frame);
     std::vector<uint8_t> rgba;
     std::string error;
     std::string path = DumpPath(opt.dump_pattern, frame);
@@ -5169,7 +5446,9 @@ void GameRenderer::SetWriteWatch(void (*watch)(void*, uint32_t, uint32_t), void*
   std::lock_guard lock(impl_->mutex);
   impl_->watch_ctx = context;
   impl_->watch_fn = watch;
-  impl_->Log("renderer: SDK write watch %s", watch ? (impl_->opt.texture_watch ? "active for guest textures" : "present, off (FCP_RENDER_TEXTURE_WATCH=0)") : "off");
+  impl_->Log("renderer: SDK write watch %s%s%s", watch ? (impl_->opt.texture_watch ? "active for guest textures" : "present, off (FCP_RENDER_TEXTURE_WATCH=0)") : "off",
+             watch && impl_->opt.texture_watch ? (impl_->opt.watch_epoch ? ", write epochs per entry" : ", shared dirty bits (FCP_RENDER_WATCH_EPOCH=0)") : "",
+             watch && impl_->opt.watch_verify ? ", verifying skipped checks (FCP_RENDER_WATCH_VERIFY)" : "");
 }
 
 void GameRenderer::OnGuestWrite(uint32_t physical, uint32_t bytes) {

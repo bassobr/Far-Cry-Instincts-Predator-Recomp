@@ -4,6 +4,30 @@ All notable changes of Far Cry Instincts Predator Recomp. Versions follow `VERSI
 Statements about behaviour are measurements from test runs on a Windows PC unless marked otherwise; see the
 [README](README.md) and [docs/en](docs/en) for the details.
 
+## 0.9.1 (2026-11-16)
+
+### Fixed
+
+- **Cheat codes crashed the game** (issue #6): "GiveMeItAll" and "GiveMeTheMaps" save the profile, and the profile
+  save handed the runtime a setting whose type byte the game never fills in; with a stale 0 there the runtime read
+  the vibration value as a data block and crashed ("predator crashed"). Every profile setting now takes its type
+  from its ID, as title settings already did. Both codes now unlock what the game's code unlocks
+  for them (the Evolution campaign; the maps of the unlocked campaigns), and the unlock is kept after a restart; all
+  six codes were entered from the main menu and from the pause menu without a crash. `FCP_PROFILE_TYPE_FROM_ID=0`
+  restores the old check.
+- **The text input window can be used with a controller:** the window that opens for a cheat code or a save name
+  has on-screen keys (D-pad/left stick, A types, X deletes, Y space, LB shift, Start accepts, B cancels; also by mouse
+  or touch), keeps the keyboard focus, is centred and scales with the window; Escape cancels. Before, it was a small
+  text field that only a keyboard could fill. `FCP_KEYBOARD_UI=0` restores it.
+- **Stale buffers and textures in the renderer's cache** (issue #4, investigation; the reported picture was not
+  reproduced): the renderer reuses converted guest textures, vertex and index buffers until the game writes to them,
+  and learns about writes from page protection. Measured in Shanty Town: a few small per-frame index and vertex
+  buffers (and now and then a small texture) change without any write being reported, and were drawn with their old
+  content. Cached entries up to 128 KB are now also compared by content once per frame (`FCP_RENDER_WATCH_REHASH=0`
+  turns this off), and every entry now notices each write to its pages even when another entry shares them
+  (`FCP_RENDER_WATCH_EPOCH=0`: the old bookkeeping). On our PC neither change makes a visible difference; new
+  diagnostics: `FCP_RENDER_WATCH_VERIFY=1` and a log line when the CPU writes into a render target's memory.
+
 ## 0.9.0 (2026-11-16)
 
 ### Added

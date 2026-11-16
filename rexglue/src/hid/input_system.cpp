@@ -108,7 +108,7 @@ struct InputSystem::State {
   void RefreshDevicesLocked(std::vector<ConnectionEvent>& events);
   const detail::Device* FindDeviceLocked(const detail::DeviceKey& key) const;
   bool ChooseDeviceLocked(u32 user, detail::DeviceKey& out) const;
-  Result<rex::hid::PadState> ReadRawLocked(u32 user);
+  Result<rex::hid::PadState> ReadRawLocked(u32 user, bool pads_only = false);
   Result<InputSystem::PadReading> ReadUserLocked(u32 user);
   void UpdateConnectionsLocked(std::vector<ConnectionEvent>& events);
   void Fire(const std::vector<ConnectionEvent>& events) const;
@@ -208,13 +208,17 @@ bool InputSystem::State::ChooseDeviceLocked(u32 user, detail::DeviceKey& out) co
   return true;
 }
 
-Result<rex::hid::PadState> InputSystem::State::ReadRawLocked(u32 user) {
+Result<rex::hid::PadState> InputSystem::State::ReadRawLocked(u32 user, bool pads_only) {
   if (user >= detail::kMaxUsers || users[user].empty()) {
     return std::unexpected(NotFound("no pad is assigned to the user"));
   }
   rex::hid::PadState merged;
   bool any = false;
   for (const detail::DeviceKey& key : users[user]) {
+    // FCP (UPSTREAM 381): the UI reading leaves out the keyboard as a pad (the keys reach the UI themselves)
+    if (pads_only && (key.source == keyboard_mouse_source || key.source == idle_source)) {
+      continue;
+    }
     auto state = sources[key.source]->GetDeviceState(key.id);
     if (!state) {
       continue;
@@ -386,6 +390,27 @@ Result<InputSystem::PadReading> InputSystem::GetState(u32 user) {
     if (state.started) {
       state.RefreshDevicesLocked(events);
       result = state.ReadUserLocked(user);
+    }
+  }
+  state.Fire(events);
+  return result;
+}
+
+// FCP (UPSTREAM 381): the raw merged reading, without the UI block, the consumed buttons and the packet count.
+Result<InputSystem::PadReading> InputSystem::GetUIState(u32 user) {
+  State& state = *state_;
+  std::vector<ConnectionEvent> events;
+  Result<PadReading> result = std::unexpected(NotFound("input is not started"));
+  {
+    std::lock_guard lock(state.mutex);
+    if (state.started) {
+      state.RefreshDevicesLocked(events);
+      auto raw = state.ReadRawLocked(user, /*pads_only=*/true);
+      if (raw) {
+        result = PadReading{.packet = 0, .state = *raw};
+      } else {
+        result = std::unexpected(raw.error());
+      }
     }
   }
   state.Fire(events);

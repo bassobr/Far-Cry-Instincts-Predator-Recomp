@@ -74,6 +74,16 @@ REX_DECLARE_INTERFACE(IInputSystem, 1)
   [[nodiscard]] virtual Result<PadReading> GetState(u32 user) = 0;
 
   /**
+   * FCP (UPSTREAM 381): reads a user's pad for the application's own UI, also while a UI block hides the pads
+   * from the title (a title's keyboard prompt). After deadzone and guide masking; leaves the title's packet number
+   * and consumed buttons alone (packet is 0).
+   *
+   * @param user Slot 0 to 3.
+   * @return The reading, or kNotFound when no pad is assigned to the user.
+   */
+  [[nodiscard]] virtual Result<PadReading> GetUIState(u32 user) { return GetState(user); }
+
+  /**
    * Returns the capabilities of a user's pad, with the guide bit cleared when guide_button is off,
    * or kNotFound.
    *
